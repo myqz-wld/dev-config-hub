@@ -22,8 +22,9 @@ fn get_tool_version(command: String) -> String {
     if parts.is_empty() {
         return "unknown".to_string();
     }
-    let output = Command::new(parts[0])
-        .args(&parts[1..])
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let output = Command::new(&shell)
+        .args(&["-lc", &command])
         .output();
     match output {
         Ok(o) => {
