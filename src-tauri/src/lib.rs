@@ -22,13 +22,36 @@ fn get_tool_version(command: String) -> String {
     if parts.is_empty() {
         return "unknown".to_string();
     }
-    let wrapped = format!(
-        "source $HOME/.zprofile 2>/dev/null; source $HOME/.zshrc 2>/dev/null; {}",
-        command
-    );
-    let output = Command::new("/bin/zsh")
-        .args(&["-c", &wrapped])
-        .output();
+    let shell = std::env::var("SHELL")
+        .or_else(|_| {
+            // macOS GUI apps may not have SHELL; read from user's directory services
+            let out = Command::new("dscl").args([".", "-read", &format!("/Users/{}", std::env::var("USER").unwrap_or_default()), "UserShell"]).output().ok();
+            out.and_then(|o| {
+                let s = String::from_utf8_lossy(&o.stdout).to_string();
+                s.split_whitespace().last().map(|v| v.to_string())
+            }).ok_or(std::env::VarError::NotPresent)
+        })
+        .unwrap_or_else(|_| "/bin/zsh".to_string());
+
+    let shell_name = std::path::Path::new(&shell)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("zsh");
+
+    let wrapped = match shell_name {
+        "zsh" => format!(
+            "source $HOME/.zprofile 2>/dev/null; source $HOME/.zshrc 2>/dev/null; {}", command
+        ),
+        "bash" => format!(
+            "source $HOME/.bash_profile 2>/dev/null; source $HOME/.bashrc 2>/dev/null; {}", command
+        ),
+        "fish" => format!(
+            "source $HOME/.config/fish/config.fish 2>/dev/null; {}", command
+        ),
+        _ => command.clone(),
+    };
+
+    let output = Command::new(&shell).args(&["-c", &wrapped]).output();
     match output {
         Ok(o) => {
             let stdout = String::from_utf8_lossy(&o.stdout);
