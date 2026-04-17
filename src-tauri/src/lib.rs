@@ -22,9 +22,12 @@ fn get_tool_version(command: String) -> String {
     if parts.is_empty() {
         return "unknown".to_string();
     }
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let output = Command::new(&shell)
-        .args(&["-lc", &command])
+    let wrapped = format!(
+        "source $HOME/.zprofile 2>/dev/null; source $HOME/.zshrc 2>/dev/null; {}",
+        command
+    );
+    let output = Command::new("/bin/zsh")
+        .args(&["-c", &wrapped])
         .output();
     match output {
         Ok(o) => {
