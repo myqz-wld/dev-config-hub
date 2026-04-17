@@ -7,15 +7,27 @@
     "dch": "src/cli.ts"
   },
   "scripts": {
-    "start": "bun src/cli.ts"
+    "dev:fe": "bun src/client/dev-server.ts",
+    "build:fe": "bun build src/client/index.html --outdir dist",
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "cli": "bun src/cli.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@tauri-apps/cli": "^2.10.1",
+    "@types/bun": "latest",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-shell": "^2.3.5",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "smol-toml": "^1.6.1"
   }
 }

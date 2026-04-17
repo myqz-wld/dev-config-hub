@@ -1,31 +1,24 @@
-import type { ToolConfig, ConfigScope, ConfigCategory, ConfigEntry } from "../types.ts";
-import { HOME, readFileIfExists, getToolVersion, maskObject } from "../utils.ts";
+import type { ToolConfig, ConfigScope, ConfigEntry } from "../types.ts";
+import { HOME, readFileIfExists, getToolVersion } from "../utils.ts";
 import { CLAUDE_CODE_DESCRIPTIONS } from "../descriptions.ts";
 import { join } from "path";
 
 function jsonToEntries(parsed: Record<string, unknown>, descMap: Record<string, string>): ConfigEntry[] {
-  return Object.entries(parsed).map(([key, value]) => ({
-    key, value, type: typeof value, description: descMap[key],
-  }));
+  return Object.entries(parsed).map(([key, value]) => ({ key, value, type: typeof value, description: descMap[key] }));
 }
 
 async function readJsonScope(
-  filePath: string, level: ConfigScope["level"], label: string,
-  descMap: Record<string, string>,
+  filePath: string, level: ConfigScope["level"], label: string, descMap: Record<string, string>,
 ): Promise<ConfigScope> {
-  const { exists, content, rawContent } = await readFileIfExists(filePath);
+  const { exists, content } = await readFileIfExists(filePath);
   if (!exists) return { level, label, filePath, exists: false, format: "json", content: "", parsed: {}, categories: [] };
-
   let parsed: Record<string, unknown> = {};
-  try { parsed = JSON.parse(rawContent); } catch {
+  try { parsed = JSON.parse(content); } catch {
     return { level, label, filePath, exists: true, format: "json", content, parsed: {}, categories: [] };
   }
-  const masked = maskObject(parsed);
-  const items = jsonToEntries(masked, descMap);
-  return {
-    level, label, filePath, exists: true, format: "json", content, parsed: masked,
-    categories: items.length > 0 ? [{ name: "配置项", description: "", items }] : [],
-  };
+  const items = jsonToEntries(parsed, descMap);
+  return { level, label, filePath, exists: true, format: "json", content, parsed,
+    categories: items.length ? [{ name: "配置项", description: "", items }] : [] };
 }
 
 export async function readClaudeCodeConfig(): Promise<ToolConfig> {
@@ -39,5 +32,5 @@ export async function readClaudeCodeConfig(): Promise<ToolConfig> {
     })(),
     readJsonScope(join(HOME, ".claude", ".mcp.json"), "user", "~/.claude/.mcp.json", {}),
   ]);
-  return { name: "Claude Code", version, icon: "claude", description: "Anthropic AI 编码助手 (schema: claude-code-settings.json)", scopes };
+  return { name: "Claude Code", version, icon: "claude", description: "Anthropic AI 编码助手", scopes };
 }

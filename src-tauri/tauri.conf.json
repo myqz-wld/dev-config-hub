@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegram/nicegram-web/refs/heads/main/nicegram.json",
+  "productName": "Dev Config Hub",
+  "identifier": "com.dch.app",
+  "version": "0.1.0",
+  "build": {
+    "beforeDevCommand": "bun run dev:fe",
+    "devUrl": "http://localhost:3456",
+    "beforeBuildCommand": "bun run build:fe",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Dev Config Hub",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 800,
+        "minHeight": 500
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}

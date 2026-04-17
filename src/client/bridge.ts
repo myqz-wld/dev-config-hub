@@ -1,0 +1,86 @@
+import { invoke } from "@tauri-apps/api/core";
+import { parse as parseToml } from "smol-toml";
+import type { ToolConfig, ConfigScope, ConfigEntry } from "../types.ts";
+import { CLAUDE_CODE_DESCRIPTIONS, CODEX_DESCRIPTIONS, OPENCODE_DESCRIPTIONS } from "../descriptions.ts";
+
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  return invoke<T>(cmd, args);
+}
+
+function toEntries(parsed: Record<string, unknown>, descMap: Record<string, string>): ConfigEntry[] {
+  return Object.entries(parsed).map(([key, value]) => ({ key, value, type: typeof value, description: descMap[key] }));
+}
+
+async function readFile(path: string): Promise<{ exists: boolean; content: string }> {
+  const exists = await call<boolean>("file_exists", { path });
+  if (!exists) return { exists: false, content: "" };
+  const content = await call<string>("read_file", { path });
+  return { exists: true, content };
+}
+
+async function version(cmd: string): Promise<string> {
+  return call<string>("get_tool_version", { command: cmd });
+}
+
+async function readJsonScope(path: string, level: ConfigScope["level"], label: string, descMap: Record<string, string>): Promise<ConfigScope> {
+  const { exists, content } = await readFile(path);
+  if (!exists) return { level, label, filePath: path, exists: false, format: "json", content: "", parsed: {}, categories: [] };
+  let parsed: Record<string, unknown> = {};
+  try { parsed = JSON.parse(content); } catch {
+    return { level, label, filePath: path, exists: true, format: "json", content, parsed: {}, categories: [] };
+  }
+  const items = toEntries(parsed, descMap);
+  return { level, label, filePath: path, exists: true, format: "json", content, parsed,
+    categories: items.length ? [{ name: "配置项", description: "", items }] : [] };
+}
+
+export async function loadAllConfigs(): Promise<ToolConfig[]> {
+  const home = await call<string>("get_home_dir");
+  const [shellV, claudeV, codexV, ocV] = await Promise.all([
+    version("zsh --version"), version("claude --version"), version("codex --version"), version("opencode --version"),
+  ]);
+
+  const shellScopes: ConfigScope[] = [];
+  for (const [level, label, file] of [["global", "~/.zprofile", ".zprofile"], ["user", "~/.zshrc", ".zshrc"]] as const) {
+    const { exists, content } = await readFile(`${home}/${file}`);
+    shellScopes.push({ level, label, filePath: `${home}/${file}`, exists, format: "dotfile", content, parsed: {}, categories: [] });
+  }
+
+  const claudeScopes = await Promise.all([
+    readJsonScope(`${home}/.claude/settings.json`, "user", "~/.claude/settings.json", CLAUDE_CODE_DESCRIPTIONS),
+    readJsonScope(`${home}/.claude/settings.local.json`, "local", "~/.claude/settings.local.json", CLAUDE_CODE_DESCRIPTIONS),
+    (async () => {
+      const { exists, content } = await readFile(`${home}/.claude/CLAUDE.md`);
+      return { level: "user" as const, label: "~/.claude/CLAUDE.md", filePath: `${home}/.claude/CLAUDE.md`, exists, format: "markdown" as const, content, parsed: {}, categories: [] };
+    })(),
+    readJsonScope(`${home}/.claude/.mcp.json`, "user", "~/.claude/.mcp.json", {}),
+  ]);
+
+  const codexPath = `${home}/.codex/config.toml`;
+  const codexFile = await readFile(codexPath);
+  let codexScope: ConfigScope;
+  if (codexFile.exists) {
+    try {
+      const parsed = parseToml(codexFile.content) as Record<string, unknown>;
+      codexScope = { level: "global", label: "~/.codex/config.toml", filePath: codexPath, exists: true, format: "toml",
+        content: codexFile.content, parsed, categories: [{ name: "配置项", description: "", items: toEntries(parsed, CODEX_DESCRIPTIONS) }] };
+    } catch {
+      codexScope = { level: "global", label: "~/.codex/config.toml", filePath: codexPath, exists: true, format: "toml", content: codexFile.content, parsed: {}, categories: [] };
+    }
+  } else {
+    codexScope = { level: "global", label: "~/.codex/config.toml", filePath: codexPath, exists: false, format: "toml", content: "", parsed: {}, categories: [] };
+  }
+
+  const ocScope = await readJsonScope(`${home}/.config/opencode/opencode.json`, "global", "~/.config/opencode/opencode.json", OPENCODE_DESCRIPTIONS);
+
+  return [
+    { name: "Shell (Zsh)", version: shellV, icon: "terminal", description: "Zsh shell 环境配置", scopes: shellScopes },
+    { name: "Claude Code", version: claudeV, icon: "claude", description: "Anthropic AI 编码助手", scopes: claudeScopes },
+    { name: "Codex CLI", version: codexV, icon: "codex", description: "OpenAI AI 编码助手", scopes: [codexScope] },
+    { name: "OpenCode", version: ocV, icon: "opencode", description: "开源 AI 编码助手", scopes: [ocScope] },
+  ];
+}
+
+export async function saveFile(filePath: string, content: string): Promise<void> {
+  await call("save_file", { path: filePath, content });
+}
