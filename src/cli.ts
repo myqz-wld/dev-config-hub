@@ -134,6 +134,7 @@ function renderOverview(tools: ToolConfig[]): string {
 
   lines.push(`${c.gray}用法: dch <tool> [--edit <file>]${c.reset}`);
   lines.push(`${c.gray}工具: shell | claude | codex | opencode${c.reset}`);
+  lines.push(`${c.gray}窗口: dch gui${c.reset}`);
   lines.push(`${c.gray}编辑: dch edit ~/.claude/settings.json${c.reset}`);
 
   return lines.join("\n");
@@ -158,6 +159,15 @@ async function main() {
 
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
     console.log(renderOverview(tools));
+    return;
+  }
+
+  if (args[0] === "gui" || args[0] === "ui") {
+    const proc = Bun.spawn(["bunx", "tauri", "dev"], {
+      cwd: import.meta.dir + "/..",
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    await proc.exited;
     return;
   }
 

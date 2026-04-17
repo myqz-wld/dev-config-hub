@@ -51,6 +51,7 @@ bun run build
 bun run cli           # 总览
 bun run cli claude    # 查看 Claude Code 配置
 bun run cli edit ~/.claude/settings.json  # 用 $EDITOR 编辑
+bun run cli gui       # 启动桌面窗口
 ```
 
 首次 `bun run dev` 需要编译 Rust 依赖，大约 2-3 分钟。后续启动秒开。
@@ -68,6 +69,7 @@ dch claude            # Claude Code 配置
 dch codex             # Codex CLI 配置
 dch opencode          # OpenCode 配置
 dch all               # 全部展示
+dch gui               # 启动桌面窗口 (等同于 bun run dev)
 dch edit <file>       # 用 $EDITOR 编辑指定配置文件
 ```
 
