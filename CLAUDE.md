@@ -4,6 +4,15 @@ globs: "*.ts, *.tsx, *.html, *.css, *.js, *.jsx, package.json"
 alwaysApply: false
 ---
 
+## Build & Install
+
+构建 Tauri 桌面应用并安装到 /Applications：
+
+```bash
+bunx tauri build --bundles app
+cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
+```
+
 Default to using Bun instead of Node.js.
 
 - Use `bun <file>` instead of `node <file>` or `ts-node <file>`
