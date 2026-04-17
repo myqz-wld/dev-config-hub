@@ -1,0 +1,21 @@
+{
+  "name": "dev-config-hub",
+  "module": "src/cli.ts",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "dch": "src/cli.ts"
+  },
+  "scripts": {
+    "start": "bun src/cli.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "smol-toml": "^1.6.1"
+  }
+}
