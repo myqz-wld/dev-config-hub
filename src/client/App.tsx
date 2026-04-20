@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import type { ToolConfig } from "../types.ts";
 import { loadAllConfigs, saveFile } from "./bridge.ts";
 import { ConfigPanel } from "./components/ConfigPanel.tsx";
@@ -11,12 +11,15 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const mainRef = useRef<HTMLElement>(null);
 
   const load = useCallback(() => {
     loadAllConfigs().then(setTools).catch((e) => setError(String(e))).finally(() => setLoading(false));
   }, []);
 
   useEffect(load, [load]);
+
+  useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [active]);
 
   const flash = (msg: string, ok: boolean) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 2500); };
 
@@ -48,7 +51,7 @@ export function App() {
           ))}
         </div>
       </nav>
-      <main className="main">
+      <main className="main" ref={mainRef}>
         {tools[active] && <ConfigPanel tool={tools[active]!} onSave={onSave} />}
       </main>
       {toast && <div className={`toast ${toast.ok ? "ok" : "err"}`}>{toast.msg}</div>}
