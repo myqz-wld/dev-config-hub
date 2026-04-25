@@ -86,6 +86,7 @@ dch profile edit <id>                        # $EDITOR 打开 ~/.dch/profiles.js
 dch profile remove <id> [--yes]              # 删除 profile（不删 configDir）
 dch profile use <id>                         # 原子切换 ~/.claude / ~/.codex symlink + 跑 pre/post hook
 dch profile current [tool]                   # 查询当前 active
+dch profile env <claude|codex>               # 输出 active profile.env 为 shell-eval 格式（供 zshrc wrapper 注入到 claude / codex 进程）
 dch profile init <claude|codex>              # 把 ~/.claude / ~/.codex 转成 symlink，建立 default profile
 dch profile hook test <id> <pre|post>        # 单独运行 hook 测试
 dch profile config hookTimeoutMs <ms>        # 设置 hook 超时
@@ -120,7 +121,7 @@ dch profile config hookTimeoutMs <ms>        # 设置 hook 超时
 }
 ```
 
-> `profile.env` 仅在 `preSwitch` / `postSwitch` 脚本里可见（用于 hook 内的 curl / shell 命令拿代理等），不会注入给 claude / codex 进程本身——后者的 env / token 应放在 `<configDir>/settings.json` 的 `env` 块里。
+> `profile.env` 默认只在 `preSwitch` / `postSwitch` 脚本里可见（用于 hook 内的 curl 走代理等）。**如果想让 env 也注入到 claude / codex 进程本身**（如 OAuth 登录走 HTTP 代理），用 `dch profile env <tool>` + zshrc shell wrapper（见下「shell wrapper」节）。或者把 env 写到 `<configDir>/settings.json` 的 `env` 块（仅 claude code 支持，codex 没有这个机制）。
 
 ### Hook 注入的环境变量
 
@@ -146,6 +147,30 @@ DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 4. 跑 `postSwitch` hook
 
 第一次切换前必须跑一次 `dch profile init <tool>`：会把现有真实目录 `~/.claude` / `~/.codex` mv 到 `~/.<tool>-default`，再 ln -s 回去并注册成 default profile。
+
+### Shell wrapper（让 profile.env 注入到 claude / codex 进程）
+
+dch 切 profile 不会启动 claude / codex 进程，所以 `profile.env` 默认到不了 OAuth 登录 / API 调用的进程里。在 `~/.zshrc` 加两个 wrapper，每次跑 `claude` / `codex` 时从 active profile.env 取 env 注入：
+
+```bash
+# ~/.zshrc
+claude() (
+  eval "$(command dch profile env claude 2>/dev/null)"
+  exec command claude "$@"
+)
+codex() (
+  eval "$(command dch profile env codex 2>/dev/null)"
+  exec command codex "$@"
+)
+```
+
+要点：
+- 子 shell `(...)` 包裹：env 只对 claude / codex 进程生效，**不污染父 shell**
+- `exec command claude` 替换子 shell 进程，少一层 fork，且绕过 wrapper 自身防止递归
+- `dch profile env <tool>` active 为空 / env 空 → 静默无输出，wrapper 自然 fall-through 到原命令
+- profile.env key 走严格 `^[A-Za-z_][A-Za-z0-9_]*$` 校验 + value 单引号包裹，无 shell 注入
+
+切换 profile 后**新跑**的 claude / codex 自动用新 profile 的 env，无需 reload shell。
 
 ## 项目结构
 

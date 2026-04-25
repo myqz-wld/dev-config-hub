@@ -220,6 +220,32 @@ async function cmdCurrent(args: string[]) {
   }
 }
 
+const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+async function cmdEnv(args: string[]) {
+  const [toolRaw] = args;
+  if (!toolRaw || !TOOLS.includes(toolRaw as ToolKind)) {
+    err("用法: dch profile env <claude|codex>");
+  }
+  const tool = toolRaw as ToolKind;
+  const store = await listProfiles();
+  const activeId = store.active[tool] ?? null;
+  if (!activeId) {
+    if (JSON_MODE) return jsonOut({ tool, active: null, env: {} });
+    return; // wrapper 静默 fall-through
+  }
+  const profile = store.profiles.find((p) => p.id === activeId);
+  const env = profile?.env ?? {};
+  if (JSON_MODE) return jsonOut({ tool, active: activeId, env });
+  for (const [k, v] of Object.entries(env)) {
+    if (!ENV_KEY_RE.test(k)) continue; // 拒绝非法 key，防止 shell 注入
+    process.stdout.write(`export ${k}=${shellQuote(String(v))}\n`);
+  }
+}
+
 async function cmdInit(args: string[]) {
   const [toolRaw] = args;
   if (!toolRaw) err("用法: dch profile init <claude|codex>");
@@ -271,6 +297,7 @@ ${c.bold}子命令:${c.reset}
   ${c.cyan}remove${c.reset}  <id>                  删除 profile (不删 configDir) [--yes]
   ${c.cyan}use${c.reset}     <id>                  原子切换 ~/.claude / ~/.codex symlink + 跑 pre/post hook
   ${c.cyan}current${c.reset} [tool]                查询当前 active
+  ${c.cyan}env${c.reset}     <claude|codex>        输出当前 active profile.env 为 shell-eval 格式（供 shell wrapper 注入到 claude / codex 进程）
   ${c.cyan}init${c.reset}    <claude|codex>        把 ~/.claude / ~/.codex 转成 symlink，建立 default profile
   ${c.cyan}hook test${c.reset} <id> <pre|post>     单独运行 hook 测试
   ${c.cyan}config${c.reset}  hookTimeoutMs <ms>    设置 hook 超时
@@ -294,6 +321,7 @@ export async function runProfileCommand(args: string[]): Promise<void> {
   if (sub === "remove" || sub === "rm") return cmdRemove(rest);
   if (sub === "use") return cmdUse(rest);
   if (sub === "current") return cmdCurrent(rest);
+  if (sub === "env") return cmdEnv(rest);
   if (sub === "init") return cmdInit(rest);
   if (sub === "hook") return cmdHook(rest);
   if (sub === "config") return cmdConfig(rest);
