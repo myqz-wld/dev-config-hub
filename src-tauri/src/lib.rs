@@ -110,15 +110,23 @@ fn run_dch_command(args: Vec<String>) -> Result<DchCommandResult, String> {
     let shell_name = std::path::Path::new(&shell)
         .file_name().and_then(|n| n.to_str()).unwrap_or("zsh");
 
-    // 登录式 shell（注入 brew / nvm / path_helper），与终端一致
-    let shell_args: &[&str] = match shell_name {
-        "zsh" | "bash" => &["-l", "-c"],
-        _ => &["-c"],
+    // macOS GUI app 启动的 shell PATH 不含用户 zshrc 注入的内容（如 ~/.bun/bin）。
+    // 显式 source zprofile + rc，与 get_tool_version 行为一致。
+    let wrapped = match shell_name {
+        "zsh" => format!(
+            "source $HOME/.zprofile 2>/dev/null; source $HOME/.zshrc 2>/dev/null; {}", cmd
+        ),
+        "bash" => format!(
+            "source $HOME/.bash_profile 2>/dev/null; source $HOME/.bashrc 2>/dev/null; {}", cmd
+        ),
+        "fish" => format!(
+            "source $HOME/.config/fish/config.fish 2>/dev/null; {}", cmd
+        ),
+        _ => cmd.clone(),
     };
 
     let output = Command::new(&shell)
-        .args(shell_args)
-        .arg(&cmd)
+        .args(&["-c", &wrapped])
         .output()
         .map_err(|e| format!("spawn failed: {}", e))?;
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegram/nicegram-web/refs/heads/main/nicegram.json",
   "productName": "Dev Config Hub",
-  "identifier": "com.dch.app",
+  "identifier": "com.dch.devconfighub",
   "version": "0.1.0",
   "build": {
     "beforeDevCommand": "bun run dev:fe",
