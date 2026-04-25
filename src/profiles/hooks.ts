@@ -1,11 +1,10 @@
-import type { Profile, HookResult, SwitchMode } from "./types.ts";
+import type { Profile, HookResult } from "./types.ts";
 import { expandHome } from "./store.ts";
 
 export interface HookContext {
   profile: Profile;
   fromId?: string | null;
   toId: string;
-  mode: SwitchMode;
 }
 
 function buildEnv(ctx: HookContext): Record<string, string> {
@@ -20,7 +19,6 @@ function buildEnv(ctx: HookContext): Record<string, string> {
   if (ctx.fromId !== undefined && ctx.fromId !== null) {
     out.DCH_SWITCH_FROM = ctx.fromId;
   }
-  out.DCH_SWITCH_MODE = ctx.mode;
   if (ctx.profile.env) {
     for (const [k, v] of Object.entries(ctx.profile.env)) out[k] = v;
   }

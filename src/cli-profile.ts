@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-import type { Profile, ToolKind, SwitchMode, TerminalApp, HookResult } from "./profiles/types.ts";
+import type { Profile, ToolKind, HookResult } from "./profiles/types.ts";
 import {
-  listProfiles, getProfile, addProfile, updateProfile, removeProfile,
+  listProfiles, getProfile, addProfile, removeProfile,
   useProfile, initTool, getActive, testHook, setPreference,
 } from "./profiles/manager.ts";
 import { TOOL_PATHS } from "./profiles/symlink.ts";
@@ -9,8 +9,6 @@ import { collapseHome, expandHome, STORE_PATH } from "./profiles/store.ts";
 import { c } from "./cli-colors.ts";
 
 const TOOLS: ToolKind[] = ["claude", "codex"];
-const TERMINALS: TerminalApp[] = ["Terminal", "iTerm", "Ghostty"];
-const MODES: SwitchMode[] = ["env", "symlink"];
 
 let JSON_MODE = false;
 
@@ -104,7 +102,7 @@ async function cmdList() {
     console.log();
   }
 
-  console.log(`${c.gray}默认模式: ${c.reset}${store.preferences.defaultMode}  ${c.gray}终端: ${c.reset}${store.preferences.terminal}  ${c.gray}hook 超时: ${c.reset}${store.preferences.hookTimeoutMs}ms`);
+  console.log(`${c.gray}hook 超时: ${c.reset}${store.preferences.hookTimeoutMs}ms`);
 }
 
 async function cmdShow(id: string) {
@@ -189,27 +187,20 @@ function fmtHookResult(r: HookResult): string {
 }
 
 async function cmdUse(args: string[]) {
-  const { positional, flags } = parseFlags(args);
+  const { positional } = parseFlags(args);
   const [id] = positional;
-  if (!id) err("用法: dch profile use <id> [--mode env|symlink] [--terminal Terminal|iTerm|Ghostty]");
+  if (!id) err("用法: dch profile use <id>");
 
-  const mode = flags.mode as SwitchMode | undefined;
-  if (mode && !MODES.includes(mode)) err(`--mode 必须是 ${MODES.join("/")}`);
-  const terminal = flags.terminal as TerminalApp | undefined;
-  if (terminal && !TERMINALS.includes(terminal)) err(`--terminal 必须是 ${TERMINALS.join("/")}`);
-
-  const result = await useProfile(id, { mode, terminal });
+  const result = await useProfile(id);
   if (JSON_MODE) return jsonOut(result);
   for (const h of result.hooks) console.log(fmtHookResult(h));
 
   if (!result.ok) {
     err(result.message ?? "切换失败");
   }
-  if (result.mode === "symlink") {
-    ok(`已切换 ${fmtToolBadge(result.profile.tool)} → ${c.bold}${result.profile.id}${c.reset} (symlink: ${TOOL_PATHS[result.profile.tool]} → ${expandHome(result.profile.configDir)})`);
-    if (result.previousActive) info(`先前 active: ${result.previousActive}`);
-  } else {
-    ok(`已启动 ${result.spawnedTerminal} 新窗口，注入 ${result.profile.tool === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"}=${expandHome(result.profile.configDir)}`);
+  ok(`已切换 ${fmtToolBadge(result.profile.tool)} → ${c.bold}${result.profile.id}${c.reset} (symlink: ${TOOL_PATHS[result.profile.tool]} → ${expandHome(result.profile.configDir)})`);
+  if (result.previousActive && result.previousActive !== result.profile.id) {
+    info(`先前 active: ${result.previousActive}`);
   }
 }
 
@@ -257,19 +248,13 @@ async function cmdHook(args: string[]) {
 
 async function cmdConfig(args: string[]) {
   const [key, value] = args;
-  if (!key || value === undefined) err("用法: dch profile config <terminal|defaultMode|hookTimeoutMs> <value>");
-  if (key === "terminal") {
-    if (!TERMINALS.includes(value as TerminalApp)) err(`terminal 必须是 ${TERMINALS.join("/")}`);
-    await setPreference("terminal", value as TerminalApp);
-  } else if (key === "defaultMode") {
-    if (!MODES.includes(value as SwitchMode)) err(`defaultMode 必须是 ${MODES.join("/")}`);
-    await setPreference("defaultMode", value as SwitchMode);
-  } else if (key === "hookTimeoutMs") {
+  if (!key || value === undefined) err("用法: dch profile config hookTimeoutMs <value>");
+  if (key === "hookTimeoutMs") {
     const n = Number(value);
     if (!Number.isFinite(n) || n <= 0) err("hookTimeoutMs 必须是正数");
     await setPreference("hookTimeoutMs", n);
   } else {
-    err(`未知配置项: ${key}`);
+    err(`未知配置项: ${key}（仅支持 hookTimeoutMs）`);
   }
   if (JSON_MODE) return jsonOut({ ok: true, key, value });
   ok(`已设置 ${key} = ${value}`);
@@ -284,15 +269,15 @@ ${c.bold}子命令:${c.reset}
   ${c.cyan}add${c.reset}     <claude|codex> <id>   添加 profile [--dir <path>] [--env K=V ...] [--from <id>] [--desc <text>]
   ${c.cyan}edit${c.reset}    <id>                  $EDITOR 打开 ${STORE_PATH}
   ${c.cyan}remove${c.reset}  <id>                  删除 profile (不删 configDir) [--yes]
-  ${c.cyan}use${c.reset}     <id>                  切换 [--mode env|symlink] [--terminal Terminal|iTerm|Ghostty]
+  ${c.cyan}use${c.reset}     <id>                  原子切换 ~/.claude / ~/.codex symlink + 跑 pre/post hook
   ${c.cyan}current${c.reset} [tool]                查询当前 active
   ${c.cyan}init${c.reset}    <claude|codex>        把 ~/.claude / ~/.codex 转成 symlink，建立 default profile
   ${c.cyan}hook test${c.reset} <id> <pre|post>     单独运行 hook 测试
-  ${c.cyan}config${c.reset}  <key> <value>         设置 preferences (terminal/defaultMode/hookTimeoutMs)
+  ${c.cyan}config${c.reset}  hookTimeoutMs <ms>    设置 hook 超时
 
 ${c.bold}env 变量 (hook 内可用):${c.reset}
   DCH_PROFILE_ID, DCH_PROFILE_TOOL, DCH_PROFILE_CONFIG_DIR
-  DCH_SWITCH_FROM (仅 symlink 模式), DCH_SWITCH_TO, DCH_SWITCH_MODE
+  DCH_SWITCH_TO, DCH_SWITCH_FROM (首次 init 后可能为空)
 `);
 }
 

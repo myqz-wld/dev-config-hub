@@ -105,10 +105,10 @@ async function runDch<T = unknown>(args: string[]): Promise<T> {
 }
 
 import type {
-  Profile, ProfileStore, SwitchMode, SwitchResult, TerminalApp, ToolKind, HookResult,
+  Profile, ProfileStore, SwitchResult, ToolKind, HookResult,
 } from "../profiles/types.ts";
 
-export type { Profile, ProfileStore, SwitchMode, SwitchResult, TerminalApp, ToolKind, HookResult };
+export type { Profile, ProfileStore, SwitchResult, ToolKind, HookResult };
 
 export const dchProfile = {
   list: () => runDch<ProfileStore>(["list"]),
@@ -126,12 +126,7 @@ export const dchProfile = {
 
   remove: (id: string) => runDch<{ ok: true; removed: string }>(["remove", id, "--yes"]),
 
-  use: (id: string, opts: { mode?: SwitchMode; terminal?: TerminalApp } = {}) => {
-    const args = ["use", id];
-    if (opts.mode) args.push("--mode", opts.mode);
-    if (opts.terminal) args.push("--terminal", opts.terminal);
-    return runDch<SwitchResult>(args);
-  },
+  use: (id: string) => runDch<SwitchResult>(["use", id]),
 
   current: () => runDch<Record<ToolKind, { id: string | null; symlinkTarget: string | null }>>(["current"]),
 
@@ -139,6 +134,6 @@ export const dchProfile = {
 
   testHook: (id: string, which: "pre" | "post") => runDch<HookResult | null>(["hook", "test", id, which]),
 
-  config: (key: "terminal" | "defaultMode" | "hookTimeoutMs", value: string | number) =>
+  config: (key: "hookTimeoutMs", value: number) =>
     runDch<{ ok: true }>(["config", key, String(value)]),
 };

@@ -1,10 +1,9 @@
 import type {
-  Profile, ProfileStore, SwitchMode, SwitchResult, ToolKind, HookResult, TerminalApp,
+  Profile, ProfileStore, SwitchResult, ToolKind, HookResult,
 } from "./types.ts";
 import { loadStore, saveStore } from "./store.ts";
 import { runHook, type HookContext } from "./hooks.ts";
 import { switchSymlink, initToolDir, currentSymlinkTarget } from "./symlink.ts";
-import { spawnTerminal } from "./env.ts";
 
 const ID_RE = /^[a-zA-Z0-9_-]+$/;
 
@@ -48,19 +47,13 @@ export async function removeProfile(id: string): Promise<void> {
   await saveStore(store);
 }
 
-export interface UseOptions {
-  mode?: SwitchMode;
-  terminal?: TerminalApp;
-}
-
-export async function useProfile(id: string, opts: UseOptions = {}): Promise<SwitchResult> {
+export async function useProfile(id: string): Promise<SwitchResult> {
   const store = await loadStore();
   const profile = store.profiles.find((x) => x.id === id);
   if (!profile) throw new Error(`未找到 profile: ${id}`);
 
-  const mode: SwitchMode = opts.mode ?? store.preferences.defaultMode;
-  const fromId = mode === "symlink" ? (store.active[profile.tool] ?? null) : null;
-  const ctx: HookContext = { profile, fromId, toId: id, mode };
+  const fromId = store.active[profile.tool] ?? null;
+  const ctx: HookContext = { profile, fromId, toId: id };
   const hooks: HookResult[] = [];
 
   const pre = await runHook(
@@ -70,26 +63,19 @@ export async function useProfile(id: string, opts: UseOptions = {}): Promise<Swi
     hooks.push(pre);
     if (pre.exitCode !== 0) {
       return {
-        ok: false, mode, profile, previousActive: fromId, hooks,
+        ok: false, profile, previousActive: fromId, hooks,
         message: `preSwitch hook 失败 (exit ${pre.exitCode}${pre.timedOut ? ", 超时" : ""})，已中断切换`,
       };
     }
   }
 
-  let spawnedTerminal: string | undefined;
   try {
-    if (mode === "symlink") {
-      await switchSymlink(profile);
-      store.active[profile.tool] = id;
-      await saveStore(store);
-    } else {
-      const term = opts.terminal ?? store.preferences.terminal;
-      const r = await spawnTerminal(profile, term);
-      spawnedTerminal = r.terminal;
-    }
+    await switchSymlink(profile);
+    store.active[profile.tool] = id;
+    await saveStore(store);
   } catch (e) {
     return {
-      ok: false, mode, profile, previousActive: fromId, hooks,
+      ok: false, profile, previousActive: fromId, hooks,
       message: `切换失败: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
@@ -99,7 +85,7 @@ export async function useProfile(id: string, opts: UseOptions = {}): Promise<Swi
   );
   if (post) hooks.push(post);
 
-  return { ok: true, mode, profile, previousActive: fromId, hooks, spawnedTerminal };
+  return { ok: true, profile, previousActive: fromId, hooks };
 }
 
 export async function initTool(tool: ToolKind): Promise<{
@@ -142,7 +128,6 @@ export async function testHook(
     profile,
     fromId: store.active[profile.tool] ?? null,
     toId: id,
-    mode: store.preferences.defaultMode,
   };
   return runHook(
     which === "pre" ? "preSwitch" : "postSwitch",

@@ -17,10 +17,8 @@
 - 支持查看源文件原文 / 直接编辑保存
 - 自动检测工具版本
 - 同时提供 CLI 模式 (`dch`) 和桌面 GUI
-- **Profile 快速切换**：维护多套 Claude / Codex 配置（如 `claude-pro` / `claude-api`、`codex-plus` / `codex-api`），一键切换
-  - **env 注入式**：spawn 新终端，注入 `CLAUDE_CONFIG_DIR` / `CODEX_HOME` + 自定义 env，旧终端不受影响
-  - **符号链接式**：原子地修改 `~/.claude` / `~/.codex` 指向，全局生效
-- **切换前/后 Hook**：每个 profile 可定义 `preSwitch` / `postSwitch` shell 脚本，自动 kill 残留进程、备份、osascript 通知等。`preSwitch` 失败会中断切换
+- **Profile 快速切换**：维护多套 Claude / Codex 配置（如 `claude-pro` / `claude-api`、`codex-plus` / `codex-api`），一键原子切换 `~/.claude` / `~/.codex` symlink，全局生效
+- **切换前/后 Hook**：每个 profile 可定义 `preSwitch` / `postSwitch` shell 脚本，自动 kill 残留进程、起 VPN、健康探测、osascript 通知等。`preSwitch` 失败会中断切换
 
 ## 配置描述来源
 
@@ -35,7 +33,7 @@
 
 - [Bun](https://bun.sh/) >= 1.1
 - [Rust](https://rustup.rs/) >= 1.77
-- macOS (Tauri 依赖 WebKit；profile 的「env 注入式」依赖 osascript)
+- macOS (Tauri 依赖 WebKit)
 
 ## 快速开始
 
@@ -59,8 +57,7 @@ bun run cli gui       # 启动桌面窗口
 bun run cli profile               # 列出所有 profile
 bun run cli profile init claude   # 把 ~/.claude 转成 symlink 并建立默认 profile
 bun run cli profile add claude claude-api --dir ~/.claude-api --env ANTHROPIC_API_KEY=sk-...
-bun run cli profile use claude-api          # 用 env 模式切换（spawn 新终端）
-bun run cli profile use claude-api --mode symlink   # 全局符号链接切换
+bun run cli profile use claude-api          # 原子切换 symlink + 跑 pre/post hook
 ```
 
 首次 `bun run dev` 需要编译 Rust 依赖，大约 2-3 分钟。后续启动秒开。
@@ -87,11 +84,11 @@ dch profile show <id>                        # 打印 profile JSON
 dch profile add <claude|codex> <id> [...]    # 添加 profile：--dir / --env K=V / --from / --desc
 dch profile edit <id>                        # $EDITOR 打开 ~/.dch/profiles.json
 dch profile remove <id> [--yes]              # 删除 profile（不删 configDir）
-dch profile use <id> [--mode env|symlink] [--terminal Terminal|iTerm|Ghostty]
+dch profile use <id>                         # 原子切换 ~/.claude / ~/.codex symlink + 跑 pre/post hook
 dch profile current [tool]                   # 查询当前 active
 dch profile init <claude|codex>              # 把 ~/.claude / ~/.codex 转成 symlink，建立 default profile
 dch profile hook test <id> <pre|post>        # 单独运行 hook 测试
-dch profile config <key> <value>             # 设置 preferences (terminal/defaultMode/hookTimeoutMs)
+dch profile config hookTimeoutMs <ms>        # 设置 hook 超时
 ```
 
 ## Profile 系统
@@ -108,7 +105,7 @@ dch profile config <key> <value>             # 设置 preferences (terminal/defa
       "id": "claude-api",
       "tool": "claude",
       "configDir": "~/.claude-api",
-      "env": { "ANTHROPIC_API_KEY": "sk-ant-..." },
+      "env": { "HTTP_PROXY": "http://127.0.0.1:1082" },
       "description": "Claude Code via API key",
       "hooks": {
         "preSwitch":  "pkill -f 'claude' || true",
@@ -118,12 +115,12 @@ dch profile config <key> <value>             # 设置 preferences (terminal/defa
   ],
   "active": { "claude": "claude-api", "codex": null },
   "preferences": {
-    "terminal": "Terminal",
-    "defaultMode": "env",
     "hookTimeoutMs": 30000
   }
 }
 ```
+
+> `profile.env` 仅在 `preSwitch` / `postSwitch` 脚本里可见（用于 hook 内的 curl / shell 命令拿代理等），不会注入给 claude / codex 进程本身——后者的 env / token 应放在 `<configDir>/settings.json` 的 `env` 块里。
 
 ### Hook 注入的环境变量
 
@@ -134,20 +131,21 @@ DCH_PROFILE_ID         切到的 profile id
 DCH_PROFILE_TOOL       claude | codex
 DCH_PROFILE_CONFIG_DIR 该 profile 的绝对路径
 DCH_SWITCH_TO          目标 profile id（同 DCH_PROFILE_ID）
-DCH_SWITCH_FROM        先前 active profile id（仅 symlink 模式）
-DCH_SWITCH_MODE        env | symlink
+DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 ```
 
-`preSwitch` 退出码非零会中断切换、回滚 active 状态、不跑 postSwitch。`postSwitch` 失败仅警告。
+`preSwitch` 退出码非零会中断切换、不更新 active 状态、不跑 postSwitch。`postSwitch` 失败仅警告。
 
-### 两种切换模式
+### 切换语义
 
-| 模式 | 原理 | 影响范围 | 适用 |
-|---|---|---|---|
-| `env` | spawn 新终端，注入 `CLAUDE_CONFIG_DIR` / `CODEX_HOME` + profile.env | 仅新窗口 | 临时切，多 profile 并存 |
-| `symlink` | 原子改 `~/.claude` / `~/.codex` 指向 | 所有新启动的进程 | 长期切换默认环境 |
+`dch profile use <id>` 做这几件事：
 
-第一次用 symlink 模式前必须跑 `dch profile init <tool>`：会把现有真实目录 mv 到 `~/.<tool>-default`，再 ln -s 回去并注册成 default profile。
+1. 跑 `preSwitch` hook（含 profile.env），失败则中断
+2. 原子修改 `~/.claude` / `~/.codex` symlink 指向 `profile.configDir`（先 `ln -s` 临时名再 `mv` 覆盖）
+3. 写回 `~/.dch/profiles.json` 的 `active.<tool>`
+4. 跑 `postSwitch` hook
+
+第一次切换前必须跑一次 `dch profile init <tool>`：会把现有真实目录 `~/.claude` / `~/.codex` mv 到 `~/.<tool>-default`，再 ln -s 回去并注册成 default profile。
 
 ## 项目结构
 
@@ -163,8 +161,7 @@ DCH_SWITCH_MODE        env | symlink
 │   │   ├── types.ts          # Profile / ProfileStore / HookResult / ...
 │   │   ├── store.ts          # ~/.dch/profiles.json 读写
 │   │   ├── hooks.ts          # 执行 pre/post shell 脚本，注入 DCH_* env
-│   │   ├── symlink.ts        # 符号链接模式（init / switch / current）
-│   │   ├── env.ts            # env 注入模式（osascript spawn 终端）
+│   │   ├── symlink.ts        # 符号链接切换（init / switch / current）
 │   │   ├── manager.ts        # CRUD + switch 调度（共用核心）
 │   │   └── hooks.test.ts     # bun test 单元测试
 │   ├── readers/              # 各工具的配置读取器

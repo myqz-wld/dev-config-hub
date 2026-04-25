@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   dchProfile, type Profile, type ProfileStore, type ToolKind,
-  type SwitchMode, type TerminalApp, type HookResult,
+  type HookResult,
 } from "../bridge.ts";
 
 const TOOLS: ToolKind[] = ["claude", "codex"];
-const TERMINALS: TerminalApp[] = ["Terminal", "iTerm", "Ghostty"];
 
 interface Props {
   onToast: (msg: string, ok: boolean) => void;
@@ -44,17 +43,12 @@ export function ProfilePanel({ onToast }: Props) {
     }
   };
 
-  const onUse = async (id: string, mode: SwitchMode, terminal?: TerminalApp) => {
+  const onUse = async (id: string) => {
     setBusy(true);
     try {
-      const r = await dchProfile.use(id, { mode, terminal });
+      const r = await dchProfile.use(id);
       if (!r.ok) throw new Error(r.message);
-      onToast(
-        mode === "symlink"
-          ? `已切换 symlink → ${id}`
-          : `已启动 ${r.spawnedTerminal} 新窗口（profile=${id}）`,
-        true,
-      );
+      onToast(`已切换 → ${id}`, true);
       await reload();
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
@@ -83,7 +77,7 @@ export function ProfilePanel({ onToast }: Props) {
       <div className="panel-head">
         <h1>Profiles<span className="ver">{store.profiles.length} 个</span></h1>
         <p className="panel-desc">
-          状态文件 <code>{`~/.dch/profiles.json`}</code> · 默认模式 <code>{store.preferences.defaultMode}</code> · 终端 <code>{store.preferences.terminal}</code>
+          状态文件 <code>{`~/.dch/profiles.json`}</code> · hook 超时 <code>{store.preferences.hookTimeoutMs}ms</code>
         </p>
       </div>
 
@@ -131,7 +125,6 @@ export function ProfilePanel({ onToast }: Props) {
               key={p.id}
               profile={p}
               isActive={p.id === toolActive.id}
-              defaultTerminal={store.preferences.terminal}
               busy={busy}
               onUse={onUse}
               onDelete={(id) => {
@@ -181,13 +174,12 @@ export function ProfilePanel({ onToast }: Props) {
 }
 
 function ProfileCard({
-  profile, isActive, defaultTerminal, busy, onUse, onDelete, onTestHook,
+  profile, isActive, busy, onUse, onDelete, onTestHook,
 }: {
   profile: Profile;
   isActive: boolean;
-  defaultTerminal: TerminalApp;
   busy: boolean;
-  onUse: (id: string, mode: SwitchMode, terminal?: TerminalApp) => void;
+  onUse: (id: string) => void;
   onDelete: (id: string) => void;
   onTestHook: (id: string, which: "pre" | "post") => void;
 }) {
@@ -244,11 +236,8 @@ function ProfileCard({
         )}
       </div>
       <div className="profile-card-actions">
-        <button className="btn primary" disabled={busy} onClick={() => onUse(profile.id, "env", defaultTerminal)}>
-          ▶ 启动新终端 (env)
-        </button>
-        <button className="btn ghost" disabled={busy} onClick={() => onUse(profile.id, "symlink")}>
-          🔗 设为 symlink
+        <button className="btn primary" disabled={busy} onClick={() => onUse(profile.id)}>
+          🔗 切换到此 profile
         </button>
         {hasPreHook && (
           <button className="btn-sm" disabled={busy} onClick={() => onTestHook(profile.id, "pre")}>
@@ -376,7 +365,7 @@ function AddProfileModal({
                 >+</button>
               </div>
               <p className="form-hint">
-                提示：{form.tool === "claude" ? "CLAUDE_CONFIG_DIR 会自动注入" : "CODEX_HOME 会自动注入"}，无需手填。
+                提示：env 仅在 pre/post hook 脚本里生效（用于 hook 内的 curl / shell 命令），不会注入给 claude / codex 进程。
               </p>
             </div>
           </div>
@@ -395,9 +384,7 @@ function AddProfileModal({
       </div>
     </div>
   );
-}
-
-function HookOutputModal({
+}function HookOutputModal({
   data, onClose,
 }: {
   data: { id: string; which: string; result: HookResult | null };
@@ -456,7 +443,7 @@ function PreferencesEditor({
 }) {
   const [open, setOpen] = useState(false);
 
-  const update = async (k: "terminal" | "defaultMode" | "hookTimeoutMs", v: string | number) => {
+  const update = async (k: "hookTimeoutMs", v: number) => {
     try {
       await dchProfile.config(k, v);
       onToast(`${k} = ${v}`, true);
@@ -471,19 +458,6 @@ function PreferencesEditor({
       <button className="btn-sm" onClick={() => setOpen(!open)}>设置 ⚙</button>
       {open && (
         <div className="prefs-popover">
-          <div className="form-row">
-            <label>默认模式</label>
-            <select value={store.preferences.defaultMode} onChange={(e) => update("defaultMode", e.target.value)}>
-              <option value="env">env</option>
-              <option value="symlink">symlink</option>
-            </select>
-          </div>
-          <div className="form-row">
-            <label>终端</label>
-            <select value={store.preferences.terminal} onChange={(e) => update("terminal", e.target.value)}>
-              {TERMINALS.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
           <div className="form-row">
             <label>hook 超时(ms)</label>
             <input

@@ -8,8 +8,6 @@ export const DCH_DIR = join(HOME, ".dch");
 export const STORE_PATH = join(DCH_DIR, "profiles.json");
 
 const DEFAULT_PREFERENCES: Preferences = {
-  terminal: "Terminal",
-  defaultMode: "env",
   hookTimeoutMs: 30_000,
 };
 
@@ -43,11 +41,14 @@ export async function loadStore(): Promise<ProfileStore> {
   } catch (e) {
     throw new Error(`无法解析 ${STORE_PATH}: ${e}`);
   }
+  const rawPrefs = (data.preferences ?? {}) as Partial<Preferences>;
   return {
     version: 1,
     profiles: data.profiles ?? [],
     active: { claude: null, codex: null, ...(data.active ?? {}) },
-    preferences: { ...DEFAULT_PREFERENCES, ...(data.preferences ?? {}) },
+    preferences: {
+      hookTimeoutMs: rawPrefs.hookTimeoutMs ?? DEFAULT_PREFERENCES.hookTimeoutMs,
+    },
   };
 }
 

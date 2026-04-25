@@ -13,7 +13,6 @@ const ctx: HookContext = {
   profile: baseProfile,
   fromId: "claude-default",
   toId: "test-profile",
-  mode: "symlink",
 };
 
 describe("runHook", () => {
@@ -53,7 +52,6 @@ describe("runHook", () => {
       echo "tool=$DCH_PROFILE_TOOL"
       echo "to=$DCH_SWITCH_TO"
       echo "from=$DCH_SWITCH_FROM"
-      echo "mode=$DCH_SWITCH_MODE"
       echo "dir=$DCH_PROFILE_CONFIG_DIR"
     `;
     const r = await runHook("preSwitch", script, ctx, 5000);
@@ -62,7 +60,6 @@ describe("runHook", () => {
     expect(r!.stdout).toContain("tool=claude");
     expect(r!.stdout).toContain("to=test-profile");
     expect(r!.stdout).toContain("from=claude-default");
-    expect(r!.stdout).toContain("mode=symlink");
     // configDir 应被 expand 成绝对路径
     expect(r!.stdout).toMatch(/dir=\/.+\/\.claude-test/);
   });
