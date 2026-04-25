@@ -1,5 +1,6 @@
 use std::fs;
 use std::process::Command;
+use serde::Serialize;
 
 #[tauri::command]
 fn read_file(path: String) -> Result<String, String> {
@@ -69,6 +70,65 @@ fn get_home_dir() -> String {
     std::env::var("HOME").unwrap_or_default()
 }
 
+#[derive(Serialize)]
+struct DchCommandResult {
+    stdout: String,
+    stderr: String,
+    code: i32,
+}
+
+/// Spawn `bun src/cli.ts <args>` 并返回结果。
+/// 通过登录 shell 启动，确保 PATH/brew/nvm 注入跟真实终端一致。
+/// 项目根从 CARGO_MANIFEST_DIR/.. 解析（dev 模式可靠）；prod 模式需用户在
+/// `DCH_PROJECT_ROOT` 环境变量里指定项目源码位置。
+#[tauri::command]
+fn run_dch_command(args: Vec<String>) -> Result<DchCommandResult, String> {
+    let project_root = std::env::var("DCH_PROJECT_ROOT").ok().or_else(|| {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        std::path::Path::new(manifest_dir)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+    }).ok_or_else(|| "找不到项目根。请设置 DCH_PROJECT_ROOT 环境变量".to_string())?;
+
+    let cli_path = std::path::Path::new(&project_root).join("src").join("cli.ts");
+    if !cli_path.exists() {
+        return Err(format!("CLI 入口不存在: {}", cli_path.display()));
+    }
+
+    // 用单引号转义每个 arg，再拼成一个 shell 命令
+    let quoted_args: Vec<String> = args.iter()
+        .map(|a| format!("'{}'", a.replace('\'', "'\\''")))
+        .collect();
+    let cmd = format!(
+        "cd '{}' && bun '{}' {}",
+        project_root.replace('\'', "'\\''"),
+        cli_path.to_string_lossy().replace('\'', "'\\''"),
+        quoted_args.join(" "),
+    );
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let shell_name = std::path::Path::new(&shell)
+        .file_name().and_then(|n| n.to_str()).unwrap_or("zsh");
+
+    // 登录式 shell（注入 brew / nvm / path_helper），与终端一致
+    let shell_args: &[&str] = match shell_name {
+        "zsh" | "bash" => &["-l", "-c"],
+        _ => &["-c"],
+    };
+
+    let output = Command::new(&shell)
+        .args(shell_args)
+        .arg(&cmd)
+        .output()
+        .map_err(|e| format!("spawn failed: {}", e))?;
+
+    Ok(DchCommandResult {
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        code: output.status.code().unwrap_or(-1),
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -79,6 +139,7 @@ pub fn run() {
             save_file,
             get_tool_version,
             get_home_dir,
+            run_dch_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

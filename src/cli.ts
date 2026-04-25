@@ -4,29 +4,8 @@ import { readShellConfig } from "./readers/shell.ts";
 import { readClaudeCodeConfig } from "./readers/claude-code.ts";
 import { readCodexConfig } from "./readers/codex.ts";
 import { readOpenCodeConfig } from "./readers/opencode.ts";
-
-const c = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  italic: "\x1b[3m",
-  cyan: "\x1b[36m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  blue: "\x1b[34m",
-  magenta: "\x1b[35m",
-  red: "\x1b[31m",
-  gray: "\x1b[90m",
-  white: "\x1b[37m",
-  bgBlue: "\x1b[44m",
-  bgGreen: "\x1b[42m",
-  bgMagenta: "\x1b[45m",
-  bgYellow: "\x1b[43m",
-};
-
-const LEVEL_COLORS: Record<string, string> = {
-  global: c.blue, user: c.green, project: c.magenta, local: c.yellow,
-};
+import { runProfileCommand } from "./cli-profile.ts";
+import { c, LEVEL_COLORS } from "./cli-colors.ts";
 
 function renderValue(value: unknown, indent: number): string {
   const pad = " ".repeat(indent);
@@ -150,6 +129,11 @@ const TOOL_ALIASES: Record<string, number> = {
 async function main() {
   const args = process.argv.slice(2);
 
+  if (args[0] === "profile") {
+    await runProfileCommand(args.slice(1));
+    return;
+  }
+
   const tools = await Promise.all([
     readShellConfig(),
     readClaudeCodeConfig(),
@@ -159,6 +143,7 @@ async function main() {
 
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
     console.log(renderOverview(tools));
+    console.log(`${c.gray}Profile: dch profile [list|add|use|...]${c.reset}`);
     return;
   }
 

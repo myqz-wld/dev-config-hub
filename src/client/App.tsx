@@ -2,12 +2,15 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import type { ToolConfig } from "../types.ts";
 import { loadAllConfigs, saveFile } from "./bridge.ts";
 import { ConfigPanel } from "./components/ConfigPanel.tsx";
+import { ProfilePanel } from "./components/ProfilePanel.tsx";
 
 const ICONS: Record<string, string> = { terminal: ">_", claude: "C", codex: "X", opencode: "O" };
 
+type View = { kind: "tool"; index: number } | { kind: "profile" };
+
 export function App() {
   const [tools, setTools] = useState<ToolConfig[]>([]);
-  const [active, setActive] = useState(0);
+  const [view, setView] = useState<View>({ kind: "tool", index: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -19,9 +22,12 @@ export function App() {
 
   useEffect(load, [load]);
 
-  useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [active]);
+  useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [view]);
 
-  const flash = (msg: string, ok: boolean) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 2500); };
+  const flash = useCallback((msg: string, ok: boolean) => {
+    setToast({ msg, ok });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
 
   const onSave = async (path: string, content: string) => {
     try { await saveFile(path, content); flash("保存成功", true); load(); }
@@ -39,8 +45,23 @@ export function App() {
           <div><div className="logo-title">Dev Config Hub</div><div className="logo-sub">配置中心</div></div>
         </div>
         <div className="nav-list">
+          <button
+            className={`nav-item nav-item-profile${view.kind === "profile" ? " on" : ""}`}
+            onClick={() => setView({ kind: "profile" })}
+          >
+            <div className="nav-icon profiles">⇄</div>
+            <div className="nav-text">
+              <div className="nav-name">Profiles</div>
+              <div className="nav-ver">快速切换 · hook</div>
+            </div>
+          </button>
+          <div className="nav-sep">工具配置</div>
           {tools.map((t, i) => (
-            <button key={t.name} className={`nav-item${i === active ? " on" : ""}`} onClick={() => setActive(i)}>
+            <button
+              key={t.name}
+              className={`nav-item${view.kind === "tool" && i === view.index ? " on" : ""}`}
+              onClick={() => setView({ kind: "tool", index: i })}
+            >
               <div className={`nav-icon ${t.icon}`}>{ICONS[t.icon]}</div>
               <div className="nav-text">
                 <div className="nav-name">{t.name}</div>
@@ -52,7 +73,9 @@ export function App() {
         </div>
       </nav>
       <main className="main" ref={mainRef}>
-        {tools[active] && <ConfigPanel tool={tools[active]!} onSave={onSave} />}
+        {view.kind === "profile"
+          ? <ProfilePanel onToast={flash} />
+          : tools[view.index] && <ConfigPanel tool={tools[view.index]!} onSave={onSave} />}
       </main>
       {toast && <div className={`toast ${toast.ok ? "ok" : "err"}`}>{toast.msg}</div>}
     </div>

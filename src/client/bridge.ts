@@ -84,3 +84,61 @@ export async function loadAllConfigs(): Promise<ToolConfig[]> {
 export async function saveFile(filePath: string, content: string): Promise<void> {
   await call("save_file", { path: filePath, content });
 }
+
+// ── Profile bridge: 通过 Tauri 调 dch CLI（--json 模式），结果统一 JSON ─────
+
+export interface DchCommandResult {
+  stdout: string;
+  stderr: string;
+  code: number;
+}
+
+async function runDch<T = unknown>(args: string[]): Promise<T> {
+  const r = await call<DchCommandResult>("run_dch_command", { args: ["profile", ...args, "--json"] });
+  if (r.code !== 0) {
+    let parsed: { error?: string } = {};
+    try { parsed = JSON.parse(r.stdout) as { error?: string }; } catch {}
+    throw new Error(parsed.error ?? r.stderr.trim() ?? `exit ${r.code}`);
+  }
+  if (!r.stdout.trim()) return undefined as T;
+  return JSON.parse(r.stdout) as T;
+}
+
+import type {
+  Profile, ProfileStore, SwitchMode, SwitchResult, TerminalApp, ToolKind, HookResult,
+} from "../profiles/types.ts";
+
+export type { Profile, ProfileStore, SwitchMode, SwitchResult, TerminalApp, ToolKind, HookResult };
+
+export const dchProfile = {
+  list: () => runDch<ProfileStore>(["list"]),
+
+  add: (tool: ToolKind, id: string, opts: {
+    dir?: string; env?: Record<string, string>; description?: string; from?: string;
+  } = {}) => {
+    const args = ["add", tool, id];
+    if (opts.dir) args.push("--dir", opts.dir);
+    if (opts.from) args.push("--from", opts.from);
+    if (opts.description) args.push("--desc", opts.description);
+    for (const [k, v] of Object.entries(opts.env ?? {})) args.push("--env", `${k}=${v}`);
+    return runDch<{ ok: true; profile: Profile }>(args);
+  },
+
+  remove: (id: string) => runDch<{ ok: true; removed: string }>(["remove", id, "--yes"]),
+
+  use: (id: string, opts: { mode?: SwitchMode; terminal?: TerminalApp } = {}) => {
+    const args = ["use", id];
+    if (opts.mode) args.push("--mode", opts.mode);
+    if (opts.terminal) args.push("--terminal", opts.terminal);
+    return runDch<SwitchResult>(args);
+  },
+
+  current: () => runDch<Record<ToolKind, { id: string | null; symlinkTarget: string | null }>>(["current"]),
+
+  init: (tool: ToolKind) => runDch<{ ok: true; state: string; profileId: string; configDir: string }>(["init", tool]),
+
+  testHook: (id: string, which: "pre" | "post") => runDch<HookResult | null>(["hook", "test", id, which]),
+
+  config: (key: "terminal" | "defaultMode" | "hookTimeoutMs", value: string | number) =>
+    runDch<{ ok: true }>(["config", key, String(value)]),
+};
