@@ -14,6 +14,12 @@ fn file_exists(path: String) -> bool {
 
 #[tauri::command]
 fn save_file(path: String, content: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if let Some(parent) = p.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {}", parent.display(), e))?;
+        }
+    }
     fs::write(&path, content).map_err(|e| e.to_string())
 }
 
