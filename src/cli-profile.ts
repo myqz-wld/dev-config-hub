@@ -156,13 +156,13 @@ async function cmdRemove(args: string[]) {
   if (!flags.yes) {
     process.stdout.write(`${c.yellow}确认删除 profile ${c.bold}${id}${c.reset}${c.yellow}? configDir ${p.configDir} 不会被删除。[y/N] ${c.reset}`);
     const line = await new Promise<string>((res) => {
-      const buf: Buffer[] = [];
+      let acc = "";
       process.stdin.resume();
       process.stdin.on("data", (d) => {
-        buf.push(d);
-        if (d.toString().includes("\n")) {
+        acc += d.toString();
+        if (acc.includes("\n")) {
           process.stdin.pause();
-          res(Buffer.concat(buf).toString().trim());
+          res(acc.trim());
         }
       });
     });
