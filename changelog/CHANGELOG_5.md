@@ -191,3 +191,13 @@ UI 上点删除 profile 没反馈：根因是 ProfilePanel 用 `window.confirm()
 被反驳：
 - handle 返回 `Promise<boolean>` 不破坏旧 caller — Codex 验证 React/prop void 上下文忽略返回值
 - defaultProfileDir 抽出后是否有残留硬编码 — 双方搜过，剩下的 `~/.${tool}-${id}` 只在注释/字符串说明里
+
+## 第六轮 review：收敛
+
+第六轮 review 后两个 Agent 均判定 **✅ 真问题为 0**，所有发现都收敛到 ⚠️ 边界级（极窄竞态 / unmount cleanup 但顶层组件不 unmount），决定停止迭代。
+
+被反驳但值得记一笔：
+- Claude 报「`src.tool !== initialSrc.tool` 重读判据是逻辑缺陷」— Codex 反驳：dch 设计里 profile id 一旦定下 tool 不可变（`types.ts`），这个比较是双保险不是 bug
+- Claude 报「flash timer 无 unmount cleanup 是泄漏风险」— Codex 反驳：App 是顶层组件不会 unmount（除非 app 关闭那时进程也结束），HMR / 测试场景影响低
+
+迭代统计：本轮 changelog 跨 3 轮 review 6 个 Agent 报告，累计修复 11 条真问题（删除卡死 / hooks textarea / parseFlags / clone 不灌 from / 模型配置 / dir 撞车 / 半成品 / TOML escape / 异步竞态 / 双份默认值 / toast 覆盖 / submit 重提 / flash timer），保留 2 条 ⚠️（normalizeProfileDir 词法层挡不住物理路径绕过；二次 await 内的极窄竞态）。
