@@ -8,9 +8,10 @@ const TOOLS: ToolKind[] = ["claude", "codex"];
 
 interface Props {
   onToast: (msg: string, ok: boolean) => void;
+  onProfileChanged?: () => void;
 }
 
-export function ProfilePanel({ onToast }: Props) {
+export function ProfilePanel({ onToast, onProfileChanged }: Props) {
   const [store, setStore] = useState<ProfileStore | null>(null);
   const [tool, setTool] = useState<ToolKind>("claude");
   const [active, setActive] = useState<Record<ToolKind, { id: string | null; symlinkTarget: string | null }> | null>(null);
@@ -36,6 +37,7 @@ export function ProfilePanel({ onToast }: Props) {
       await action();
       onToast(successMsg, true);
       await reload();
+      onProfileChanged?.();
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
     } finally {
@@ -50,6 +52,7 @@ export function ProfilePanel({ onToast }: Props) {
       if (!r.ok) throw new Error(r.message);
       onToast(`已切换 → ${id}`, true);
       await reload();
+      onProfileChanged?.();
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
     } finally {

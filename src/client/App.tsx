@@ -74,7 +74,7 @@ export function App() {
       </nav>
       <main className="main" ref={mainRef}>
         {view.kind === "profile"
-          ? <ProfilePanel onToast={flash} />
+          ? <ProfilePanel onToast={flash} onProfileChanged={load} />
           : tools[view.index] && <ConfigPanel tool={tools[view.index]!} onSave={onSave} />}
       </main>
       {toast && <div className={`toast ${toast.ok ? "ok" : "err"}`}>{toast.msg}</div>}
