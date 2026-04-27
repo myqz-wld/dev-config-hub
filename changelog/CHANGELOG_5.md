@@ -127,3 +127,38 @@ UI 上点删除 profile 没反馈：根因是 ProfilePanel 用 `window.confirm()
 - 切 tool 保留 `cfgModel`（跨工具 model 名空间不同）— 跨场景模糊但无破坏性
 - 核心字段与 textarea 矛盾时静默丢核心字段 — UI 没强提示但合并语义已在 hint 里说明
 - MAIN_CONFIG 只覆盖单一主配置（claude 的 settings.local.json / .mcp.json / CLAUDE.md 没暴露）— scope 取舍
+
+## 第四轮 review 修复（双对抗 Agent）
+
+第四轮 review 又抓出 3 条真问题 + 2 条 ⚠️ 边界，全修：
+
+1. **dir 撞车校验可绕过**（Codex 独家）
+   - 旧：`store.profiles.some((p) => p.configDir === dir)` raw 字符串比较
+   - 反例：`~/.claude-pro/`（末尾斜杠）/ `/Users/apple/.claude-pro`（绝对）/ `~/.x//foo`（双斜杠）跟已有 `~/.claude-pro` 不等但展开后是同一目录 → 绕过后仍 writeProfileConfigFile 覆盖源
+   - Fix：bridge.ts 新增 `normalizeProfileDir(p, home)`：展开 `~/`、折叠 `//`、去尾 `/`；`getHomeDir()` 同步 export。onSubmit 用 `normalizeProfileDir(...) === normalizeProfileDir(...)` 比较
+
+2. **dir 撞车只在 content 非空时跑 → 僵尸 profile**（双方一致）
+   - 旧：`if (content && store.profiles.some(...))`
+   - content 空 → 跳过校验 → profile 落盘但跟现有 profile 指向同一 configDir，dch 切换状态错乱
+   - Fix：dir 撞车校验从 `if (content && ...)` 短路移出，**任何**情况都先校验
+
+3. **写文件失败：modal 关闭、列表不刷新**（Codex 独家）
+   - 旧：`handle` catch 只 onToast，`onSubmit` 无脑 `setShowAdd(false)` → 用户看到错误 toast + 关掉的 modal，不知道 profile 到底建没建
+   - Fix A：`handle` 改返回 `Promise<boolean>`；catch 块也调 `reload()` 让列表跟实际状态一致
+   - Fix B：`onSubmit` 根据 `handle` 返回值决定是否 `setShowAdd(false)` — 失败保留 modal，让用户改完再交
+
+4. **applyClone closure src 过期**（Claude ✅，Codex ⚠️）
+   - Fix：加 `existingRef = useRef(existing)` 镜像 props；await 完成后用 `existingRef.current.find(...)` 重新查 src（initial src 只用来查 configDir 读文件），避免父级 reload 同 id profile 内容变化时 setForm 灌的还是旧 src
+
+5. **dir 默认值 `~/.${tool}-${id}` 在 UI / CLI 双份硬编码**（Codex 提出）
+   - Fix：抽到 `src/profiles/defaults.ts` 的 `defaultProfileDir(tool, id)`，UI / CLI 共享。dirPlaceholder 也走它
+
+6. **错误 toast 3 秒消失，长 message 看不完**（Claude 独家）
+   - Fix：`App.tsx` flash 根据 `ok` 决定 timeout — 成功 3s，错误 8s
+
+被反驳：
+- TOML escape 是否「过度（tab over-escape）」/「不足（C1 控制字符）」 — 双方都判定现状 OK，tab 转 `	` 冗余但合规，C1 控制字符 TOML spec 允许不需 escape
+
+⚠️ 仍未修的边界：
+- handle catch 块 reload 也会失败的话只 toast 不会再 reload — 二阶 cascade 不深究
+- modal 打开期间另一窗口 reload，onSubmit 校验用 closure 旧 store — 触发场景极少，不修

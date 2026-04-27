@@ -4,7 +4,9 @@ import {
   dchProfile, type Profile, type ProfileStore, type ToolKind,
   type HookResult,
   readProfileConfigFile, writeProfileConfigFile,
+  normalizeProfileDir, getHomeDir,
 } from "../bridge.ts";
+import { defaultProfileDir } from "../../profiles/defaults.ts";
 
 const TOOLS: ToolKind[] = ["claude", "codex"];
 
@@ -52,15 +54,21 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
 
   useEffect(() => { reload(); }, [reload]);
 
-  const handle = async <T,>(action: () => Promise<T>, successMsg: string) => {
+  const handle = async <T,>(action: () => Promise<T>, successMsg: string): Promise<boolean> => {
     setBusy(true);
     try {
       await action();
       onToast(successMsg, true);
       await reload();
       onProfileChanged?.();
+      return true;
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
+      // 失败时也 reload：action 可能已经把部分状态落盘（如 profile 已建但配置文件写失败），
+      // 不刷新会让 UI 列表跟实际状态错位。
+      await reload();
+      onProfileChanged?.();
+      return false;
     } finally {
       setBusy(false);
     }
@@ -173,7 +181,7 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
             // 注意：不传 from。applyClone 已把 src.{desc,env,hooks,configContent} 灌进 form，
             // 此处全部走 form 显式值。否则 CLI 端 cmdAdd 会再用 --from 的 base 给空字段兜底，
             // 把用户「清空 hook」的意图吞掉。
-            const dir = form.dir || `~/.${form.tool}-${form.id}`;
+            const dir = form.dir || defaultProfileDir(form.tool, form.id);
             const main = MAIN_CONFIG[form.tool];
             // textarea 优先；textarea 空且核心字段非空时，生成最小骨架
             let content = form.configContent.trim();
@@ -183,17 +191,20 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
                 reasoning: form.cfgReasoning.trim(),
               });
             }
-            // dir 撞车校验：拒绝把 settings.json / config.toml 写到任何已存在 profile 的 configDir
-            // 上去。最常见触发是 clone 后没改 dir。raw 字符串比较已足够 — applyClone 不再灌
-            // dir，用户必须显式输入才会撞车，路径形式（~/ vs 绝对）跟用户自己输入一致。
-            if (content && store.profiles.some((p) => p.configDir === dir)) {
+            // dir 撞车校验：拿 home 后 normalize 比较，避免 raw 字符串绕过（末尾 /、~/ vs 绝对路径、//）。
+            // 不依赖 content 是否为空 — content 空也校验，避免 dch 系统里两条 profile 指向同一 configDir
+            // 导致切换状态错乱。
+            const home = await getHomeDir();
+            const dirNorm = normalizeProfileDir(dir, home);
+            const collision = store.profiles.find((p) => normalizeProfileDir(p.configDir, home) === dirNorm);
+            if (collision) {
               onToast(
-                `拒绝写入：${dir} 已被其它 profile 占用，会覆盖它的 ${main.filename}。请改 configDir。`,
+                `拒绝创建：${dir} 已被 profile ${collision.id} 占用 (configDir 必须唯一)。请改 configDir。`,
                 false,
               );
               return;
             }
-            await handle(
+            const ok = await handle(
               async () => {
                 await dchProfile.add(form.tool, form.id, {
                   dir: form.dir || undefined,
@@ -215,7 +226,8 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
               },
               `已添加 ${form.id}${content ? ` + ${main.filename}` : ""}`,
             );
-            setShowAdd(false);
+            // 失败保留 modal，让用户改完再提交；成功才关
+            if (ok) setShowAdd(false);
           }}
         />
       )}
@@ -401,12 +413,16 @@ function AddProfileModal({
   const [envKey, setEnvKey] = useState("");
   const [envVal, setEnvVal] = useState("");
 
-  const dirPlaceholder = `~/.${form.tool}-${form.id || "<id>"}`;
+  const dirPlaceholder = defaultProfileDir(form.tool, form.id || "<id>");
   const sameTooLProfiles = existing.filter((p) => p.tool === form.tool);
   const main = MAIN_CONFIG[form.tool];
   // 防 applyClone 异步竞态：用户连点 from=A → from=B 时，记录最新选择，
   // 滞后到达的旧 promise 不能再回写 form。
   const latestFromRef = useRef<string>("");
+  // existing 是 props，会随父级 reload 变。await readProfileConfigFile 期间它可能更新；
+  // setForm 时要拿最新的 existing 找 src，否则灌进表单的 src 内容已过期。
+  const existingRef = useRef(existing);
+  useEffect(() => { existingRef.current = existing; }, [existing]);
 
   const applyClone = async (fromId: string) => {
     latestFromRef.current = fromId;
@@ -414,14 +430,14 @@ function AddProfileModal({
       setForm((cur) => ({ ...cur, from: "" }));
       return;
     }
-    const src = existing.find((p) => p.id === fromId);
-    if (!src) return;
-    const srcMain = MAIN_CONFIG[src.tool];
+    const initialSrc = existingRef.current.find((p) => p.id === fromId);
+    if (!initialSrc) return;
+    const srcMain = MAIN_CONFIG[initialSrc.tool];
     let cloneContent = "";
     let cfgModel = "";
     let cfgReasoning = "";
     try {
-      cloneContent = await readProfileConfigFile(src.configDir, srcMain.filename);
+      cloneContent = await readProfileConfigFile(initialSrc.configDir, srcMain.filename);
       if (cloneContent) {
         if (srcMain.format === "json") {
           const parsed = JSON.parse(cloneContent) as Record<string, unknown>;
@@ -437,6 +453,9 @@ function AddProfileModal({
       console.warn(`applyClone parse ${srcMain.filename} failed:`, e);
     }
     if (latestFromRef.current !== fromId) return; // 用户已经又改过 from，丢弃本次结果
+    // 重新从最新 existing 找 src：父级 reload 期间该 profile 可能被改过
+    const src = existingRef.current.find((p) => p.id === fromId);
+    if (!src) return;
     setForm((cur) => ({
       ...cur,
       from: fromId,

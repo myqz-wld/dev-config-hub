@@ -24,9 +24,22 @@ function expandHomePath(p: string, home: string): string {
   return p;
 }
 
+// 把 `~/.x/` / `~/.x` / `/Users/apple/.x/` / `/Users/apple/.x//` 都规范成同一字符串，
+// 用于 dir 撞车校验。只展开 home + 折叠 `//` + 去尾 `/`，不解析 `..`（用户极少写）。
+export function normalizeProfileDir(p: string, home: string): string {
+  if (!p) return "";
+  let abs = expandHomePath(p, home);
+  abs = abs.replace(/\/+/g, "/").replace(/\/+$/, "");
+  return abs || "/";
+}
+
+export async function getHomeDir(): Promise<string> {
+  return call<string>("get_home_dir");
+}
+
 // 读 profile configDir 下的某个文件（如 settings.json / config.toml）。不存在返回空串。
 export async function readProfileConfigFile(configDir: string, filename: string): Promise<string> {
-  const home = await call<string>("get_home_dir");
+  const home = await getHomeDir();
   const dirAbs = expandHomePath(configDir, home);
   const r = await readFile(`${dirAbs}/${filename}`);
   return r.exists ? r.content : "";
@@ -34,7 +47,7 @@ export async function readProfileConfigFile(configDir: string, filename: string)
 
 // 把内容写到 profile configDir 下的某个文件。父目录不存在时由 Rust 端 mkdir -p。
 export async function writeProfileConfigFile(configDir: string, filename: string, content: string): Promise<void> {
-  const home = await call<string>("get_home_dir");
+  const home = await getHomeDir();
   const dirAbs = expandHomePath(configDir, home);
   await saveFile(`${dirAbs}/${filename}`, content);
 }

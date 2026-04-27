@@ -6,6 +6,7 @@ import {
 } from "./profiles/manager.ts";
 import { TOOL_PATHS } from "./profiles/symlink.ts";
 import { collapseHome, expandHome, STORE_PATH } from "./profiles/store.ts";
+import { defaultProfileDir } from "./profiles/defaults.ts";
 import { c } from "./cli-colors.ts";
 
 const TOOLS: ToolKind[] = ["claude", "codex"];
@@ -140,7 +141,7 @@ async function cmdAdd(args: string[]) {
   const profile: Profile = {
     id,
     tool,
-    configDir: typeof flags.dir === "string" ? flags.dir : (base.configDir ?? `~/.${tool}-${id}`),
+    configDir: typeof flags.dir === "string" ? flags.dir : (base.configDir ?? defaultProfileDir(tool, id)),
     env: Object.keys(env).length > 0 ? env : undefined,
     description: typeof flags.desc === "string" ? flags.desc : base.description,
     hooks,
