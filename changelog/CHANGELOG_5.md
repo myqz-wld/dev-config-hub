@@ -162,3 +162,32 @@ UI 上点删除 profile 没反馈：根因是 ProfilePanel 用 `window.confirm()
 ⚠️ 仍未修的边界：
 - handle catch 块 reload 也会失败的话只 toast 不会再 reload — 二阶 cascade 不深究
 - modal 打开期间另一窗口 reload，onSubmit 校验用 closure 旧 store — 触发场景极少，不修
+
+## 第五轮 review 修复（双对抗 Agent）
+
+第五轮 review 又抓出 5 条真问题，4 条修，1 条（normalizeProfileDir 词法层无法挡 case-insensitive / symlink / `..`）按用户决定保留为 ⚠️：
+
+1. **handle catch 后 reload 失败覆盖原 action toast**（双方一致）
+   - 旧：handle catch → onToast(action err) → reload() → reload 内 catch onToast(reload err) → 后者覆盖前者
+   - Fix：`reload(silent = false)` 加可选参数，handle catch 块用 `reload(true)`：reload 自身失败时 console.warn 不再 toast
+
+2. **applyClone existingRef 修补不彻底：configDir 过期**（双方一致）
+   - 旧：用 `initialSrc.configDir`（旧 closure）读文件；setForm 时用 latest src 拿元数据 → 内容跟元数据脱节
+   - Fix：抽 `parseConfigCore(content, format)` helper；await 完成 + race-check 后，对比 `src.configDir !== initialSrc.configDir` / `src.tool !== initialSrc.tool`，不一致则用 latest 重读 + 二次 race-check
+   - 触发场景罕见但路径完整
+
+3. **App.tsx flash 嵌套 setTimeout 没 clear**（双方一致）
+   - 旧：每次 flash 直接 setTimeout，旧 timer 仍在跑，连续 flash 时旧 timer 会清掉新 toast
+   - Fix：`toastTimerRef = useRef<number | null>(null)`；flash 入口先 `clearTimeout(prev)`，setTimeout 返回值存 ref，回调内 `setToast(null)` + 清 ref
+
+4. **submit 按钮 busy 期间不 disabled，可重复并发提交**（双方一致）
+   - Fix：AddProfileModal 接 `busy: boolean` prop；提交按钮 `disabled={busy || ...}` + 文案 busy 时显示「提交中…」；取消按钮也跟着 disabled 防 modal 卡到中间状态被关
+   - 父级 `<AddProfileModal busy={busy} ... />` 同步传
+
+5. **normalizeProfileDir 仍可绕过：case-insensitive / symlink / `..`**（双方一致，按用户决定不修）
+   - 词法层 normalize 无法解决 macOS APFS case-insensitive、symlink 解引用、`..` 路径解析
+   - 真要彻底防御需 Rust 端 `canonicalize`，本轮决定保留为 ⚠️ — 当前是「劝阻常见误操作」（同字符串路径、末尾 / 双斜杠等），物理路径同一目录的对抗式输入由用户自负责
+
+被反驳：
+- handle 返回 `Promise<boolean>` 不破坏旧 caller — Codex 验证 React/prop void 上下文忽略返回值
+- defaultProfileDir 抽出后是否有残留硬编码 — 双方搜过，剩下的 `~/.${tool}-${id}` 只在注释/字符串说明里

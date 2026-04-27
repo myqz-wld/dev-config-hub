@@ -15,6 +15,10 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const mainRef = useRef<HTMLElement>(null);
+  // 单一 toast timer：连续 flash 时旧的必须清掉，否则 8s err toast 后立即 3s ok toast，
+  // 旧 8s timer 会在第 8s 把 ok toast 也清掉（看起来 ok toast 提前消失）；
+  // 反过来 ok 后立即 err，3s timer 会把 err 在第 3s 清掉，用户读不完。
+  const toastTimerRef = useRef<number | null>(null);
 
   const load = useCallback(() => {
     loadAllConfigs().then(setTools).catch((e) => setError(String(e))).finally(() => setLoading(false));
@@ -25,9 +29,15 @@ export function App() {
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [view]);
 
   const flash = useCallback((msg: string, ok: boolean) => {
+    if (toastTimerRef.current !== null) {
+      clearTimeout(toastTimerRef.current);
+    }
     setToast({ msg, ok });
     // 错误 toast 多停留几秒，避免 4 段拼起来的 error message 用户来不及看完
-    setTimeout(() => setToast(null), ok ? 3000 : 8000);
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, ok ? 3000 : 8000);
   }, []);
 
   const onSave = async (path: string, content: string) => {

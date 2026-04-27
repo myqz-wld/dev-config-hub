@@ -42,13 +42,16 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
   const [showAdd, setShowAdd] = useState(false);
   const [hookOutput, setHookOutput] = useState<{ id: string; which: string; result: HookResult | null } | null>(null);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (silent = false) => {
     try {
       const [s, a] = await Promise.all([dchProfile.list(), dchProfile.current()]);
       setStore(s);
       setActive(a);
     } catch (e) {
-      onToast(`加载失败: ${e instanceof Error ? e.message : String(e)}`, false);
+      // silent=true 是给 handle catch 块用的：原 action 已经 toast 了一个错误，
+      // 这里 reload 自身再失败时不能再 toast，否则会盖掉原错误让用户根本看不到根因。
+      if (silent) console.warn("reload silent fail:", e);
+      else onToast(`加载失败: ${e instanceof Error ? e.message : String(e)}`, false);
     }
   }, [onToast]);
 
@@ -65,8 +68,8 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
       // 失败时也 reload：action 可能已经把部分状态落盘（如 profile 已建但配置文件写失败），
-      // 不刷新会让 UI 列表跟实际状态错位。
-      await reload();
+      // 不刷新会让 UI 列表跟实际状态错位。silent 模式避免 reload 失败时盖掉上面的 action toast。
+      await reload(true);
       onProfileChanged?.();
       return false;
     } finally {
@@ -175,6 +178,7 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
       {showAdd && (
         <AddProfileModal
           tool={tool}
+          busy={busy}
           existing={store.profiles}
           onClose={() => setShowAdd(false)}
           onSubmit={async (form) => {
@@ -372,6 +376,27 @@ interface AddForm {
   cfgReasoning: string;      // 核心字段：仅 codex（model_reasoning_effort）
 }
 
+// 从主配置文件内容里抽核心字段（model / reasoning_effort）。
+// 解析失败 / 字段缺失都返回空串，让 UI 静默继续。
+function parseConfigCore(content: string, format: "json" | "toml"): { cfgModel: string; cfgReasoning: string } {
+  let cfgModel = "";
+  let cfgReasoning = "";
+  if (!content) return { cfgModel, cfgReasoning };
+  try {
+    if (format === "json") {
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      if (typeof parsed.model === "string") cfgModel = parsed.model;
+    } else {
+      const parsed = parseToml(content) as Record<string, unknown>;
+      if (typeof parsed.model === "string") cfgModel = parsed.model;
+      if (typeof parsed.model_reasoning_effort === "string") cfgReasoning = parsed.model_reasoning_effort;
+    }
+  } catch (e) {
+    console.warn(`parseConfigCore (${format}) failed:`, e);
+  }
+  return { cfgModel, cfgReasoning };
+}
+
 // TOML basic string escape：\ → \\, " → \", control chars → \uXXXX。
 // 顺序很重要：必须先转 \ 再转 ", 否则后转的会把前转出来的 \ 再吃一次。
 function tomlBasicString(s: string): string {
@@ -399,9 +424,10 @@ function generateMinimalConfig(
 }
 
 function AddProfileModal({
-  tool, existing, onClose, onSubmit,
+  tool, busy, existing, onClose, onSubmit,
 }: {
   tool: ToolKind;
+  busy: boolean;
   existing: Profile[];
   onClose: () => void;
   onSubmit: (form: AddForm) => void;
@@ -430,32 +456,37 @@ function AddProfileModal({
       setForm((cur) => ({ ...cur, from: "" }));
       return;
     }
-    const initialSrc = existingRef.current.find((p) => p.id === fromId);
+    const findSrc = () => existingRef.current.find((p) => p.id === fromId);
+    const initialSrc = findSrc();
     if (!initialSrc) return;
-    const srcMain = MAIN_CONFIG[initialSrc.tool];
+    let usedConfigDir = initialSrc.configDir;
+    let usedFormat = MAIN_CONFIG[initialSrc.tool].format;
+    let usedFilename = MAIN_CONFIG[initialSrc.tool].filename;
     let cloneContent = "";
-    let cfgModel = "";
-    let cfgReasoning = "";
     try {
-      cloneContent = await readProfileConfigFile(initialSrc.configDir, srcMain.filename);
-      if (cloneContent) {
-        if (srcMain.format === "json") {
-          const parsed = JSON.parse(cloneContent) as Record<string, unknown>;
-          if (typeof parsed.model === "string") cfgModel = parsed.model;
-        } else {
-          const parsed = parseToml(cloneContent) as Record<string, unknown>;
-          if (typeof parsed.model === "string") cfgModel = parsed.model;
-          if (typeof parsed.model_reasoning_effort === "string") cfgReasoning = parsed.model_reasoning_effort;
-        }
-      }
+      cloneContent = await readProfileConfigFile(usedConfigDir, usedFilename);
     } catch (e) {
-      // 解析失败不阻塞 clone，继续把 raw 内容灌进 textarea；warn 出来便于排查
-      console.warn(`applyClone parse ${srcMain.filename} failed:`, e);
+      console.warn(`applyClone read ${usedFilename} failed:`, e);
     }
-    if (latestFromRef.current !== fromId) return; // 用户已经又改过 from，丢弃本次结果
-    // 重新从最新 existing 找 src：父级 reload 期间该 profile 可能被改过
-    const src = existingRef.current.find((p) => p.id === fromId);
+    if (latestFromRef.current !== fromId) return; // 用户已经又改过 from，丢弃
+    // 重新拿 latest src：父级 reload 期间该 profile 可能被改过
+    const src = findSrc();
     if (!src) return;
+    // configDir / tool 在 await 期间变了 → 元数据用了 latest 但 cloneContent 还停在旧路径，
+    // 元数据和内容会脱节。重读一遍并 race-check。
+    if (src.configDir !== usedConfigDir || src.tool !== initialSrc.tool) {
+      usedConfigDir = src.configDir;
+      usedFormat = MAIN_CONFIG[src.tool].format;
+      usedFilename = MAIN_CONFIG[src.tool].filename;
+      try {
+        cloneContent = await readProfileConfigFile(usedConfigDir, usedFilename);
+      } catch (e) {
+        console.warn(`applyClone re-read ${usedFilename} failed:`, e);
+        cloneContent = "";
+      }
+      if (latestFromRef.current !== fromId) return;
+    }
+    const { cfgModel, cfgReasoning } = parseConfigCore(cloneContent, usedFormat);
     setForm((cur) => ({
       ...cur,
       from: fromId,
@@ -631,12 +662,12 @@ function AddProfileModal({
           </p>
         </div>
         <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose}>取消</button>
+          <button className="btn ghost" onClick={onClose} disabled={busy}>取消</button>
           <button
             className="btn primary"
-            disabled={!form.id || !/^[a-zA-Z0-9_-]+$/.test(form.id)}
+            disabled={busy || !form.id || !/^[a-zA-Z0-9_-]+$/.test(form.id)}
             onClick={() => onSubmit(form)}
-          >新建</button>
+          >{busy ? "提交中…" : "新建"}</button>
         </div>
       </div>
     </div>
