@@ -18,6 +18,27 @@ async function readFile(path: string): Promise<{ exists: boolean; content: strin
   return { exists: true, content };
 }
 
+function expandHomePath(p: string, home: string): string {
+  if (p === "~") return home;
+  if (p.startsWith("~/")) return `${home}/${p.slice(2)}`;
+  return p;
+}
+
+// 读 profile configDir 下的某个文件（如 settings.json / config.toml）。不存在返回空串。
+export async function readProfileConfigFile(configDir: string, filename: string): Promise<string> {
+  const home = await call<string>("get_home_dir");
+  const dirAbs = expandHomePath(configDir, home);
+  const r = await readFile(`${dirAbs}/${filename}`);
+  return r.exists ? r.content : "";
+}
+
+// 把内容写到 profile configDir 下的某个文件。父目录不存在时由 Rust 端 mkdir -p。
+export async function writeProfileConfigFile(configDir: string, filename: string, content: string): Promise<void> {
+  const home = await call<string>("get_home_dir");
+  const dirAbs = expandHomePath(configDir, home);
+  await saveFile(`${dirAbs}/${filename}`, content);
+}
+
 async function version(cmd: string): Promise<string> {
   return call<string>("get_tool_version", { command: cmd });
 }
@@ -115,12 +136,15 @@ export const dchProfile = {
 
   add: (tool: ToolKind, id: string, opts: {
     dir?: string; env?: Record<string, string>; description?: string; from?: string;
+    preHook?: string; postHook?: string;
   } = {}) => {
     const args = ["add", tool, id];
     if (opts.dir) args.push("--dir", opts.dir);
     if (opts.from) args.push("--from", opts.from);
     if (opts.description) args.push("--desc", opts.description);
     for (const [k, v] of Object.entries(opts.env ?? {})) args.push("--env", `${k}=${v}`);
+    if (opts.preHook) args.push("--pre-hook", opts.preHook);
+    if (opts.postHook) args.push("--post-hook", opts.postHook);
     return runDch<{ ok: true; profile: Profile }>(args);
   },
 

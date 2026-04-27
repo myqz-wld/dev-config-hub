@@ -35,6 +35,10 @@ function info(msg: string) {
   console.log(`${c.gray}${msg}${c.reset}`);
 }
 
+// 已知带值的 flag。next arg 一律当 value 收下，不再用 startsWith("--") 误判，
+// 否则用户传 --pre-hook '--foo' 这类 hook 字面值会被吞。
+const VALUE_FLAGS = new Set(["dir", "desc", "from", "pre-hook", "post-hook"]);
+
 function parseFlags(argv: string[]): { positional: string[]; flags: Record<string, string | true>; envPairs: [string, string][] } {
   const positional: string[] = [];
   const flags: Record<string, string | true> = {};
@@ -49,11 +53,11 @@ function parseFlags(argv: string[]): { positional: string[]; flags: Record<strin
     } else if (a.startsWith("--")) {
       const key = a.slice(2);
       const next = argv[i + 1];
-      if (next === undefined || next.startsWith("--")) {
-        flags[key] = true;
-      } else {
+      if (next !== undefined && (VALUE_FLAGS.has(key) || !next.startsWith("--"))) {
         flags[key] = next;
         i++;
+      } else {
+        flags[key] = true;
       }
     } else {
       positional.push(a);
@@ -114,7 +118,7 @@ async function cmdShow(id: string) {
 async function cmdAdd(args: string[]) {
   const { positional, flags, envPairs } = parseFlags(args);
   const [toolRaw, id] = positional;
-  if (!toolRaw || !id) err("用法: dch profile add <claude|codex> <id> [--dir <path>] [--env K=V ...] [--from <id>] [--desc <text>]");
+  if (!toolRaw || !id) err("用法: dch profile add <claude|codex> <id> [--dir <path>] [--env K=V ...] [--from <id>] [--desc <text>] [--pre-hook <script>] [--post-hook <script>]");
   if (!TOOLS.includes(toolRaw as ToolKind)) err(`tool 必须是 claude 或 codex (收到 ${toolRaw})`);
   const tool = toolRaw as ToolKind;
 
@@ -127,19 +131,25 @@ async function cmdAdd(args: string[]) {
   const env: Record<string, string> = { ...(base.env ?? {}) };
   for (const [k, v] of envPairs) env[k] = v;
 
+  const preHook = typeof flags["pre-hook"] === "string" ? flags["pre-hook"] : base.hooks?.preSwitch;
+  const postHook = typeof flags["post-hook"] === "string" ? flags["post-hook"] : base.hooks?.postSwitch;
+  const hooks = (preHook || postHook)
+    ? { ...(preHook ? { preSwitch: preHook } : {}), ...(postHook ? { postSwitch: postHook } : {}) }
+    : undefined;
+
   const profile: Profile = {
     id,
     tool,
     configDir: typeof flags.dir === "string" ? flags.dir : (base.configDir ?? `~/.${tool}-${id}`),
     env: Object.keys(env).length > 0 ? env : undefined,
     description: typeof flags.desc === "string" ? flags.desc : base.description,
-    hooks: base.hooks && (base.hooks.preSwitch || base.hooks.postSwitch) ? base.hooks : undefined,
+    hooks,
   };
 
   await addProfile(profile);
   if (JSON_MODE) return jsonOut({ ok: true, profile });
   ok(`已添加 profile ${c.bold}${id}${c.reset} → ${profile.configDir}`);
-  info(`提示: 用 dch profile edit ${id} 添加 hooks，或 dch profile use ${id} 直接切换`);
+  info(`提示: dch profile use ${id} 切换；dch profile edit ${id} 改细节`);
 }
 
 async function cmdEdit(_id: string) {
@@ -292,7 +302,7 @@ function help() {
 ${c.bold}子命令:${c.reset}
   ${c.cyan}list${c.reset}                          列出所有 profile
   ${c.cyan}show${c.reset}    <id>                  打印 profile JSON
-  ${c.cyan}add${c.reset}     <claude|codex> <id>   添加 profile [--dir <path>] [--env K=V ...] [--from <id>] [--desc <text>]
+  ${c.cyan}add${c.reset}     <claude|codex> <id>   添加 profile [--dir <path>] [--env K=V ...] [--from <id>] [--desc <text>] [--pre-hook <script>] [--post-hook <script>]
   ${c.cyan}edit${c.reset}    <id>                  $EDITOR 打开 ${STORE_PATH}
   ${c.cyan}remove${c.reset}  <id>                  删除 profile (不删 configDir) [--yes]
   ${c.cyan}use${c.reset}     <id>                  原子切换 ~/.claude / ~/.codex symlink + 跑 pre/post hook

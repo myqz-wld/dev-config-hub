@@ -1,10 +1,31 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { parse as parseToml } from "smol-toml";
 import {
   dchProfile, type Profile, type ProfileStore, type ToolKind,
   type HookResult,
+  readProfileConfigFile, writeProfileConfigFile,
 } from "../bridge.ts";
 
 const TOOLS: ToolKind[] = ["claude", "codex"];
+
+const MAIN_CONFIG: Record<ToolKind, {
+  filename: string;
+  format: "json" | "toml";
+  placeholder: string;
+}> = {
+  claude: {
+    filename: "settings.json",
+    format: "json",
+    placeholder: '{\n  "env": {\n    "DISABLE_TELEMETRY": "1"\n  },\n  "permissions": {\n    "allow": ["mcp__*"]\n  }\n}\n',
+  },
+  codex: {
+    filename: "config.toml",
+    format: "toml",
+    placeholder: 'model = "gpt-5.5"\nmodel_reasoning_effort = "xhigh"\n\n[projects."/Users/apple"]\ntrust_level = "trusted"\n',
+  },
+};
+
+const REASONING_OPTIONS = ["", "minimal", "low", "medium", "high", "xhigh"];
 
 interface Props {
   onToast: (msg: string, ok: boolean) => void;
@@ -130,10 +151,7 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
               isActive={p.id === toolActive.id}
               busy={busy}
               onUse={onUse}
-              onDelete={(id) => {
-                if (!confirm(`删除 profile ${id}? configDir 不会被删除。`)) return;
-                handle(() => dchProfile.remove(id), `已删除 ${id}`);
-              }}
+              onDelete={(id) => handle(() => dchProfile.remove(id), `已删除 ${id}`)}
               onTestHook={onTestHook}
             />
           ))
@@ -152,14 +170,50 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
           existing={store.profiles}
           onClose={() => setShowAdd(false)}
           onSubmit={async (form) => {
+            // 注意：不传 from。applyClone 已把 src.{desc,env,hooks,configContent} 灌进 form，
+            // 此处全部走 form 显式值。否则 CLI 端 cmdAdd 会再用 --from 的 base 给空字段兜底，
+            // 把用户「清空 hook」的意图吞掉。
+            const dir = form.dir || `~/.${form.tool}-${form.id}`;
+            const main = MAIN_CONFIG[form.tool];
+            // textarea 优先；textarea 空且核心字段非空时，生成最小骨架
+            let content = form.configContent.trim();
+            if (!content) {
+              content = generateMinimalConfig(form.tool, {
+                model: form.cfgModel.trim(),
+                reasoning: form.cfgReasoning.trim(),
+              });
+            }
+            // dir 撞车校验：拒绝把 settings.json / config.toml 写到任何已存在 profile 的 configDir
+            // 上去。最常见触发是 clone 后没改 dir。raw 字符串比较已足够 — applyClone 不再灌
+            // dir，用户必须显式输入才会撞车，路径形式（~/ vs 绝对）跟用户自己输入一致。
+            if (content && store.profiles.some((p) => p.configDir === dir)) {
+              onToast(
+                `拒绝写入：${dir} 已被其它 profile 占用，会覆盖它的 ${main.filename}。请改 configDir。`,
+                false,
+              );
+              return;
+            }
             await handle(
-              () => dchProfile.add(form.tool, form.id, {
-                dir: form.dir || undefined,
-                env: form.env,
-                description: form.description || undefined,
-                from: form.from || undefined,
-              }),
-              `已添加 ${form.id}`,
+              async () => {
+                await dchProfile.add(form.tool, form.id, {
+                  dir: form.dir || undefined,
+                  env: form.env,
+                  description: form.description || undefined,
+                  preHook: form.preHook.trim() || undefined,
+                  postHook: form.postHook.trim() || undefined,
+                });
+                if (content) {
+                  try {
+                    await writeProfileConfigFile(dir, main.filename, content.endsWith("\n") ? content : content + "\n");
+                  } catch (e) {
+                    // profile 已落盘但配置文件没写成 — 给清晰指引而不是默默丢错
+                    throw new Error(
+                      `profile ${form.id} 已建，但写 ${dir}/${main.filename} 失败：${e instanceof Error ? e.message : String(e)}。请到 ConfigPanel 手动补，或删除该 profile 重建。`,
+                    );
+                  }
+                }
+              },
+              `已添加 ${form.id}${content ? ` + ${main.filename}` : ""}`,
             );
             setShowAdd(false);
           }}
@@ -189,6 +243,13 @@ function ProfileCard({
   const envCount = Object.keys(profile.env ?? {}).length;
   const hasPreHook = !!profile.hooks?.preSwitch;
   const hasPostHook = !!profile.hooks?.postSwitch;
+  const [confirmingDel, setConfirmingDel] = useState(false);
+
+  useEffect(() => {
+    if (!confirmingDel) return;
+    const t = setTimeout(() => setConfirmingDel(false), 4000);
+    return () => clearTimeout(t);
+  }, [confirmingDel]);
 
   return (
     <div className={`profile-card ${isActive ? "active" : ""}`}>
@@ -252,9 +313,26 @@ function ProfileCard({
             test post
           </button>
         )}
-        <button className="btn-sm danger" disabled={busy} onClick={() => onDelete(profile.id)}>
-          删除
-        </button>
+        <div className="profile-card-actions-spacer" />
+        {!confirmingDel ? (
+          <button className="btn-sm danger" disabled={busy} onClick={() => setConfirmingDel(true)}>
+            删除
+          </button>
+        ) : (
+          <>
+            <span className="profile-confirm-hint">确认删除？configDir 不会动</span>
+            <button className="btn-sm" disabled={busy} onClick={() => setConfirmingDel(false)}>
+              取消
+            </button>
+            <button
+              className="btn-sm danger danger-solid"
+              disabled={busy}
+              onClick={() => { setConfirmingDel(false); onDelete(profile.id); }}
+            >
+              确认删除
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -275,6 +353,37 @@ interface AddForm {
   description: string;
   from: string;
   env: Record<string, string>;
+  preHook: string;
+  postHook: string;
+  configContent: string;     // settings.json / config.toml 完整内容
+  cfgModel: string;          // 核心字段：model（claude/codex 都支持）
+  cfgReasoning: string;      // 核心字段：仅 codex（model_reasoning_effort）
+}
+
+// TOML basic string escape：\ → \\, " → \", control chars → \uXXXX。
+// 顺序很重要：必须先转 \ 再转 ", 否则后转的会把前转出来的 \ 再吃一次。
+function tomlBasicString(s: string): string {
+  const esc = s
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/[\x00-\x1f\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  return `"${esc}"`;
+}
+
+function generateMinimalConfig(
+  tool: ToolKind, fields: { model: string; reasoning: string },
+): string {
+  if (tool === "claude") {
+    const obj: Record<string, unknown> = {};
+    if (fields.model) obj.model = fields.model;
+    return Object.keys(obj).length ? JSON.stringify(obj, null, 2) : "";
+  }
+  // codex toml — 用 tomlBasicString 完整转义，避免特殊字符（反斜杠 / 控制字符 / 换行）
+  // 生成无效 TOML 让工具下次启动报错。
+  const lines: string[] = [];
+  if (fields.model) lines.push(`model = ${tomlBasicString(fields.model)}`);
+  if (fields.reasoning) lines.push(`model_reasoning_effort = ${tomlBasicString(fields.reasoning)}`);
+  return lines.join("\n");
 }
 
 function AddProfileModal({
@@ -286,17 +395,79 @@ function AddProfileModal({
   onSubmit: (form: AddForm) => void;
 }) {
   const [form, setForm] = useState<AddForm>({
-    tool, id: "", dir: "", description: "", from: "", env: {},
+    tool, id: "", dir: "", description: "", from: "", env: {}, preHook: "", postHook: "",
+    configContent: "", cfgModel: "", cfgReasoning: "",
   });
   const [envKey, setEnvKey] = useState("");
   const [envVal, setEnvVal] = useState("");
 
   const dirPlaceholder = `~/.${form.tool}-${form.id || "<id>"}`;
   const sameTooLProfiles = existing.filter((p) => p.tool === form.tool);
+  const main = MAIN_CONFIG[form.tool];
+  // 防 applyClone 异步竞态：用户连点 from=A → from=B 时，记录最新选择，
+  // 滞后到达的旧 promise 不能再回写 form。
+  const latestFromRef = useRef<string>("");
+
+  const applyClone = async (fromId: string) => {
+    latestFromRef.current = fromId;
+    if (!fromId) {
+      setForm((cur) => ({ ...cur, from: "" }));
+      return;
+    }
+    const src = existing.find((p) => p.id === fromId);
+    if (!src) return;
+    const srcMain = MAIN_CONFIG[src.tool];
+    let cloneContent = "";
+    let cfgModel = "";
+    let cfgReasoning = "";
+    try {
+      cloneContent = await readProfileConfigFile(src.configDir, srcMain.filename);
+      if (cloneContent) {
+        if (srcMain.format === "json") {
+          const parsed = JSON.parse(cloneContent) as Record<string, unknown>;
+          if (typeof parsed.model === "string") cfgModel = parsed.model;
+        } else {
+          const parsed = parseToml(cloneContent) as Record<string, unknown>;
+          if (typeof parsed.model === "string") cfgModel = parsed.model;
+          if (typeof parsed.model_reasoning_effort === "string") cfgReasoning = parsed.model_reasoning_effort;
+        }
+      }
+    } catch (e) {
+      // 解析失败不阻塞 clone，继续把 raw 内容灌进 textarea；warn 出来便于排查
+      console.warn(`applyClone parse ${srcMain.filename} failed:`, e);
+    }
+    if (latestFromRef.current !== fromId) return; // 用户已经又改过 from，丢弃本次结果
+    setForm((cur) => ({
+      ...cur,
+      from: fromId,
+      tool: src.tool,
+      // 注意：故意不灌 dir。否则用户没改 dir 直接 submit 会让 writeProfileConfigFile
+      // 把源 profile 的 settings.json / config.toml 覆盖掉。dir 走默认 placeholder
+      // `~/.${tool}-${id}` 才安全。
+      description: cur.description || src.description || "",
+      env: Object.keys(cur.env).length ? cur.env : { ...(src.env ?? {}) },
+      preHook: cur.preHook || src.hooks?.preSwitch || "",
+      postHook: cur.postHook || src.hooks?.postSwitch || "",
+      configContent: cur.configContent || cloneContent,
+      cfgModel: cur.cfgModel || cfgModel,
+      cfgReasoning: cur.cfgReasoning || cfgReasoning,
+    }));
+  };
+
+  const onChangeTool = (t: ToolKind) => {
+    // 切换 tool 时清掉跟 tool 绑定的字段（dir 占位、configContent 格式、cfgReasoning 仅 codex 用）
+    setForm((cur) => ({
+      ...cur,
+      tool: t,
+      from: "",
+      configContent: "",
+      cfgReasoning: t === "codex" ? cur.cfgReasoning : "",
+    }));
+  };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h2>新建 profile</h2>
           <button className="modal-close" onClick={onClose}>×</button>
@@ -304,7 +475,7 @@ function AddProfileModal({
         <div className="modal-body">
           <div className="form-row">
             <label>tool</label>
-            <select value={form.tool} onChange={(e) => setForm({ ...form, tool: e.target.value as ToolKind })}>
+            <select value={form.tool} onChange={(e) => onChangeTool(e.target.value as ToolKind)}>
               {TOOLS.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
@@ -337,11 +508,51 @@ function AddProfileModal({
           </div>
           <div className="form-row">
             <label>从已有 profile clone</label>
-            <select value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })}>
+            <select value={form.from} onChange={(e) => applyClone(e.target.value)}>
               <option value="">（不 clone）</option>
               {sameTooLProfiles.map((p) => <option key={p.id} value={p.id}>{p.id}</option>)}
             </select>
           </div>
+
+          <div className="form-section-title">模型配置 — 写入 <code>{form.dir || dirPlaceholder}/{main.filename}</code></div>
+          <div className="form-row">
+            <label>model</label>
+            <input
+              type="text"
+              value={form.cfgModel}
+              onChange={(e) => setForm({ ...form, cfgModel: e.target.value })}
+              placeholder={form.tool === "claude" ? "claude-opus-4-7 / claude-sonnet-4-6" : "gpt-5.5 / gpt-5.4-mini"}
+            />
+          </div>
+          {form.tool === "codex" && (
+            <div className="form-row">
+              <label>reasoning_effort</label>
+              <select
+                value={form.cfgReasoning}
+                onChange={(e) => setForm({ ...form, cfgReasoning: e.target.value })}
+              >
+                {REASONING_OPTIONS.map((r) => (
+                  <option key={r} value={r}>{r || "(默认)"}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="form-row form-row-block">
+            <label>{main.filename} 完整内容（可选；非空则覆盖上面的 model 字段）</label>
+            <textarea
+              className="form-hook-input form-config-input"
+              value={form.configContent}
+              onChange={(e) => setForm({ ...form, configContent: e.target.value })}
+              placeholder={main.placeholder}
+              rows={8}
+              spellCheck={false}
+            />
+            <p className="form-hint">
+              留空则不创建 <code>{main.filename}</code>。
+            </p>
+          </div>
+
+          <div className="form-section-title">profile 元信息</div>
           <div className="form-row form-row-env">
             <label>env</label>
             <div className="form-env-block">
@@ -368,13 +579,37 @@ function AddProfileModal({
                 >+</button>
               </div>
               <p className="form-hint">
-                提示：env 仅在 pre/post hook 脚本里生效（用于 hook 内的 curl / shell 命令），不会注入给 claude / codex 进程。
+                env 仅在 pre/post hook 子进程里可见；要让 claude / codex 进程拿到，参考 README「Shell wrapper」。
               </p>
             </div>
           </div>
-          <div className="form-hint">
-            hooks (preSwitch / postSwitch) 暂时通过 <code>dch profile edit {form.id || "&lt;id&gt;"}</code> 编辑 ~/.dch/profiles.json 添加。
+          <div className="form-row form-row-block">
+            <label>preSwitch hook (bash)</label>
+            <textarea
+              className="form-hook-input"
+              value={form.preHook}
+              onChange={(e) => setForm({ ...form, preHook: e.target.value })}
+              placeholder="bash $HOME/.dch/scripts/ensure-proxy.sh"
+              rows={3}
+              spellCheck={false}
+            />
           </div>
+          <div className="form-row form-row-block">
+            <label>postSwitch hook (bash)</label>
+            <textarea
+              className="form-hook-input"
+              value={form.postHook}
+              onChange={(e) => setForm({ ...form, postHook: e.target.value })}
+              placeholder="bash $HOME/.dch/scripts/health-check.sh"
+              rows={3}
+              spellCheck={false}
+            />
+          </div>
+          <p className="form-hint">
+            hook 通过 <code>bash -lc</code> 运行，可注入变量：
+            <code>DCH_PROFILE_ID</code> / <code>DCH_PROFILE_TOOL</code> / <code>DCH_PROFILE_CONFIG_DIR</code> /
+            <code>DCH_SWITCH_TO</code> / <code>DCH_SWITCH_FROM</code>，以及 profile.env。
+          </p>
         </div>
         <div className="modal-foot">
           <button className="btn ghost" onClick={onClose}>取消</button>

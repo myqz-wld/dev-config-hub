@@ -154,14 +154,22 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .profile-env-list code { font-size: 11px; color: var(--fg1); }
 .profile-hook-script { background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); padding: 8px 10px; font-size: 11px; color: var(--fg1); margin: 0; white-space: pre-wrap; flex: 1; }
 .profile-card-actions { display: flex; gap: 8px; padding: 10px 16px; background: var(--bg2); border-top: 1px solid var(--border); flex-wrap: wrap; align-items: center; }
+.profile-card-actions-spacer { flex: 1; }
+.profile-confirm-hint { font-size: 11px; color: var(--orange); margin-right: 4px; }
 .btn-sm.danger { color: var(--red); border-color: rgba(248,81,73,.2); }
 .btn-sm.danger:hover { background: rgba(248,81,73,.08); }
+.btn-sm.danger.danger-solid { background: rgba(248,81,73,.18); border-color: rgba(248,81,73,.5); color: var(--red); font-weight: 600; }
+.btn-sm.danger.danger-solid:hover { background: rgba(248,81,73,.28); }
 
 .profile-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ── Modal ── */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(4px); animation: pop .15s ease; }
 .modal { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--r); width: min(560px, 90vw); max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,.6); }
+.modal-wide { width: min(720px, 92vw); max-height: 86vh; }
+.form-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--fg3); margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.form-section-title code { color: var(--cyan); text-transform: none; letter-spacing: 0; font-size: 11px; font-weight: 600; }
+.form-config-input { min-height: 140px; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .modal-head h2 { font-size: 15px; font-weight: 700; }
 .modal-close { background: none; border: none; color: var(--fg2); font-size: 22px; cursor: pointer; line-height: 1; padding: 0 4px; }
@@ -173,7 +181,8 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .form-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .form-row > label { min-width: 100px; color: var(--fg2); font-weight: 600; font-size: 12px; }
 .form-row input[type="text"], .form-row input[type="number"], .form-row select { flex: 1; padding: 6px 10px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); color: var(--fg0); font-family: inherit; font-size: 13px; }
-.form-row input:focus, .form-row select:focus { outline: none; border-color: var(--blue); }
+.form-row input:focus, .form-row select:focus, .form-row textarea:focus { outline: none; border-color: var(--blue); }
+.form-hook-input { width: 100%; padding: 8px 10px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); color: var(--fg0); font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.5; resize: vertical; min-height: 60px; }
 .form-row-block { flex-direction: column; align-items: stretch; gap: 6px; }
 .form-row-block label { min-width: 0; }
 .form-row-block .raw { background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); padding: 8px 10px; max-height: 200px; overflow: auto; }
