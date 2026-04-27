@@ -26,7 +26,8 @@ export function App() {
 
   const flash = useCallback((msg: string, ok: boolean) => {
     setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3000);
+    // 错误 toast 多停留几秒，避免 4 段拼起来的 error message 用户来不及看完
+    setTimeout(() => setToast(null), ok ? 3000 : 8000);
   }, []);
 
   const onSave = async (path: string, content: string) => {
