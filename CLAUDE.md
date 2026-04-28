@@ -1,120 +1,172 @@
----
-description: Use Bun instead of Node.js, npm, pnpm, or vite.
-globs: "*.ts, *.tsx, *.html, *.css, *.js, *.jsx, package.json"
-alwaysApply: false
----
+# CLAUDE.md
 
-## Build & Install
+> 给 Claude Code 在本仓库工作时的硬性约定。本文件聚焦 **Dev Config Hub 专属** 的设计要点与改动流程；通用工程约定（输出语言、外部 CLI 调用、双 Agent 对抗审视等）由调用方自行约束，不在此重复。
 
-构建 Tauri 桌面应用并安装到 /Applications：
+## 仓库基础
+
+- macOS 环境（Tauri 依赖 WebKit；Profile 切换语义紧贴 macOS 文件系统）
+- 包管理器 / 运行时 **统一用 Bun**（不要混 npm / pnpm / yarn）
+- Rust ≥ 1.77（Tauri v2 后端）
+
+## 构建 & 本地安装
 
 ```bash
 bunx tauri build --bundles app
 cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 ```
 
-Default to using Bun instead of Node.js.
+---
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
+## 改动后必做
 
-## APIs
+### 1. 判断是否要更新 README.md
 
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+**README.md 是「功能总览」**：用户视角的能力清单。三问：
 
-## Testing
+1. 新增 / 修改了**用户可见行为**？（CLI 子命令、UI 控件、配置项、symlink 切换语义、Hook 注入变量）→ 改对应章节
+2. 改动了**文件结构 / 新建模块**？→ 改「项目结构」节
+3. 改动了**启动方式 / 依赖 / 验证步骤**？→ 改「快速开始」节
 
-Use `bun test` to run tests.
+纯 bug 修复 / 内部重构（不改用户感知）→ 不动 README，写到 `changelog/` 或 `reviews/`。
 
-```ts#index.test.ts
-import { test, expect } from "bun:test";
+### 2. 写 changelog 或 review（**必做，二选一**）
 
-test("hello world", () => {
-  expect(1).toBe(1);
-});
+| 类型 | 写到 | 例子 |
+|---|---|---|
+| **功能变更**（新功能 / 行为修改 / API / 依赖升级） | `changelog/` | 新增 Profile 系统、删 env 模式、加 `dch profile env` |
+| **Debug / 性能 / 安全 review**（不引入新功能，只修问题或加固） | `reviews/` | TOCTOU / shell 注入 / hook 超时审查 |
+
+#### `changelog/` 规则
+
+- 文件名 `CHANGELOG_X.md`，X 递增整数。新建前 `ls changelog/` 找最大 X
+- **小改动**（一两个文件、几十行同主题）→ 追加到最新 `CHANGELOG_X.md`
+- **大改动**（多模块 / 上百行 / 新功能）→ 新建 `CHANGELOG_X+1.md`
+- 每次改 `changelog/` 都要同步 `changelog/INDEX.md`（简表：`[CHANGELOG_X.md](CHANGELOG_X.md) | 一句话概要`）
+- 单文件结构：标题 + 概要（2-3 行）+ 变更内容（按模块 bullet）。**不要写「踩坑细节 / 推演过程」**——那些去 `reviews/`
+
+#### `reviews/` 规则
+
+- 文件名 `REVIEW_X.md`，X 递增整数。新建前 `ls reviews/` 找最大 X
+- 每份 review 单文件结构：触发场景 + 方法（双对抗 Agent / 范围 / 工具）+ 三态裁决清单 + 修复条目
+- 同步更新 `reviews/INDEX.md`
+
+### 3. 改功能前先读 changelog
+
+修改任何模块前，**先 `ls changelog/` + 浏览相关条目**，了解历史决策、避免推翻已有约定。比如「为什么删除了 env 切换模式只留 symlink」、「为什么 profile.env 不再写到 user-level settings.json」这类设计取舍都在 changelog 里有迹可循。
+
+---
+
+## 项目特定约定（设计要点速查）
+
+反复出现过的设计决定，改动前注意：
+
+### Bun first，禁止引 Node 同义工具
+
+`tsconfig.json` 已经把类型与运行时锚定到 Bun。所有等价工具一律走 Bun 内置：
+
+- 用 `bun <file>` 而不是 `node <file>` / `ts-node <file>`
+- 用 `bun test` 而不是 `jest` / `vitest`
+- 用 `bun build <file.html|file.ts|file.css>` 而不是 `webpack` / `esbuild`
+- 用 `bun install` / `bun run <script>` / `bunx <pkg>`，不要混 npm / pnpm / yarn
+- Bun 自动加载 `.env`，**不要引 dotenv**
+- HTTP 用 `Bun.serve()`（带 WebSocket / HTTPS / routes），不要引 express
+- SQLite 用 `bun:sqlite`，不要引 better-sqlite3
+- 文件 IO 优先 `Bun.file`，子进程优先 `Bun.$`，不要引 execa
+
+前端走 Bun 的 HTML imports + 内置 bundler（自动支持 React / CSS / Tailwind），不要引 vite。
+
+### Profile 系统：symlink 是唯一切换通道
+
+- `~/.claude` / `~/.codex` 永远是 symlink，指向某个 `<configDir>`。`dch profile use <id>` 通过「先 `ln -s` 临时名，再 `mv` 覆盖」做原子替换
+- 第一次切换前必须跑 `dch profile init <tool>`：把现有真实目录 mv 到 `~/.<tool>-default`，再 ln -s 回去并注册成 default profile
+- **不再支持 env 切换模式**：历史上有 env-only 模式（不动 symlink，只把 env 写到 user-level `settings.json`），但会泄漏到所有 cwd，且 codex 没有对应机制，已统一删除（CHANGELOG_3）
+- 切换语义按 4 步走：① 跑 `preSwitch` hook（含 profile.env），失败则中断且不更新 active；② 原子 swap symlink；③ 写回 `~/.dch/profiles.json` 的 `active.<tool>`；④ 跑 `postSwitch` hook，失败仅警告
+
+### `profile.env` 双注入路径
+
+`profile.env` 默认只在 `preSwitch` / `postSwitch` 脚本里可见（用于 hook 内 curl 走代理等）。要让 env 也注入到 claude / codex 进程本身（OAuth 登录 / API 调用走代理）：
+
+- 推荐：`dch profile env <tool>` 输出 shell-eval 格式 + `~/.zshrc` 加子 shell wrapper（CHANGELOG_4）
+- 也可：把 env 写到 `<configDir>/settings.json` 的 `env` 块（**仅 claude code 支持**，codex 没有此机制）
+
+`dch profile env` 的输出格式严格校验：key 必须匹配 `^[A-Za-z_][A-Za-z0-9_]*$`，value 单引号包裹做转义，**杜绝 shell 注入**。active 为空 / env 空时静默无输出，让 wrapper 自然 fall-through 到原命令。
+
+### Hook 注入的环境变量（契约不变）
+
+执行 `preSwitch` / `postSwitch` 脚本时注入：
+
+```
+DCH_PROFILE_ID         切到的 profile id
+DCH_PROFILE_TOOL       claude | codex
+DCH_PROFILE_CONFIG_DIR 该 profile 的绝对路径
+DCH_SWITCH_TO          目标 profile id（同 DCH_PROFILE_ID）
+DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 ```
 
-## Frontend
+变量名是对外契约，不要在脚本里硬编码绝对路径。`preSwitch` 退出码非零 → 中断切换，不更新 active 状态、不跑 postSwitch。
 
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
+### Tauri / 前端边界
 
-Server:
+- 前端在 `src/client/`，通过 `bridge.ts` 调用 Tauri command；后端在 `src-tauri/src/lib.rs`，主要做文件读写 / 版本检测 / `run_dch_command`（spawn cli）
+- **CLI 是单一入口**：UI 的所有 profile 操作都通过 `run_dch_command` 调 cli 子命令，不要在 Rust 端复刻一份 profile 逻辑（避免 UI / CLI 行为分叉）
+- **不要用 `window.confirm`**：Tauri 2 的 webview 不弹原生 confirm，所有确认必须改成内联 UI 状态（CHANGELOG_5）
+- 前端表单一次填齐 preHook / postHook + 模型配置，不要分多步引导（CHANGELOG_5）
 
-```ts#index.ts
-import index from "./index.html"
+### 配置描述来源
 
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
+UI 展示的配置项描述全部来自各工具的官方文档 / Schema，**不允许自行揣测**：
+
+- Claude Code: `https://json.schemastore.org/claude-code-settings.json`
+- Codex CLI: 官方 config-reference 文档
+- OpenCode: 官方 config docs
+- Shell（zprofile / zshrc）: 不做语法解析，直接展示原文
+
+新增工具支持时，按这个原则给 `descriptions.ts` 喂数据。
+
+---
+
+## 反复反馈 / 反复踩坑 → 升级约定（自维护机制）
+
+候选放 `.claude/conventions-tally.md`，count ≥ 3 升级到本文件「项目特定约定」。
+
+| 类型 | 触发条件 |
+|---|---|
+| **用户反馈** (`# 用户反馈候选`) | 用户给「纠正性 / 偏好性」反馈：「不要…」「应该…」「以后…」「记住…」「每次…」 |
+| **Agent 踩坑** (`# Agent 踩坑候选`) | Coding Agent 在 review / 修 bug 时**自己**发现踩了同类坑（典型：未走 symlink 路径校验、shell 注入、Tauri 2 弹原生 confirm） |
+
+count = 3 → 走「双对抗三态裁决」评审升级提案后写入；count < 3 → 静默更新 tally。30 天未更新且 count < 3 → 下次扫描可清理。
+
+> tally 是 Claude Code 内部状态，**不要手工管理**。
+
+---
+
+## 验证流程
+
+```bash
+# 单测
+bun test
+
+# 端到端冒烟
+bun install
+bun run dev                                      # Tauri 桌面窗口 + HMR
+bun run cli                                      # CLI 总览
+
+# Profile 链路冒烟（首次必须 init）
+bun run cli profile init claude                  # 把 ~/.claude 转成 symlink + 建立 default
+bun run cli profile add claude claude-test --dir ~/.claude-test --desc "smoke"
+bun run cli profile use claude-test              # 切换 + 跑 hook
+bun run cli profile current claude               # 应该输出 claude-test
+bun run cli profile use claude-default           # 切回
+bun run cli profile remove claude-test --yes
 ```
 
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
+修改 `src-tauri/**` 后必须重新 `bun run dev`（Rust 后端要重编）；只改前端走 HMR 自动推送。
 
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
+## 已踩的坑（别再回退）
 
-With the following `frontend.tsx`:
+每条都有对应 changelog：
 
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
-
-// import .css files directly and it works
-import './index.css';
-
-const root = createRoot(document.body);
-
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
-
-root.render(<Frontend />);
-```
-
-Then, run index.ts
-
-```sh
-bun --hot ./index.ts
-```
-
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+- **不要再加 env 切换模式**：曾经支持过「不切 symlink、只把 env 写到 user-level `settings.json`」，结果污染所有 cwd 而且 codex 没对应机制，CHANGELOG_3 已删干净
+- **`dch profile env` 必须严格校验 key/value**：CHANGELOG_4 的 wrapper 直接 `eval` 输出，任何漏校验都是 shell 注入入口
+- **UI 不要弹 `window.confirm`**：Tauri 2 webview 不支持，会卡死操作（CHANGELOG_5）
+- **新建 profile 表单一次填齐**：preHook / postHook / 模型配置一并采集，不要分步引导（CHANGELOG_5）
