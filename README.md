@@ -1,8 +1,10 @@
 # Dev Config Hub
 
-一个本地桌面应用，用于可视化查看和编辑开发工具的配置文件，并在 **Claude Code / Codex CLI 的多套认证 profile 间快速切换**（订阅 vs API Key 等场景）。
+本地桌面应用，用于可视化查看和编辑开发工具的配置文件，并在 **Claude Code / Codex CLI 的多套认证 profile 间快速切换**（订阅 vs API Key 等场景）。
 
-基于 [Tauri v2](https://v2.tauri.app/) (Rust + WebView) 构建，支持以下工具：
+基于 [Tauri v2](https://v2.tauri.app/)（Rust + WebView）构建，前后端均跑在 [Bun](https://bun.sh/) 上。
+
+## 支持的工具
 
 | 工具 | 配置文件 | 格式 |
 |------|---------|------|
@@ -11,29 +13,30 @@
 | **Codex CLI** | `~/.codex/config.toml` | TOML |
 | **OpenCode** | `~/.config/opencode/opencode.json` | JSON |
 
-## 功能
+## 核心能力
 
-- 按工具分组展示所有配置文件，附官方文档描述
-- 支持查看源文件原文 / 直接编辑保存
-- 自动检测工具版本
-- 同时提供 CLI 模式 (`dch`) 和桌面 GUI
+- **配置可视化**：按工具分组展示所有配置文件，附官方文档/Schema 描述
+- **原文查看 + 直接编辑保存**：源文件保真，无中间转换
+- **自动检测工具版本**
+- **CLI + GUI 双入口**：`dch` 子命令完整覆盖功能；`dch gui` / `bun run dev` 启动桌面窗口
 - **Profile 快速切换**：维护多套 Claude / Codex 配置（如 `claude-pro` / `claude-api`、`codex-plus` / `codex-api`），一键原子切换 `~/.claude` / `~/.codex` symlink，全局生效
-- **切换前/后 Hook**：每个 profile 可定义 `preSwitch` / `postSwitch` shell 脚本，自动 kill 残留进程、起 VPN、健康探测、osascript 通知等。`preSwitch` 失败会中断切换
+- **切换前 / 后 Hook**：每个 profile 可定义 `preSwitch` / `postSwitch` shell 脚本，用于自动 kill 残留进程、起 VPN、健康探测、osascript 通知等。`preSwitch` 失败会中断切换
+- **shell wrapper 注入 env**：`dch profile env` + `~/.zshrc` 子 shell wrapper，让 profile.env 落到 claude / codex 进程本身（OAuth / API 走代理）
 
 ## 配置描述来源
 
-描述文字均来自各工具的官方文档/Schema，未做自行推测：
+描述文字均来自各工具的官方文档 / Schema，未做自行推测：
 
 - Claude Code: [claude-code-settings.json](https://json.schemastore.org/claude-code-settings.json)
 - Codex CLI: [config-reference](https://developers.openai.com/codex/config-reference)
 - OpenCode: [config docs](https://opencode.ai/docs/config/)
-- Shell: 不做语法解析，直接展示原文
+- Shell：不做语法解析，直接展示原文
 
 ## 环境要求
 
-- [Bun](https://bun.sh/) >= 1.1
-- [Rust](https://rustup.rs/) >= 1.77
-- macOS (Tauri 依赖 WebKit)
+- [Bun](https://bun.sh/) ≥ 1.1
+- [Rust](https://rustup.rs/) ≥ 1.77
+- macOS（Tauri 依赖 WebKit）
 
 ## 快速开始
 
@@ -41,26 +44,30 @@
 # 安装依赖
 bun install
 
-# 开发模式 (Tauri 桌面窗口 + HMR)
+# 开发模式（Tauri 桌面窗口 + HMR）
 bun run dev
 
 # 构建生产包
 bun run build
 
+# 安装到 /Applications
+bunx tauri build --bundles app
+cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
+
 # CLI 模式
-bun run cli           # 总览
-bun run cli claude    # 查看 Claude Code 配置
-bun run cli edit ~/.claude/settings.json  # 用 $EDITOR 编辑
-bun run cli gui       # 启动桌面窗口
+bun run cli                                # 总览
+bun run cli claude                         # 查看 Claude Code 配置
+bun run cli edit ~/.claude/settings.json   # 用 $EDITOR 编辑
+bun run cli gui                            # 启动桌面窗口
 
 # Profile 子命令
-bun run cli profile               # 列出所有 profile
-bun run cli profile init claude   # 把 ~/.claude 转成 symlink 并建立默认 profile
+bun run cli profile                              # 列出所有 profile
+bun run cli profile init claude                  # 把 ~/.claude 转成 symlink 并建立默认 profile
 bun run cli profile add claude claude-api --dir ~/.claude-api --env ANTHROPIC_API_KEY=sk-...
-bun run cli profile use claude-api          # 原子切换 symlink + 跑 pre/post hook
+bun run cli profile use claude-api               # 原子切换 symlink + 跑 pre/post hook
 ```
 
-首次 `bun run dev` 需要编译 Rust 依赖，大约 2-3 分钟。后续启动秒开。
+首次 `bun run dev` 需要编译 Rust 依赖，约 2-3 分钟，后续启动秒开。
 
 ## CLI 用法
 
@@ -75,7 +82,7 @@ dch claude            # Claude Code 配置
 dch codex             # Codex CLI 配置
 dch opencode          # OpenCode 配置
 dch all               # 全部展示
-dch gui               # 启动桌面窗口 (等同于 bun run dev)
+dch gui               # 启动桌面窗口（等同于 bun run dev）
 dch edit <file>       # 用 $EDITOR 编辑指定配置文件
 
 # Profile 管理
@@ -86,7 +93,7 @@ dch profile edit <id>                        # $EDITOR 打开 ~/.dch/profiles.js
 dch profile remove <id> [--yes]              # 删除 profile（不删 configDir）
 dch profile use <id>                         # 原子切换 ~/.claude / ~/.codex symlink + 跑 pre/post hook
 dch profile current [tool]                   # 查询当前 active
-dch profile env <claude|codex>               # 输出 active profile.env 为 shell-eval 格式（供 zshrc wrapper 注入到 claude / codex 进程）
+dch profile env <claude|codex>               # 输出 active profile.env 为 shell-eval 格式
 dch profile init <claude|codex>              # 把 ~/.claude / ~/.codex 转成 symlink，建立 default profile
 dch profile hook test <id> <pre|post>        # 单独运行 hook 测试
 dch profile config hookTimeoutMs <ms>        # 设置 hook 超时
@@ -121,7 +128,7 @@ dch profile config hookTimeoutMs <ms>        # 设置 hook 超时
 }
 ```
 
-> `profile.env` 默认只在 `preSwitch` / `postSwitch` 脚本里可见（用于 hook 内的 curl 走代理等）。**如果想让 env 也注入到 claude / codex 进程本身**（如 OAuth 登录走 HTTP 代理），用 `dch profile env <tool>` + zshrc shell wrapper（见下「shell wrapper」节）。或者把 env 写到 `<configDir>/settings.json` 的 `env` 块（仅 claude code 支持，codex 没有这个机制）。
+> `profile.env` 默认只在 `preSwitch` / `postSwitch` 脚本里可见（用于 hook 内 curl 走代理等）。**要让 env 也注入到 claude / codex 进程本身**（如 OAuth 登录走 HTTP 代理），用 `dch profile env <tool>` + zshrc shell wrapper（见下「shell wrapper」节）。或者把 env 写到 `<configDir>/settings.json` 的 `env` 块（仅 claude code 支持，codex 没有这个机制）。
 
 ### Hook 注入的环境变量
 
@@ -165,10 +172,11 @@ codex() (
 ```
 
 要点：
+
 - 子 shell `(...)` 包裹：env 只对 claude / codex 进程生效，**不污染父 shell**
 - `exec command claude` 替换子 shell 进程，少一层 fork，且绕过 wrapper 自身防止递归
 - `dch profile env <tool>` active 为空 / env 空 → 静默无输出，wrapper 自然 fall-through 到原命令
-- profile.env key 走严格 `^[A-Za-z_][A-Za-z0-9_]*$` 校验 + value 单引号包裹，无 shell 注入
+- profile.env key 走严格 `^[A-Za-z_][A-Za-z0-9_]*$` 校验 + value 单引号包裹，**无 shell 注入风险**
 
 切换 profile 后**新跑**的 claude / codex 自动用新 profile 的 env，无需 reload shell。
 
@@ -180,7 +188,7 @@ codex() (
 │   ├── cli-colors.ts         # ANSI 颜色常量（cli.ts + cli-profile.ts 共享）
 │   ├── cli-profile.ts        # `dch profile ...` 子命令实现，支持 --json
 │   ├── types.ts              # 共享类型
-│   ├── descriptions.ts       # 配置项描述 (官方文档)
+│   ├── descriptions.ts       # 配置项描述（来自官方文档 / Schema）
 │   ├── utils.ts              # 文件读取等工具
 │   ├── profiles/             # Profile 系统核心（Bun-only）
 │   │   ├── types.ts          # Profile / ProfileStore / HookResult / ...
@@ -194,7 +202,7 @@ codex() (
 │   │   ├── claude-code.ts
 │   │   ├── codex.ts
 │   │   └── opencode.ts
-│   └── client/               # Tauri 前端 (React)
+│   └── client/               # Tauri 前端（React）
 │       ├── index.html
 │       ├── main.tsx
 │       ├── App.tsx
@@ -204,12 +212,12 @@ codex() (
 │       └── components/
 │           ├── ConfigPanel.tsx
 │           └── ProfilePanel.tsx
-├── src-tauri/                # Tauri 后端 (Rust)
+├── src-tauri/                # Tauri 后端（Rust）
 │   ├── Cargo.toml
 │   ├── tauri.conf.json
 │   └── src/
 │       ├── main.rs
-│       └── lib.rs            # 文件读写 / 版本检测 / run_dch_command (spawn cli)
+│       └── lib.rs            # 文件读写 / 版本检测 / run_dch_command（spawn cli）
 ├── changelog/                # 功能变更记录
 └── package.json
 ```
@@ -217,4 +225,3 @@ codex() (
 ## License
 
 MIT
-
