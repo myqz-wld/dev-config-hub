@@ -7,6 +7,7 @@ import {
 import { TOOL_PATHS } from "./profiles/symlink.ts";
 import { collapseHome, expandHome, STORE_PATH } from "./profiles/store.ts";
 import { defaultProfileDir } from "./profiles/defaults.ts";
+import { defaultEditor } from "./platform.ts";
 import { c } from "./cli-colors.ts";
 
 const TOOLS: ToolKind[] = ["claude", "codex"];
@@ -154,7 +155,7 @@ async function cmdAdd(args: string[]) {
 }
 
 async function cmdEdit(_id: string) {
-  const editor = process.env.EDITOR || process.env.VISUAL || "vi";
+  const editor = defaultEditor();
   const proc = Bun.spawn([editor, STORE_PATH], { stdio: ["inherit", "inherit", "inherit"] });
   await proc.exited;
 }
