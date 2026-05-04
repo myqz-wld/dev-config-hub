@@ -170,6 +170,44 @@ H3 lost update 回归测反 skip：
 - **NFS / 远程 fs 不支持 O_EXCL atomic** — 用户把 `~/.dch/` 放 NFS / SMB 上 lock 不可靠，README 应提醒（不在本 PR 范围）
 - **lockfile 死锁场景**：若进程被 SIGKILL 没 clean lockfile，下次 stale 检测会自动覆盖（60s 内只有抢到锁的进程能写，最多卡一分钟）
 
+## PR-6 — 正确性 grab bag（M2 + M3 + M4 + M5 + M9 + M12）
+
+> reviewer-claude fix 时机提醒：「正确性 grab bag 应一起做，相互覆盖回归保护」。
+
+### `src/cli-profile.ts`
+
+- **M2** `cmdAdd --from <id>` clone：`base` 加 `description: src.description`。旧版 `base` 漏 description → line 146 `base.description` 永远 undefined → clone 出来的 profile 描述永远丢失
+- **M3** `cmdRemove` 二次确认：`process.stdin` 加 `on("end", ...)` 监听 EOF，让 Ctrl+D 也能 resolve（旧版只听 data，Ctrl+D 时 promise 永不 resolve → dch 进程 hang 必须 Ctrl+C）
+- 顺手把 stdin listener 改成具名 `onData / onEnd` + `removeListener` 解决 R2-L16 listener leak
+
+### `src/profiles/manager.ts`
+
+- **M5** addProfile / updateProfile 上游 env key 校验：新增 `ENV_KEY_RE` + `validateEnv()`（与 cli-profile.cmdEnv 输出处同 regex），非法 key 直接 throw 含 key 名
+- **M4** `useProfile` saveStore 失败时尝试回滚 symlink：fromId 存在则 `switchSymlink(fromProfile)`，回滚成功 / 失败都在 message 里说清楚；fromId 为 null（首次切换）无法回滚
+- **M9** `initTool` 已存在 profile 时**更新** configDir / isDefault（保留用户自定义 description / env / hooks）。旧版直接跳过 → 用户手动改 symlink 后再 init，store.active 指 `claude-default`(configDir=旧) 但 symlink 指新 dir，两者不一致
+
+### `src/client/bridge.ts`（M12）
+
+- `readFile`：`read_file` 调用包 try/catch，失败时降级 `{ exists: false, content: "" }`（不再让 file_exists+read_file 双 IPC TOCTOU 让 loadAllConfigs reject 整个 UI 挂）
+- 不修整体架构（合并 IPC 等到 PR-7 再考虑），只做最小防护让 race 不致命
+
+### `src/profiles/manager.test.ts`（new）
+
+- 6 case 覆盖 ENV_KEY_RE 接受 / 拒绝 + validateEnv 各路径
+- 不能直接测 addProfile / useProfile（涉及 STORE_PATH 不便注入），但 validateEnv 是纯函数 → 单测足够保护 M5
+
+### 测试基线
+
+- 70 → **76 pass / 0 fail**（新增 6 个 validateEnv case）
+- bunx tsc --noEmit 0 error
+
+### 备注
+
+- **M3 / M4 / M9 没单测**：cmdRemove EOF 需 stdin mock 复杂；useProfile rollback 需 fs+hook 集成测投资大；initTool 涉及 fs 改 ~/.claude 不适合单测。改完依靠手动 dev 端验证 + typecheck
+- **M4 rollback 也失败的情况**：极少（symlink 切换是 atomic rename，几乎不会失败）；万一发生 message 里两次都说清楚让用户手动救场
+- **M9 保留用户自定义字段**：用户可能编辑过 default profile 的 desc / env / hooks（虽然按 isDefault 标记不应该），保留更安全
+
+
 
 
 

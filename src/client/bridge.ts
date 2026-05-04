@@ -14,8 +14,17 @@ function toEntries(parsed: Record<string, unknown>, descMap: Record<string, stri
 async function readFile(path: string): Promise<{ exists: boolean; content: string }> {
   const exists = await call<boolean>("file_exists", { path });
   if (!exists) return { exists: false, content: "" };
-  const content = await call<string>("read_file", { path });
-  return { exists: true, content };
+  // PR-4/PR-6 (#M12)：file_exists + read_file 双 IPC 之间有 async gap；
+  // 另一进程 / profile 切换可能在此期间删除该文件 → read_file Err。
+  // 旧版无 catch → 异常上抛 loadAllConfigs reject → App 「加载失败」整个 UI 挂。
+  // 改：失败时降级为「文件不存在」语义，让 UI 优雅退化。
+  try {
+    const content = await call<string>("read_file", { path });
+    return { exists: true, content };
+  } catch (e) {
+    console.warn(`readFile race: ${path} 在 file_exists 与 read_file 之间消失:`, e);
+    return { exists: false, content: "" };
+  }
 }
 
 function expandHomePath(p: string, home: string): string {

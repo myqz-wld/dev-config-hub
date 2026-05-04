@@ -129,7 +129,15 @@ async function cmdAdd(args: string[]) {
   let base: Partial<Profile> = {};
   if (flags.from && typeof flags.from === "string") {
     const src = await getProfile(flags.from);
-    base = { tool: src.tool, configDir: src.configDir, env: { ...(src.env ?? {}) }, hooks: { ...(src.hooks ?? {}) } };
+    base = {
+      tool: src.tool,
+      configDir: src.configDir,
+      env: { ...(src.env ?? {}) },
+      hooks: { ...(src.hooks ?? {}) },
+      // PR-6 (#M2)：原版漏 description → line 146 `base.description` 永远 undefined
+      // → clone 出来的 profile description 永远丢失
+      description: src.description,
+    };
   }
 
   const env: Record<string, string> = { ...(base.env ?? {}) };
@@ -172,13 +180,24 @@ async function cmdRemove(args: string[]) {
     const line = await new Promise<string>((res) => {
       let acc = "";
       process.stdin.resume();
-      process.stdin.on("data", (d) => {
+      const onData = (d: Buffer) => {
         acc += d.toString();
         if (acc.includes("\n")) {
           process.stdin.pause();
+          process.stdin.removeListener("data", onData);
+          process.stdin.removeListener("end", onEnd);
           res(acc.trim());
         }
-      });
+      };
+      // PR-6 (#M3)：监听 end 让 Ctrl+D（EOF 无换行）也能 resolve；
+      // 旧版只听 data，Ctrl+D 时 promise 永不 resolve → dch 进程 hang 必须 Ctrl+C
+      const onEnd = () => {
+        process.stdin.pause();
+        process.stdin.removeListener("data", onData);
+        res(acc.trim()); // EOF 视为空输入 → 走「已取消」路径
+      };
+      process.stdin.on("data", onData);
+      process.stdin.on("end", onEnd);
     });
     if (line.toLowerCase() !== "y" && line.toLowerCase() !== "yes") {
       info("已取消");
