@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { resolve as pathResolve } from "node:path";
 import type { ToolConfig, ConfigScope, ConfigEntry } from "./types.ts";
 import { readShellConfig } from "./readers/shell.ts";
 import { readClaudeCodeConfig } from "./readers/claude-code.ts";
@@ -6,6 +7,7 @@ import { readCodexConfig } from "./readers/codex.ts";
 import { readOpenCodeConfig } from "./readers/opencode.ts";
 import { runProfileCommand } from "./cli-profile.ts";
 import { c, LEVEL_COLORS } from "./cli-colors.ts";
+import { HOME, defaultEditor } from "./platform.ts";
 
 function renderValue(value: unknown, indent: number): string {
   const pad = " ".repeat(indent);
@@ -149,7 +151,7 @@ async function main() {
 
   if (args[0] === "gui" || args[0] === "ui") {
     const proc = Bun.spawn(["bunx", "tauri", "dev"], {
-      cwd: import.meta.dir + "/..",
+      cwd: pathResolve(import.meta.dir, ".."),
       stdio: ["inherit", "inherit", "inherit"],
     });
     await proc.exited;
@@ -168,8 +170,8 @@ async function main() {
       }
       process.exit(1);
     }
-    const editor = process.env.EDITOR || process.env.VISUAL || "vi";
-    const resolved = filePath.startsWith("~") ? filePath.replace("~", process.env.HOME || "") : filePath;
+    const editor = defaultEditor();
+    const resolved = filePath.startsWith("~") ? filePath.replace("~", HOME) : filePath;
     const proc = Bun.spawn([editor, resolved], { stdio: ["inherit", "inherit", "inherit"] });
     await proc.exited;
     return;
