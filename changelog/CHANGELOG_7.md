@@ -93,6 +93,46 @@ H3 lost update 回归测（`it.skip`，PR-5 修文件锁后反 skip）：
 - **GRACE_MS = 500 选取**：drain 完成正常 ≪ 100ms；500ms 给 SIGTERM 时间生效又不显著拖长 timeout 体感
 - **Win 上 `proc.kill()` 行为**：Bun runtime 默认用 `TerminateProcess`，PowerShell 进程能立即死。Win 路径不存在 detach 的 `(... &)` 语义，H1 触发面窄
 
+## PR-4 — UI 数据可靠性 + 错误回路（H2 + M11 + R3-M2 + M1）
+
+### `src/client/App.tsx`
+
+- `onSave` catch 块在 flash toast 后 `throw e` 让 caller 知道失败（旧版静默吞，让 ConfigPanel fire-and-forget 直接 setMode 丢内容）
+
+### `src/client/components/ConfigPanel.tsx`（H2）
+
+- `Scope` 组件保存按钮改 `async onClick + try/catch`：仅 `await onSave()` 成功才 setMode("view")；失败时 catch（App 已 toast）保留 edit 模式让用户继续改 textarea 或重试
+- 新增 `saving` state + 「保存中…」按钮文案；保存中 textarea / 取消 / 保存按钮全 disabled 防误操作
+- prop 类型 `(p, c) => void` → `(p, c) => Promise<void>` 匹配 async 实际签名
+
+### `src/client/components/ProfilePanel.tsx`（M11 + R3-M2）
+
+- `onUse` 失败不再 throw 简短 message，改：toast 失败原因 + 弹 `HookOutputModal` 显示失败 hook 完整 stdout/stderr（与 CLI `cmdUse` 的 `fmtHookResult` 完整打印对齐）
+- 用户在 UI 切 profile 失败现在能看到 hook 内 `echo "代理 endpoint 不通"` 之类诊断
+- 顺手修 CHANGELOG_6 后遗 typecheck 错（HookScript union 后 ProfilePanel 未同步）：
+  - 新增 `hookToString(h: HookScript | undefined): string` helper
+  - ProfileCard 显示用 `hookToString(profile.hooks!.preSwitch)`
+  - applyClone 灌字段用 `hookToString(src.hooks?.preSwitch)` 替换 `src.hooks?.preSwitch || ""`（type union 后 || 不能赋 string）
+  - object 形式 hook 在 textarea 显示其 `posix > powershell > cmd` 字段；用户 UI 编辑回写仍是 string 形式（要写 object 直接编辑 ~/.dch/profiles.json，UI scope 取舍）
+
+### `src/client/bridge.ts`（M1）
+
+- `runDch` 错误抛出：`parsed.error ?? r.stderr.trim() ?? ...` → `parsed.error || r.stderr.trim() || ...`
+- `trim()` 永远返 string（可能空串），`??` 永不命中第三段 fallback；CLI fail 走 JSON_MODE `err()` 时 stderr 完全空 → UI toast 显示空字符串
+
+### 验证
+
+- `bunx tsc --noEmit -p .` 0 error（修了 CHANGELOG_6 后遗 3 处）
+- `bun test` 69 pass + 1 skip / 0 fail（无回归）
+- UI 路径手测留待 dev 启动验证（保存失败保留 buf / 切换失败弹 HookOutputModal）
+
+### 备注
+
+- **不动 `(p, c) => Promise<void>` 签名后的 unhandled rejection**：旧 caller 如有 `onSave(...)` 不 await，promise reject 会 console.warn 但不阻塞 UI；ConfigPanel 是唯一 caller 已经改成 await
+- **HookOutputModal 复用**：原本只用于 `onTestHook` 主动测试；M11 修复直接复用同一 modal 不引新组件
+- **R3-M1 onTestHook 无 busy 保护**未在本 PR 修，留给后续（PR-6 grab bag）
+
+
 
 ## PR-2 — Rust UTF-8 lossy（M10 一行改动，风险最小收益明显）
 

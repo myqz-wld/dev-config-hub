@@ -132,7 +132,9 @@ async function runDch<T = unknown>(args: string[]): Promise<T> {
   if (r.code !== 0) {
     let parsed: { error?: string } = {};
     try { parsed = JSON.parse(r.stdout) as { error?: string }; } catch {}
-    throw new Error(parsed.error ?? r.stderr.trim() ?? `exit ${r.code}`);
+    // PR-4 (#M1)：用 || 而非 ??。stderr.trim() 永远是 string（可能空串），?? 永远不命中
+    // 第三段 fallback；CLI fail 走 JSON_MODE err() 时 stderr 完全空 → UI toast 显示空字符串
+    throw new Error(parsed.error || r.stderr.trim() || `exit ${r.code}`);
   }
   if (!r.stdout.trim()) return undefined as T;
   return JSON.parse(r.stdout) as T;

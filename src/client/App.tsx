@@ -42,7 +42,12 @@ export function App() {
 
   const onSave = async (path: string, content: string) => {
     try { await saveFile(path, content); flash("保存成功", true); load(); }
-    catch (e) { flash(String(e), false); }
+    catch (e) {
+      flash(String(e), false);
+      // PR-4 (#H2)：rethrow 让 caller (ConfigPanel.Scope) 知道失败，否则
+      // 旧版 fire-and-forget + 同步 setMode("view") 让用户编辑内容直接丢失
+      throw e;
+    }
   };
 
   if (loading) return <div className="center"><div className="spinner" /><span>读取配置中...</span></div>;
