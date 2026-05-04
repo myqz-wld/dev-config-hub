@@ -100,6 +100,26 @@ Write-Output "dir=$env:DCH_PROFILE_CONFIG_DIR"`
     expect(r!.exitCode).toBe(-1);
     expect(r!.durationMs).toBeLessThan(2000);
   });
+
+  // REVIEW_2 PR-3 (#H1)：detach 子进程持 stdout pipe，主 bash exit 后 pipe 不 close
+  // → 旧版 `new Response(proc.stdout).text()` 永不 resolve → useProfile 卡死 N 秒。
+  // 修复：runHook 加 hardCap 强制 truncate + proc.exited race 限时。
+  // POSIX-only：PowerShell 没等价的 detach `(...; &)` 语法，Win 路径暂不测。
+  test.skipIf(IS_WIN)("detach 子进程 (sleep 10 &) 不阻塞 useProfile（H1 回归保护）", async () => {
+    // 主 bash exit 0 但 sleep 10 子进程持 stdout fd，pipe 永不 close
+    const script = `(sleep 10 &); echo immediate; exit 0`;
+    const start = Date.now();
+    const r = await runHook("preSwitch", script, ctx, 500);
+    const elapsed = Date.now() - start;
+    expect(r).not.toBeNull();
+    // hardCap 在 timeoutMs + 500 触发，proc.exited race 在 timeoutMs + 1000 触发
+    // 总耗时应 ≤ ~2000ms（PR-3 之前实测 ≥ 10000ms）
+    expect(elapsed).toBeLessThan(2500);
+    expect(r!.timedOut).toBe(true);
+    expect(r!.exitCode).toBe(-1);
+    // 输出可能被 truncate（detach 子进程持 fd），也可能拿到 "immediate\n" 然后 truncate
+    // 关键 invariant：runHook 必须返回，不卡住
+  });
 });
 
 describe("pickScriptForRunner (object 形式 — 平台分流)", () => {

@@ -69,14 +69,30 @@ export async function runHook(
 
   const timer = setTimeout(() => {
     timedOut = true;
+    // 主进程 SIGTERM 可能被 `trap "" TERM` 屏蔽 → 后续硬截断兜住
     try { proc.kill(); } catch {}
   }, timeoutMs);
 
-  const [stdout, stderr] = await Promise.all([
+  // Hard cap：timeoutMs + GRACE 后强制返回 truncated，不无限等 stdout drain。
+  // 解决 H1：hook 脚本 detach 子进程（如 `(sleep 10 &); echo done; exit 0`）时，
+  // 子进程继承 stdout pipe，主 bash exit 后 pipe 不 close，`new Response(proc.stdout).text()`
+  // 永不 resolve → useProfile 永久卡死。GRACE 给 SIGTERM/SIGKILL 一点时间生效，
+  // 之后强行 truncate。同样给 proc.exited 加上限避免 detach 场景 await 永挂。
+  const GRACE_MS = 500;
+  const drainAll = Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
   ]);
-  await proc.exited;
+  const truncatedFallback: [string, string] = ["[truncated by timeout]", "[truncated by timeout]"];
+  const hardCap = new Promise<[string, string]>((resolve) =>
+    setTimeout(() => resolve(truncatedFallback), timeoutMs + GRACE_MS),
+  );
+  const [stdout, stderr] = await Promise.race([drainAll, hardCap]);
+
+  await Promise.race([
+    proc.exited,
+    new Promise<void>((r) => setTimeout(r, timeoutMs + GRACE_MS * 2)),
+  ]);
   clearTimeout(timer);
 
   return {
