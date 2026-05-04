@@ -19,3 +19,4 @@
 | 文件 | 主题 | 严重度分布 | 关联 changelog |
 |------|------|-----------|----------------|
 | [REVIEW_1.md](REVIEW_1.md) | 跨平台兼容性 Windows 支持基础设施盘点（双异构 reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5 wrapper）：12 ✅（4 HIGH / 4 MED / 4 LOW）。修复 6 phase commit：platform.ts 抽象 + cli/store path 修复 + symlink → junction + hooks 协议平台分流 + Tauri Rust cfg 守门 + readers Win 平台分流 | 4 HIGH / 4 MED / 4 LOW | CHANGELOG_6 |
+| [REVIEW_2.md](REVIEW_2.md) | 全维度首次 deep code review：架构 / bug / 安全 / 性能 / 测试盲区（双异构 reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5 wrapper，3 轮 + 1 反驳轮）。3 HIGH（hook timeout 卡死 / onSave 数据丢失 / store lost update）+ 13 MED + ~30 LOW + 2 ❌ 实证证伪 | 3 HIGH / 13 MED / ~30 LOW | 待 PR-1..7 落地后回填 CHANGELOG_7..13 |
