@@ -61,3 +61,19 @@ H3 lost update 回归测（`it.skip`，PR-5 修文件锁后反 skip）：
 
 - **PR 切分原则**：每个 PR 单一目标 + 自带 test 自带 commit；reviewer-claude 给的合并顺序 PR-1 → PR-2 → PR-3..PR-7
 - **不写 CHANGELOG_8/9/...**：本 review 落地走单文件追加节（PR-1/PR-2/...）而非每 PR 一个 CHANGELOG，便于一处看完总账。后续 PR 完成时本文件追加新节
+
+## PR-2 — Rust UTF-8 lossy（M10 一行改动，风险最小收益明显）
+
+> reviewer-claude fix 时机提醒：「改一行 `from_utf8_lossy` 风险最小收益明显，建议单独 PR 优先合」。
+
+### `src-tauri/src/lib.rs`
+
+- `read_file` 命令：`fs::read_to_string` → `fs::read` + `String::from_utf8_lossy`
+- 与 CLI 端 `Bun.file.text()` 行为一致（lossy）：遇非法 UTF-8 字节用 `U+FFFD` 替换而非 throw
+- 修复触发场景：用户 `~/.zshrc` 用 GBK / Latin-1 写注释（亚洲开发者偶见混用 / 历史脚本），原版让 `loadAllConfigs` reject → App.tsx setError → UI 整个挂在「加载失败: ...」
+
+### 验证
+
+- `cargo check` 通过（host = mac）
+- 无新增单测：`read_file` 是 `#[tauri::command]` 入口，需 Tauri runtime 完整启动才能调；M10 行为差异是 Rust stdlib level，单元测试投资远高于直接看 cargo check + 后续 UI 冒烟收益
+
