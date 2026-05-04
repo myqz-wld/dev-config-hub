@@ -39,9 +39,11 @@ function info(msg: string) {
 
 // 已知带值的 flag。next arg 一律当 value 收下，不再用 startsWith("--") 误判，
 // 否则用户传 --pre-hook '--foo' 这类 hook 字面值会被吞。
-const VALUE_FLAGS = new Set(["dir", "desc", "from", "pre-hook", "post-hook"]);
+export const VALUE_FLAGS = new Set(["dir", "desc", "from", "pre-hook", "post-hook"]);
 
-function parseFlags(argv: string[]): { positional: string[]; flags: Record<string, string | true>; envPairs: [string, string][] } {
+// export 给单测（CHANGELOG_5 反复修过这块没 spec 易再退化，REVIEW_2 PR-1 补回归保护）。
+// 注意：内部 `--env BADFORMAT`（缺 `=`）会调 err() 触发 process.exit(1)；单测捕获该路径。
+export function parseFlags(argv: string[]): { positional: string[]; flags: Record<string, string | true>; envPairs: [string, string][] } {
   const positional: string[] = [];
   const flags: Record<string, string | true> = {};
   const envPairs: [string, string][] = [];

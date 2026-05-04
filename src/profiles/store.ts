@@ -1,4 +1,4 @@
-import { join, relative, sep } from "node:path";
+import { join, relative, sep, dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { HOME } from "../platform.ts";
 import type { ProfileStore, Preferences } from "./types.ts";
@@ -41,8 +41,10 @@ export function collapseHome(p: string): string {
   return "~/" + rel.split(sep).join("/");
 }
 
-export async function loadStore(): Promise<ProfileStore> {
-  const file = Bun.file(STORE_PATH);
+// loadStore / saveStore 接受可选 path 参数让单测能注入 tmpdir，不污染 ~/.dch/profiles.json。
+// 生产 caller（manager.ts 全 7 处写操作）走默认 STORE_PATH 不受影响。
+export async function loadStore(path: string = STORE_PATH): Promise<ProfileStore> {
+  const file = Bun.file(path);
   if (!(await file.exists())) {
     return structuredClone(EMPTY_STORE);
   }
@@ -50,7 +52,7 @@ export async function loadStore(): Promise<ProfileStore> {
   try {
     data = (await file.json()) as ProfileStore;
   } catch (e) {
-    throw new Error(`无法解析 ${STORE_PATH}: ${e}`);
+    throw new Error(`无法解析 ${path}: ${e}`);
   }
   const rawPrefs = (data.preferences ?? {}) as Partial<Preferences>;
   return {
@@ -63,7 +65,8 @@ export async function loadStore(): Promise<ProfileStore> {
   };
 }
 
-export async function saveStore(store: ProfileStore): Promise<void> {
-  await mkdir(DCH_DIR, { recursive: true });
-  await Bun.write(STORE_PATH, JSON.stringify(store, null, 2) + "\n");
+export async function saveStore(store: ProfileStore, path: string = STORE_PATH): Promise<void> {
+  const dir = path === STORE_PATH ? DCH_DIR : dirname(path);
+  await mkdir(dir, { recursive: true });
+  await Bun.write(path, JSON.stringify(store, null, 2) + "\n");
 }
