@@ -6,9 +6,20 @@ import {
   readProfileConfigFile, writeProfileConfigFile,
   normalizeProfileDir, getHomeDir,
 } from "../bridge.ts";
+import type { HookScript } from "../../profiles/types.ts";
 import { defaultProfileDir } from "../../profiles/defaults.ts";
 
 const TOOLS: ToolKind[] = ["claude", "codex"];
+
+// REVIEW_2 PR-4 修 typecheck：CHANGELOG_6 把 HookScript 改成 string | { posix?, powershell?, cmd? }
+// 但 ProfilePanel 仍按 string 渲染 / 编辑。UI 简化策略 — object 形式 hook 在 textarea 里
+// 显示其 posix 字段（POSIX 平台主用），用户编辑回写还是 string 形式（要写 object 形式
+// 直接编辑 ~/.dch/profiles.json）。这是 UI scope 取舍：跨平台 object hook 不在 UI 直编范围内。
+function hookToString(h: HookScript | undefined): string {
+  if (!h) return "";
+  if (typeof h === "string") return h;
+  return h.posix ?? h.powershell ?? h.cmd ?? "";
+}
 
 const MAIN_CONFIG: Record<ToolKind, {
   filename: string;
@@ -81,7 +92,21 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
     setBusy(true);
     try {
       const r = await dchProfile.use(id);
-      if (!r.ok) throw new Error(r.message);
+      if (!r.ok) {
+        onToast(r.message ?? `切换失败`, false);
+        // PR-4 (#M11 / #R3-M2)：失败时弹 HookOutputModal 显示失败 hook 的完整 stdout/stderr。
+        // 旧版只 toast r.message（如「preSwitch hook 失败 (exit 2)」），用户看不到 hook 内
+        // echo 的诊断信息；CLI 端 fmtHookResult 完整打印，UI 此前独缺。
+        const failedHook = r.hooks.find((h) => h.exitCode !== 0);
+        if (failedHook) {
+          setHookOutput({
+            id,
+            which: failedHook.hook === "preSwitch" ? "pre" : "post",
+            result: failedHook,
+          });
+        }
+        return;
+      }
       onToast(`已切换 → ${id}`, true);
       await reload();
       onProfileChanged?.();
@@ -305,13 +330,13 @@ function ProfileCard({
         {hasPreHook && (
           <div className="profile-row">
             <span className="profile-row-label">preSwitch</span>
-            <pre className="profile-hook-script">{profile.hooks!.preSwitch}</pre>
+            <pre className="profile-hook-script">{hookToString(profile.hooks!.preSwitch)}</pre>
           </div>
         )}
         {hasPostHook && (
           <div className="profile-row">
             <span className="profile-row-label">postSwitch</span>
-            <pre className="profile-hook-script">{profile.hooks!.postSwitch}</pre>
+            <pre className="profile-hook-script">{hookToString(profile.hooks!.postSwitch)}</pre>
           </div>
         )}
       </div>
@@ -496,8 +521,8 @@ function AddProfileModal({
       // `~/.${tool}-${id}` 才安全。
       description: cur.description || src.description || "",
       env: Object.keys(cur.env).length ? cur.env : { ...(src.env ?? {}) },
-      preHook: cur.preHook || src.hooks?.preSwitch || "",
-      postHook: cur.postHook || src.hooks?.postSwitch || "",
+      preHook: cur.preHook || hookToString(src.hooks?.preSwitch),
+      postHook: cur.postHook || hookToString(src.hooks?.postSwitch),
       configContent: cur.configContent || cloneContent,
       cfgModel: cur.cfgModel || cfgModel,
       cfgReasoning: cur.cfgReasoning || cfgReasoning,

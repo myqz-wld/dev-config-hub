@@ -36,10 +36,11 @@ function Item({ item }: { item: ConfigEntry }) {
   );
 }
 
-function Scope({ scope, onSave }: { scope: ConfigScope; onSave: (p: string, c: string) => void }) {
+function Scope({ scope, onSave }: { scope: ConfigScope; onSave: (p: string, c: string) => Promise<void> }) {
   const [open, setOpen] = useState(true);
   const [mode, setMode] = useState<"view" | "raw" | "edit">("view");
   const [buf, setBuf] = useState("");
+  const [saving, setSaving] = useState(false);
 
   return (
     <section className="scope">
@@ -64,10 +65,21 @@ function Scope({ scope, onSave }: { scope: ConfigScope; onSave: (p: string, c: s
         <div className="scope-body">
           {mode === "edit" ? (
             <div className="editor">
-              <textarea value={buf} onChange={(e) => setBuf(e.target.value)} spellCheck={false} />
+              <textarea value={buf} onChange={(e) => setBuf(e.target.value)} spellCheck={false} disabled={saving} />
               <div className="editor-bar">
-                <button className="btn ghost" onClick={() => setMode("view")}>取消</button>
-                <button className="btn primary" onClick={() => { onSave(scope.filePath, buf); setMode("view"); }}>保存</button>
+                <button className="btn ghost" onClick={() => setMode("view")} disabled={saving}>取消</button>
+                {/* PR-4 (#H2)：必须 await 成功才 setMode；失败时 catch（App 已 toast）保留 edit 模式，
+                    让用户看到错误后能继续改 textarea 或重试，编辑内容（buf）不丢失 */}
+                <button
+                  className="btn primary"
+                  disabled={saving}
+                  onClick={async () => {
+                    setSaving(true);
+                    try { await onSave(scope.filePath, buf); setMode("view"); }
+                    catch { /* App.tsx onSave 内已 flash 错误 toast；保留 edit 模式 */ }
+                    finally { setSaving(false); }
+                  }}
+                >{saving ? "保存中…" : "保存"}</button>
               </div>
             </div>
           ) : mode === "raw" ? (
@@ -85,7 +97,7 @@ function Scope({ scope, onSave }: { scope: ConfigScope; onSave: (p: string, c: s
   );
 }
 
-export function ConfigPanel({ tool, onSave }: { tool: ToolConfig; onSave: (p: string, c: string) => void }) {
+export function ConfigPanel({ tool, onSave }: { tool: ToolConfig; onSave: (p: string, c: string) => Promise<void> }) {
   return (
     <div className="panel">
       <div className="panel-head">
