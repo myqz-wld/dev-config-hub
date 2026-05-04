@@ -62,6 +62,38 @@ H3 lost update 回归测（`it.skip`，PR-5 修文件锁后反 skip）：
 - **PR 切分原则**：每个 PR 单一目标 + 自带 test 自带 commit；reviewer-claude 给的合并顺序 PR-1 → PR-2 → PR-3..PR-7
 - **不写 CHANGELOG_8/9/...**：本 review 落地走单文件追加节（PR-1/PR-2/...）而非每 PR 一个 CHANGELOG，便于一处看完总账。后续 PR 完成时本文件追加新节
 
+## PR-3 — Hook 链路鲁棒性（H1 + L10 同 root cause）
+
+> reviewer-claude fix 时机提醒：「H1 hook timeout 与 L10 SIGTERM 被 trap 同 root cause 同 PR 修，分开修反引漏」。
+
+### `src/profiles/hooks.ts`
+
+`runHook` 加 hard cap 强制超时返回，解决 H1 detach 子进程持 stdout pipe 让 useProfile 永久卡死：
+
+- `setTimeout` 触发 → `proc.kill()` 给主 shell（POSIX 的 SIGTERM 可能被脚本 `trap "" TERM` 屏蔽，下面硬截断兜住）
+- 新增 `GRACE_MS = 500` 缓冲；`Promise.race([drainAll, hardCap])` 在 `timeoutMs + GRACE_MS` 后强制返回 `["[truncated by timeout]", "[truncated by timeout]"]`
+- `proc.exited` 也用 `Promise.race` 加上限 `timeoutMs + 2*GRACE_MS`，避免 detach 场景永挂
+
+修复前：hook 脚本 `(sleep 10 &); echo immediate; exit 0` + `timeoutMs=500` 实测 useProfile 卡 ≥ 10000ms（claude reviewer 实测 10010ms）；
+修复后：同样脚本 ≤ ~1500ms 必返回 `timedOut=true`。
+
+### `src/profiles/hooks.test.ts`
+
+- 新增 1 case：`detach 子进程 (sleep 10 &) 不阻塞 useProfile（H1 回归保护）`
+  - `expect(elapsed).toBeLessThan(2500)` lock 死「不能再卡 10s」的 invariant
+  - PowerShell 没等价 detach 语法，`test.skipIf(IS_WIN)` 跳过 Win 路径
+
+### 测试基线
+
+- 68 → 69 pass + 1 skip / 0 fail（新增 detach H1 回归）
+
+### 备注
+
+- **不试 SIGKILL 二阶兜底**：POSIX `proc.kill(9)` 对 detach 出去的孙进程无效（fork 后已脱离 dch session），不如直接 hard cap。孙进程残留是用户配的 hook 自己的事
+- **GRACE_MS = 500 选取**：drain 完成正常 ≪ 100ms；500ms 给 SIGTERM 时间生效又不显著拖长 timeout 体感
+- **Win 上 `proc.kill()` 行为**：Bun runtime 默认用 `TerminateProcess`，PowerShell 进程能立即死。Win 路径不存在 detach 的 `(... &)` 语义，H1 触发面窄
+
+
 ## PR-2 — Rust UTF-8 lossy（M10 一行改动，风险最小收益明显）
 
 > reviewer-claude fix 时机提醒：「改一行 `from_utf8_lossy` 风险最小收益明显，建议单独 PR 优先合」。
