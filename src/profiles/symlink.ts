@@ -1,5 +1,5 @@
-import { join, dirname, isAbsolute } from "path";
-import { mkdir, lstat, readlink, rename, unlink, symlink } from "fs/promises";
+import { join, dirname, isAbsolute, resolve as pathResolve } from "node:path";
+import { mkdir, lstat, readlink, rename, unlink, symlink } from "node:fs/promises";
 import type { Profile, ToolKind } from "./types.ts";
 import { expandHome, collapseHome, HOME } from "./store.ts";
 
@@ -7,6 +7,32 @@ export const TOOL_PATHS: Record<ToolKind, string> = {
   claude: join(HOME, ".claude"),
   codex: join(HOME, ".codex"),
 };
+
+/**
+ * Win symlink 平台细节：
+ * - 普通用户默认无 `SeCreateSymbolicLinkPrivilege`，`fs.symlink(target, path)` 抛 EPERM
+ * - 解决：第三参传 `'junction'`，走 NTFS reparse point（不需要提权 + 不需要 Developer Mode）
+ * - junction 限制：只能指向**绝对路径的目录**、不能跨分区
+ * - profile.configDir 都在用户主目录下的子目录，全部满足
+ *
+ * POSIX：保留无 type 参（默认走 dir / file 自动判别）。
+ *
+ * 拆出 `getSymlinkType` / `normalizeSymlinkTarget` 纯函数让测试能跨平台直接验：
+ * 在 macOS 上跑 unit test 不能动态改 `process.platform`，所以用纯函数 + 平台参数
+ * 让 Win 行为也能在 mac 主机上单测。
+ */
+export type SymlinkType = "junction" | undefined;
+
+export function getSymlinkType(platform: NodeJS.Platform = process.platform): SymlinkType {
+  return platform === "win32" ? "junction" : undefined;
+}
+
+export function normalizeSymlinkTarget(p: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? pathResolve(p) : p;
+}
+
+const SYMLINK_TYPE: SymlinkType = getSymlinkType();
+const symlinkTarget = (p: string): string => normalizeSymlinkTarget(p);
 
 export type PathState = "missing" | "symlink" | "directory" | "file";
 
@@ -55,13 +81,13 @@ export async function initToolDir(tool: ToolKind): Promise<InitResult> {
       throw new Error(`${defaultDir} 已存在但 ${target} 仍是真实目录，请手动清理后再 init`);
     }
     await rename(target, defaultDir);
-    await symlink(defaultDir, target);
+    await symlink(symlinkTarget(defaultDir), target, SYMLINK_TYPE);
     stateOut = "wrapped-existing-dir";
   } else {
     if ((await pathState(defaultDir)) === "missing") {
       await mkdir(defaultDir, { recursive: true });
     }
-    await symlink(defaultDir, target);
+    await symlink(symlinkTarget(defaultDir), target, SYMLINK_TYPE);
     stateOut = "created-empty";
   }
 
@@ -105,11 +131,18 @@ export async function switchSymlink(profile: Profile): Promise<void> {
   }
 
   const tmp = `${target}.dch-switch-${Date.now()}`;
-  await symlink(newDir, tmp);
+  await symlink(symlinkTarget(newDir), tmp, SYMLINK_TYPE);
   try {
     await rename(tmp, target);
   } catch (e) {
     await unlink(tmp).catch(() => {});
+    // EXDEV：rename 跨设备 / 跨分区。junction 也不能跨卷，user-friendly 错误更有用。
+    if ((e as NodeJS.ErrnoException)?.code === "EXDEV") {
+      throw new Error(
+        `[switchSymlink] 跨分区切换不支持（${target} 与 ${newDir} 在不同卷上）。` +
+          `请把 profile.configDir 放与 ${target} 同卷的目录下重试。`,
+      );
+    }
     throw e;
   }
 }
