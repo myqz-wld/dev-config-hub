@@ -6,6 +6,22 @@ import { runHook, type HookContext } from "./hooks.ts";
 import { switchSymlink, initToolDir, currentSymlinkTarget } from "./symlink.ts";
 
 const ID_RE = /^[a-zA-Z0-9_-]+$/;
+// PR-6 (#M5)：profile.env key 校验 — 与 cli-profile.cmdEnv 输出 wrapper 用的同一 regex。
+// 旧版只在输出处 skip 非法 key（用户在 UI/CLI 加 `MY KEY=v` / `1FOO=v` 落盘成功
+// 但 wrapper 模式 silently 丢，难调试）。这里上游守口拦掉，统一行为。
+// export 给单测用。
+export const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export function validateEnv(env: Record<string, string> | undefined): void {
+  if (!env) return;
+  for (const k of Object.keys(env)) {
+    if (!ENV_KEY_RE.test(k)) {
+      throw new Error(
+        `非法 env key: ${JSON.stringify(k)}（必须匹配 /^[A-Za-z_][A-Za-z0-9_]*$/，否则 wrapper 模式 dch profile env 会跳过）`,
+      );
+    }
+  }
+}
 
 export async function listProfiles(): Promise<ProfileStore> {
   return loadStore();
@@ -22,6 +38,7 @@ export async function addProfile(p: Profile): Promise<void> {
   if (!ID_RE.test(p.id)) {
     throw new Error("profile id 只允许字母数字 _ -");
   }
+  validateEnv(p.env);
   await withStoreLock(STORE_LOCK_PATH, async () => {
     const store = await loadStore();
     if (store.profiles.some((x) => x.id === p.id)) {
@@ -33,6 +50,7 @@ export async function addProfile(p: Profile): Promise<void> {
 }
 
 export async function updateProfile(id: string, patch: Partial<Profile>): Promise<void> {
+  if (patch.env !== undefined) validateEnv(patch.env);
   await withStoreLock(STORE_LOCK_PATH, async () => {
     const store = await loadStore();
     const idx = store.profiles.findIndex((x) => x.id === id);
@@ -81,9 +99,25 @@ export async function useProfile(id: string): Promise<SwitchResult> {
       store.active[profile.tool] = id;
       await saveStore(store);
     } catch (e) {
+      // PR-6 (#M4)：switchSymlink 后 saveStore 失败时尝试回滚 symlink，避免
+      // 「symlink 切了但 active 还是旧值」的状态分裂。fromId 为 null（首次切换）
+      // 无法回滚 — 只能报错让用户手动处理。回滚自身失败不阻塞 — 已经够乱了，
+      // 错误信息里把两次都说清楚。
+      let rollbackNote = "";
+      if (fromId && fromId !== id) {
+        const fromProfile = store.profiles.find((x) => x.id === fromId);
+        if (fromProfile) {
+          try {
+            await switchSymlink(fromProfile);
+            rollbackNote = `（symlink 已回滚到 ${fromId}）`;
+          } catch (re) {
+            rollbackNote = `（回滚 symlink 到 ${fromId} 也失败：${re instanceof Error ? re.message : String(re)}）`;
+          }
+        }
+      }
       return {
         ok: false, profile, previousActive: fromId, hooks,
-        message: `切换失败: ${e instanceof Error ? e.message : String(e)}`,
+        message: `切换失败: ${e instanceof Error ? e.message : String(e)}${rollbackNote}`,
       };
     }
 
@@ -106,8 +140,18 @@ export async function initTool(tool: ToolKind): Promise<{
   const result = await initToolDir(tool);
   await withStoreLock(STORE_LOCK_PATH, async () => {
     const store = await loadStore();
-    if (!store.profiles.some((p) => p.id === result.defaultProfile.id)) {
+    const idx = store.profiles.findIndex((p) => p.id === result.defaultProfile.id);
+    if (idx < 0) {
       store.profiles.push(result.defaultProfile);
+    } else {
+      // PR-6 (#M9)：profile 已存在时也更新 configDir。否则用户手动改 symlink 后再 init，
+      // store.active 指 `claude-default`(configDir=旧) 但 symlink 指新 dir，两者不一致。
+      // 保留 description / env / hooks 等用户自定义字段，只同步 configDir + isDefault。
+      store.profiles[idx] = {
+        ...store.profiles[idx]!,
+        configDir: result.defaultProfile.configDir,
+        isDefault: true,
+      };
     }
     store.active[tool] = result.defaultProfile.id;
     await saveStore(store);
