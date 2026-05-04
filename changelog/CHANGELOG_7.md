@@ -132,6 +132,45 @@ H3 lost update 回归测（`it.skip`，PR-5 修文件锁后反 skip）：
 - **HookOutputModal 复用**：原本只用于 `onTestHook` 主动测试；M11 修复直接复用同一 modal 不引新组件
 - **R3-M1 onTestHook 无 busy 保护**未在本 PR 修，留给后续（PR-6 grab bag）
 
+## PR-5 — Store 文件锁修 multi-process lost update（H3，单独 PR）
+
+> reviewer-claude fix 时机提醒：「H3 lost update 是最难的，应单独 PR — 文件锁与所有 manager 操作交叉，不混并」。
+
+### `src/profiles/store.ts`
+
+新增 `withStoreLock(lockPath, fn, opts?)` cross-process advisory lock：
+- O_EXCL atomic create lockfile（`open(path, "wx")`）— macOS / Linux / Win 本地 fs 可靠
+- lockfile 内容 `<pid>\n<ts_ms>\n` 给 stale 检测用
+- 等锁默认 30s（与 hookTimeoutMs 同量级），stale 默认 60s（覆盖 useProfile + 30s hook + 2x 余量）
+- 失败重试 30-100ms 抖动避免 thundering herd
+- 暴露 `STORE_LOCK_PATH = STORE_PATH + ".lock"` 给 manager 用
+
+### `src/profiles/manager.ts`
+
+7 处写操作全包 `withStoreLock(STORE_LOCK_PATH, async () => { load + mutate + save })`：
+- `addProfile` / `updateProfile` / `removeProfile` / `setPreference` 直接包
+- `useProfile` 整体包（含 preSwitch / postSwitch hook）— 用户连点 use / GUI + 终端并发应该串行而非互相覆盖
+- `initTool` 把 `initToolDir`（fs 操作）放锁外，避免持锁期间 fs 操作把锁有效期撑大；只锁 store 的 load+save 段
+
+### `src/profiles/store.test.ts`
+
+H3 lost update 回归测反 skip：
+- spawn 5 child 各自 `withStoreLock + load + push + save`，全部 6 条 profile 保留
+- PR-1 时实测 ~2 条（丢 4），PR-5 后稳定 6 条
+
+### 测试基线
+
+- 69 pass + 1 skip → **70 pass + 0 skip / 0 fail**（H3 回归测从 skip → pass）
+- bunx tsc --noEmit 0 error
+
+### 备注
+
+- **POSIX `proc.kill(9)` 对 detach 出去的孙进程无效**：H3 修复保护的是 store 写入串行，不保护 hook 子进程残留（H1 PR-3 已分别修）
+- **stale 60s 过短可能误抢占长 hook**：用户配 hookTimeoutMs > 60s（罕见）需要同步调 staleMs；当前默认覆盖 99% 场景
+- **NFS / 远程 fs 不支持 O_EXCL atomic** — 用户把 `~/.dch/` 放 NFS / SMB 上 lock 不可靠，README 应提醒（不在本 PR 范围）
+- **lockfile 死锁场景**：若进程被 SIGKILL 没 clean lockfile，下次 stale 检测会自动覆盖（60s 内只有抢到锁的进程能写，最多卡一分钟）
+
+
 
 
 ## PR-2 — Rust UTF-8 lossy（M10 一行改动，风险最小收益明显）

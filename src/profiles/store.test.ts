@@ -167,13 +167,13 @@ describe("saveStore + loadStore roundtrip", () => {
   });
 });
 
-// H3 lost update 回归测：spawn 5 child 各自 load → push → save。当前无锁实现会丢更新；
-// PR-5 加文件锁后此 test 应改 toEqual(6)。先 skip 保留预期形式，PR-5 时反 skip 验通。
-describe("concurrent saveStore (H3 — 待 PR-5 修复)", () => {
-  it.skip("5 个并发 child 各 push 1 profile，期望最终 6 条", async () => {
+// H3 lost update 回归测：spawn 5 child 各自 load → push → save。PR-5 加文件锁后通过。
+describe("concurrent saveStore (H3 — PR-5 文件锁修复)", () => {
+  it("5 个并发 child 各 push 1 profile 全部保留（文件锁 + retry）", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "dch-concurrent-"));
     try {
       const path = join(tmp, "profiles.json");
+      const lockPath = path + ".lock";
       const init: ProfileStore = {
         version: 1,
         profiles: [{ id: "init", tool: "claude", configDir: "~/.x" }],
@@ -182,23 +182,32 @@ describe("concurrent saveStore (H3 — 待 PR-5 修复)", () => {
       };
       await saveStore(init, path);
 
+      const repoRoot = process.cwd();
       const childScript = `
-        const { loadStore, saveStore } = await import("${process.cwd()}/src/profiles/store.ts");
+        const { loadStore, saveStore, withStoreLock } = await import(${JSON.stringify(repoRoot + "/src/profiles/store.ts")});
         const path = ${JSON.stringify(path)};
-        const s = await loadStore(path);
-        s.profiles.push({ id: "child-" + process.pid, tool: "claude", configDir: "~/.x" + process.pid });
-        await new Promise(r => setTimeout(r, 50));
-        await saveStore(s, path);
+        const lockPath = ${JSON.stringify(lockPath)};
+        await withStoreLock(lockPath, async () => {
+          const s = await loadStore(path);
+          s.profiles.push({ id: "child-" + process.pid, tool: "claude", configDir: "~/.x" + process.pid });
+          await new Promise(r => setTimeout(r, 30));
+          await saveStore(s, path);
+        }, { maxWaitMs: 5000, staleMs: 10000 });
       `;
       const procs = Array.from({ length: 5 }, () =>
         Bun.spawn(["bun", "-e", childScript], { stdout: "pipe", stderr: "pipe" }),
       );
-      await Promise.all(procs.map((p) => p.exited));
+      const results = await Promise.all(procs.map((p) => p.exited));
+      // 全部 child 应正常退出（no lock timeout）
+      for (const code of results) expect(code).toBe(0);
 
       const final = await loadStore(path);
-      expect(final.profiles.length).toBe(6); // 当前实测 ~2，PR-5 修复后应通
+      expect(final.profiles.length).toBe(6); // init + 5 child push 全部保留
+      const ids = final.profiles.map((p) => p.id);
+      expect(ids).toContain("init");
+      expect(ids.filter((id) => id.startsWith("child-")).length).toBe(5);
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
-  });
+  }, 15000); // 5 child × ~30ms 串行 + lock retry，宽限 15s
 });
