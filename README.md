@@ -2,16 +2,26 @@
 
 本地桌面应用，用于可视化查看和编辑开发工具的配置文件，并在 **Claude Code / Codex CLI 的多套认证 profile 间快速切换**（订阅 vs API Key 等场景）。
 
-基于 [Tauri v2](https://v2.tauri.app/)（Rust + WebView）构建，前后端均跑在 [Bun](https://bun.sh/) 上。
+基于 [Tauri v2](https://v2.tauri.app/)（Rust + WebView）构建，前后端均跑在 [Bun](https://bun.sh/) 上。**支持 macOS / Windows 10+ / Linux**（Win profile 切换自动用 NTFS junction 替代 symlink，无须开 Developer Mode 或提权）。
+
+## 平台支持矩阵
+
+| 平台 | 状态 | 说明 |
+|---|---|---|
+| **macOS 12+ (Apple Silicon / Intel)** | **GA** | 主要开发与测试平台；symlink + bash hook + zsh shell reader |
+| **Windows 10 1703+ / 11** | **beta** | symlink 自动走 junction（无需 SeCreateSymbolicLinkPrivilege / Developer Mode）；hook 默认走 PowerShell（hook 字符串形式按 PowerShell 解析；object 形式 `{posix?, powershell?, cmd?}` 显式分平台）；shell reader 改读 `$PROFILE`；opencode 优先 `%APPDATA%\opencode\` |
+| **Linux** | **beta** | symlink 与 macOS 同款行为；hook 走 bash；shell reader 读 zsh + bash 配置 |
+
+Win 端真机 E2E 留待 CI 验证（参见 [REVIEW_1](reviews/REVIEW_1.md)）。
 
 ## 支持的工具
 
 | 工具 | 配置文件 | 格式 |
 |------|---------|------|
-| **Shell (Zsh)** | `~/.zprofile`, `~/.zshrc` | dotfile |
+| **Shell** | macOS/Linux：`~/.zprofile`, `~/.zshrc`, `~/.bashrc` ／ Windows：`$PROFILE`（PowerShell 5.1 + 7） | dotfile / .ps1 |
 | **Claude Code** | `~/.claude/settings.json`, `settings.local.json`, `CLAUDE.md`, `.mcp.json` | JSON / Markdown |
 | **Codex CLI** | `~/.codex/config.toml` | TOML |
-| **OpenCode** | `~/.config/opencode/opencode.json` | JSON |
+| **OpenCode** | macOS/Linux：`~/.config/opencode/opencode.json` ／ Windows：`%APPDATA%\opencode\opencode.json` | JSON |
 
 ## 核心能力
 
@@ -34,9 +44,9 @@
 
 ## 环境要求
 
-- [Bun](https://bun.sh/) ≥ 1.1
+- [Bun](https://bun.sh/) ≥ 1.1（Windows 用 `irm bun.sh/install.ps1 | iex` 安装）
 - [Rust](https://rustup.rs/) ≥ 1.77
-- macOS（Tauri 依赖 WebKit）
+- 平台：macOS 12+ / **Windows 10 1703+**（Win 用 junction 不需要 Developer Mode）/ Linux（GTK + WebKitGTK）
 
 ## 快速开始
 
@@ -50,21 +60,25 @@ bun run dev
 # 构建生产包
 bun run build
 
-# 安装到 /Applications
+# 装到 /Applications（macOS）
 bunx tauri build --bundles app
 cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
+
+# 装到 Windows（产物 .msi 在 src-tauri/target/release/bundle/msi/）
+# bunx tauri build --bundles msi
+# 双击安装即可
 
 # CLI 模式
 bun run cli                                # 总览
 bun run cli claude                         # 查看 Claude Code 配置
-bun run cli edit ~/.claude/settings.json   # 用 $EDITOR 编辑
+bun run cli edit ~/.claude/settings.json   # 用 $EDITOR 编辑（Win 默认 notepad）
 bun run cli gui                            # 启动桌面窗口
 
 # Profile 子命令
 bun run cli profile                              # 列出所有 profile
-bun run cli profile init claude                  # 把 ~/.claude 转成 symlink 并建立默认 profile
+bun run cli profile init claude                  # 把 ~/.claude 转成 symlink/junction 并建立默认 profile
 bun run cli profile add claude claude-api --dir ~/.claude-api --env ANTHROPIC_API_KEY=sk-...
-bun run cli profile use claude-api               # 原子切换 symlink + 跑 pre/post hook
+bun run cli profile use claude-api               # 原子切换 + 跑 pre/post hook
 ```
 
 首次 `bun run dev` 需要编译 Rust 依赖，约 2-3 分钟，后续启动秒开。
@@ -142,6 +156,25 @@ DCH_SWITCH_TO          目标 profile id（同 DCH_PROFILE_ID）
 DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 ```
 
+**Hook 脚本两种形式**（types.ts `HookScript = string | { posix?, powershell?, cmd? }`）：
+
+```jsonc
+// 形式 1：string（向后兼容；按当前平台默认 shell 跑）
+"hooks": {
+  "preSwitch": "echo hello"   // POSIX → bash -lc / Win → powershell -NoProfile -Command
+}
+
+// 形式 2：object（推荐用于带平台特定语法的脚本）
+"hooks": {
+  "preSwitch": {
+    "posix":      "pkill -f 'claude' || true",
+    "powershell": "Get-Process claude -ErrorAction SilentlyContinue | Stop-Process -Force"
+  }
+}
+```
+
+变量在 PowerShell 内通过 `$env:DCH_PROFILE_ID` 访问；POSIX 通过 `$DCH_PROFILE_ID`。
+
 `preSwitch` 退出码非零会中断切换、不更新 active 状态、不跑 postSwitch。`postSwitch` 失败仅警告。
 
 ### 切换语义
@@ -149,18 +182,21 @@ DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 `dch profile use <id>` 做这几件事：
 
 1. 跑 `preSwitch` hook（含 profile.env），失败则中断
-2. 原子修改 `~/.claude` / `~/.codex` symlink 指向 `profile.configDir`（先 `ln -s` 临时名再 `mv` 覆盖）
+2. 原子修改 `~/.claude` / `~/.codex` symlink 指向 `profile.configDir`
+   - **macOS / Linux**：`ln -s` 临时名 + `mv` 覆盖（POSIX rename 原子）
+   - **Windows**：`fs.symlink(target, path, 'junction')` NTFS reparse point；要求 target 是绝对路径目录、不能跨分区（profile configDir 都在用户主目录下，全部满足）
 3. 写回 `~/.dch/profiles.json` 的 `active.<tool>`
 4. 跑 `postSwitch` hook
 
-第一次切换前必须跑一次 `dch profile init <tool>`：会把现有真实目录 `~/.claude` / `~/.codex` mv 到 `~/.<tool>-default`，再 ln -s 回去并注册成 default profile。
+第一次切换前必须跑一次 `dch profile init <tool>`：会把现有真实目录 `~/.claude` / `~/.codex` mv 到 `~/.<tool>-default`，再 ln -s / 建 junction 回去并注册成 default profile。
 
 ### Shell wrapper（让 profile.env 注入到 claude / codex 进程）
 
-dch 切 profile 不会启动 claude / codex 进程，所以 `profile.env` 默认到不了 OAuth 登录 / API 调用的进程里。在 `~/.zshrc` 加两个 wrapper，每次跑 `claude` / `codex` 时从 active profile.env 取 env 注入：
+dch 切 profile 不会启动 claude / codex 进程，所以 `profile.env` 默认到不了 OAuth 登录 / API 调用的进程里。在 shell 启动文件里加 wrapper，每次跑 `claude` / `codex` 时从 active profile.env 取 env 注入：
+
+**macOS / Linux**（`~/.zshrc` 或 `~/.bashrc`）：
 
 ```bash
-# ~/.zshrc
 claude() (
   eval "$(command dch profile env claude 2>/dev/null)"
   exec command claude "$@"
@@ -171,10 +207,28 @@ codex() (
 )
 ```
 
+**Windows**（PowerShell `$PROFILE`）：
+
+```powershell
+function claude {
+  $env_lines = & dch profile env claude 2>$null
+  if ($env_lines) {
+    foreach ($line in ($env_lines -split "`n")) {
+      if ($line -match '^export\s+(\w+)=(.*)$') {
+        [Environment]::SetEnvironmentVariable($matches[1], $matches[2].Trim("'"), "Process")
+      }
+    }
+  }
+  & claude.exe @args
+}
+# codex wrapper 同模式
+```
+
 要点：
 
-- 子 shell `(...)` 包裹：env 只对 claude / codex 进程生效，**不污染父 shell**
+- POSIX 子 shell `(...)` 包裹：env 只对 claude / codex 进程生效，**不污染父 shell**
 - `exec command claude` 替换子 shell 进程，少一层 fork，且绕过 wrapper 自身防止递归
+- Win PowerShell function 用 `[Environment]::SetEnvironmentVariable(..., "Process")` 写 process-scoped env（不污染当前 shell session 之外的进程）
 - `dch profile env <tool>` active 为空 / env 空 → 静默无输出，wrapper 自然 fall-through 到原命令
 - profile.env key 走严格 `^[A-Za-z_][A-Za-z0-9_]*$` 校验 + value 单引号包裹，**无 shell 注入风险**
 
@@ -184,6 +238,8 @@ codex() (
 
 ```
 ├── src/
+│   ├── platform.ts           # 跨平台抽象：IS_DARWIN/IS_WIN/IS_LINUX、HOME、defaultShellRunner、defaultEditor
+│   ├── platform.test.ts      # platform 工具单测
 │   ├── cli.ts                # CLI 入口
 │   ├── cli-colors.ts         # ANSI 颜色常量（cli.ts + cli-profile.ts 共享）
 │   ├── cli-profile.ts        # `dch profile ...` 子命令实现，支持 --json
@@ -191,17 +247,19 @@ codex() (
 │   ├── descriptions.ts       # 配置项描述（来自官方文档 / Schema）
 │   ├── utils.ts              # 文件读取等工具
 │   ├── profiles/             # Profile 系统核心（Bun-only）
-│   │   ├── types.ts          # Profile / ProfileStore / HookResult / ...
-│   │   ├── store.ts          # ~/.dch/profiles.json 读写
-│   │   ├── hooks.ts          # 执行 pre/post shell 脚本，注入 DCH_* env
-│   │   ├── symlink.ts        # 符号链接切换（init / switch / current）
-│   │   ├── manager.ts        # CRUD + switch 调度（共用核心）
-│   │   └── hooks.test.ts     # bun test 单元测试
-│   ├── readers/              # 各工具的配置读取器
-│   │   ├── shell.ts
+│   │   ├── types.ts          # Profile / ProfileStore / HookScript / HookResult / ...
+│   │   ├── store.ts          # ~/.dch/profiles.json 读写 + 跨平台 collapseHome
+│   │   ├── store.test.ts     # store 工具单测
+│   │   ├── hooks.ts          # 执行 pre/post shell 脚本（平台分流）+ pickScriptForRunner
+│   │   ├── hooks.test.ts     # bun test 单元测试（含 Win/POSIX 分流）
+│   │   ├── symlink.ts        # 符号链接切换（macOS/Linux symlink + Win junction）
+│   │   ├── symlink.test.ts   # getSymlinkType / normalizeSymlinkTarget 跨平台测试
+│   │   └── manager.ts        # CRUD + switch 调度（共用核心）
+│   ├── readers/              # 各工具的配置读取器（平台分流：Win 路径/PowerShell）
+│   │   ├── shell.ts          # POSIX zsh/bash / Win PowerShell $PROFILE
 │   │   ├── claude-code.ts
 │   │   ├── codex.ts
-│   │   └── opencode.ts
+│   │   └── opencode.ts       # POSIX XDG / Win %APPDATA%
 │   └── client/               # Tauri 前端（React）
 │       ├── index.html
 │       ├── main.tsx
