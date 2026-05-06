@@ -50,6 +50,17 @@ export function App() {
     }
   };
 
+  // PR-D：schema-driven 字段级编辑用。**不**调 load() 避免每改一字段全 panel 闪烁；
+  // SchemaScopeBody 自行管理本地 setState（外部 reload 通过 useEffect [scope.content] 同步）。
+  // 失败时不 toast（schema 控件自管错误显示），但 throw 让 caller 回滚 setState。
+  const onPatchSave = async (path: string, content: string) => {
+    try { await saveFile(path, content); }
+    catch (e) {
+      flash(String(e), false);
+      throw e;
+    }
+  };
+
   if (loading) return <div className="center"><div className="spinner" /><span>读取配置中...</span></div>;
   if (error) return <div className="center error-text">加载失败: {error}</div>;
 
@@ -91,7 +102,7 @@ export function App() {
       <main className="main" ref={mainRef}>
         {view.kind === "profile"
           ? <ProfilePanel onToast={flash} onProfileChanged={load} />
-          : tools[view.index] && <ConfigPanel tool={tools[view.index]!} onSave={onSave} />}
+          : tools[view.index] && <ConfigPanel tool={tools[view.index]!} onSave={onSave} onPatchSave={onPatchSave} onToast={flash} />}
       </main>
       {toast && <div className={`toast ${toast.ok ? "ok" : "err"}`}>{toast.msg}</div>}
     </div>

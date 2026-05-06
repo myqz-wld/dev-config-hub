@@ -310,7 +310,10 @@ async function cmdConfig(args: string[]) {
   if (!key || value === undefined) err("用法: dch profile config hookTimeoutMs <value>");
   if (key === "hookTimeoutMs") {
     const n = Number(value);
-    if (!Number.isFinite(n) || n <= 0) err("hookTimeoutMs 必须是正数");
+    // REVIEW_4 M5：与 src/schemas/dch-store.ts 的 hookTimeoutMs min:1000 max:600000 + UI 三方对齐
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1000 || n > 600000) {
+      err("hookTimeoutMs 必须是 1000-600000 之间的整数（毫秒，1s ~ 10 分钟）");
+    }
     await setPreference("hookTimeoutMs", n);
   } else {
     err(`未知配置项: ${key}（仅支持 hookTimeoutMs）`);
