@@ -1,0 +1,91 @@
+name: Schema sync
+
+on:
+  schedule:
+    - cron: '17 8 * * 1'  # 每周一 08:17 UTC（错开 :00/:30 整点拥堵）
+  workflow_dispatch:       # 手动触发入口
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write     # auto-issue on failure 需要
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          # REVIEW_4 M9：锁 1.x 主版本，避免 bun major 升级 (e.g. 2.x) 引入 ajv / TS 行为变化
+          bun-version: '1.3.x'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Schema 自洽校验
+        id: check_self
+        run: |
+          echo "## 🔧 Schema 自洽校验" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          bun src/schemas/sync.ts --check-self 2>&1 | tee -a $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: 列出所有已注册 scope（动态，避免硬编码）
+        id: scopes
+        # REVIEW_4 M10：之前 for SCOPE in claude-settings claude-mcp ... 硬编码，加新 schema 漏审
+        run: |
+          SCOPES="$(bun src/schemas/sync.ts --list-scopes | tr '\n' ' ')"
+          echo "scopes=$SCOPES" >> $GITHUB_OUTPUT
+          echo "Scopes: $SCOPES"
+
+      - name: 各 schema 上游 diff
+        id: fetch_diff
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📡 上游 schema diff" >> $GITHUB_STEP_SUMMARY
+          for SCOPE in ${{ steps.scopes.outputs.scopes }}; do
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### $SCOPE" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            bun src/schemas/sync.ts --fetch "$SCOPE" 2>&1 | tee -a $GITHUB_STEP_SUMMARY || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          done
+
+      - name: 创建 / 更新 issue 当 self-check 失败
+        if: failure()
+        # REVIEW_4 M11：之前每次 fail 建新 issue 周一连续累积；改为先搜同标题 open issue，存在则 comment 追加
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { repo, owner } = context.repo;
+            const today = new Date().toISOString().slice(0, 10);
+            const title = 'Schema self-check 失败（持续追踪）';
+            const body = [
+              `📅 ${today}：\`bun src/schemas/sync.ts --check-self\` 在 main 上失败。`,
+              '',
+              `工作流详情：${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              '',
+              '可能原因：本地 schema 文件含 ajv 不识别的语法 / 依赖升级破坏。',
+              '',
+              '修复后 close 本 issue（下次失败仍会更新此 issue 不再新建）。',
+            ].join('\n');
+
+            const search = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${owner}/${repo} is:issue is:open in:title "${title}"`,
+              per_page: 1,
+            });
+
+            if (search.data.total_count > 0) {
+              const issueNumber = search.data.items[0].number;
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issueNumber,
+                body: `📅 ${today}：再次失败。\n\n工作流详情：${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              });
+              console.log(`Updated existing issue #${issueNumber}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner, repo, title, body, labels: ['schema', 'bug'],
+              });
+              console.log(`Created new issue #${created.data.number}`);
+            }

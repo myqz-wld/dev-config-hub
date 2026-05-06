@@ -1,5 +1,6 @@
 use std::fs;
 use std::process::Command;
+use std::time::UNIX_EPOCH;
 use serde::Serialize;
 
 #[tauri::command]
@@ -16,6 +17,91 @@ fn read_file(path: String) -> Result<String, String> {
 #[tauri::command]
 fn file_exists(path: String) -> bool {
     std::path::Path::new(&path).exists()
+}
+
+/// 单次 IPC 同时拿 exists + content + mtime。
+///
+/// 相比 file_exists + read_file 双 IPC（REVIEW_2 #M12 race），原子读取消除
+/// 「检查存在与实际读取之间被外部改 / 删」的窗口。mtime 用于 PR-D 之后的
+/// 写回 TOCTOU 校验（save 前 stat 比对 loadedMtime，不一致 → 弹「文件已外部变更」）。
+///
+/// **精度用 microseconds 而非 milliseconds**（REVIEW_3 R_1·C7 实证）：
+/// macOS APFS 连续两次 fs::write 实测间隔 ~335 µs（< 1 ms）→ ms 精度看不出
+/// 差异 → TOCTOU 漏判 sub-ms 写入。改 us 后精度足够（unix epoch us 当前 ~1.78e15
+/// 远低于 JS Number 2^53 ≈ 9e15，安全到公元 ~285616 年）。
+///
+/// **字段契约**（REVIEW_3 R_1·C12）：本 struct 与 `src/client/bridge.ts` 中
+/// `ReadFileWithMtimeResult` interface 必须**字段名 / 类型完全同步**。改 Rust
+/// 端字段名时务必同步改前端 interface，否则前端 `r.mtimeUs` 静默 undefined →
+/// PR-D loadedMtime 比对永远不命中 → 误报「文件已外部变更」。
+///
+/// UTF-8 lossy 与 read_file 一致（CLI Bun.file.text() 行为对齐，REVIEW_2 #M10）。
+/// 文件不存在 / 不是 regular file 一律 `exists=false`，与现有 readFile race 兜底语义统一；
+/// metadata 成功但 read 失败的罕见 race（权限改 / 并发删）会 `eprintln` 留痕便于排查
+/// （REVIEW_3 R_1·C16）。
+///
+/// **mtime None 三种来源各自留痕**（REVIEW_3 R_2 D2）：
+///   1. metadata.modified() Err（罕见 FS 不支持 mtime）
+///   2. duration_since(UNIX_EPOCH) Err（pre-1970 文件，touch -t 196812310000 / rsync --times 老备份可造）
+///   3. metadata 成功但 read 失败（权限改 / 并发删 race）
+/// 当前合并到 `mtime_us=None`（PR-D consumer 跳过 TOCTOU）；APFS 实证场景 1/2 实质不可达
+/// （u64 ns 时间戳无法表示负值），合并语义可接受。stderr 留痕方便日后从 Console.app 排查。
+#[tauri::command]
+fn read_file_with_mtime(path: String) -> ReadFileWithMtimeResult {
+    let p = std::path::Path::new(&path);
+    let meta = match fs::metadata(p) {
+        Ok(m) => m,
+        Err(_) => return ReadFileWithMtimeResult::missing(),
+    };
+    if !meta.is_file() {
+        return ReadFileWithMtimeResult::missing();
+    }
+    let mtime_us = match meta.modified() {
+        Ok(t) => match t.duration_since(UNIX_EPOCH) {
+            Ok(d) => Some(d.as_micros() as u64),
+            Err(e) => {
+                // pre-1970 文件（git checkout / rsync --times / 老备份恢复 / touch -t 19xx）
+                eprintln!(
+                    "read_file_with_mtime: pre-UNIX_EPOCH mtime path={} err={}",
+                    path, e
+                );
+                None
+            }
+        },
+        Err(e) => {
+            // 罕见 FS 不支持 mtime（network mount / FUSE 等）
+            eprintln!("read_file_with_mtime: modified() failed path={} err={}", path, e);
+            None
+        }
+    };
+    let content = match fs::read(p) {
+        Ok(b) => String::from_utf8_lossy(&b).into_owned(),
+        Err(e) => {
+            // 罕见 race：metadata OK 但 read 失败（权限改 / 并发删）—— 区分日志便于排查
+            eprintln!(
+                "read_file_with_mtime: metadata 成功但 read 失败 path={} err={}",
+                path, e
+            );
+            return ReadFileWithMtimeResult::missing();
+        }
+    };
+    ReadFileWithMtimeResult { exists: true, content, mtime_us }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReadFileWithMtimeResult {
+    exists: bool,
+    content: String,
+    /// Unix epoch microseconds；不存在 / 拿不到 mtime 为 null。
+    /// 改 ms→us 见 REVIEW_3 R_1·C7（APFS sub-ms 写间隔会让 ms 精度漏判）。
+    mtime_us: Option<u64>,
+}
+
+impl ReadFileWithMtimeResult {
+    fn missing() -> Self {
+        Self { exists: false, content: String::new(), mtime_us: None }
+    }
 }
 
 #[tauri::command]
@@ -253,8 +339,10 @@ fn run_dch_command(args: Vec<String>) -> Result<DchCommandResult, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             read_file,
+            read_file_with_mtime,
             file_exists,
             save_file,
             get_tool_version,

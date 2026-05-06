@@ -1,5 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import type { ToolConfig, ConfigScope, ConfigEntry } from "../../types.ts";
+import { CMEditor } from "./editor/CMEditor.tsx";
+import { languageExtensionFor } from "./editor/languages.ts";
+import { buildSchemaExtensions } from "./editor/schema-lint.ts";
+import { SchemaScopeBody } from "./schema-mode/SchemaScopeBody.tsx";
+import { MarkdownView } from "./markdown/MarkdownView.tsx";
+import { detectScope, getSchemaForScope } from "../../schemas/registry.ts";
+import type { ToolSchema } from "../../schemas/types.ts";
+import { getHomeDir } from "../bridge.ts";
 
 const Chev = ({ open }: { open: boolean }) => (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className={`chev${open ? " open" : ""}`}>
@@ -36,11 +44,41 @@ function Item({ item }: { item: ConfigEntry }) {
   );
 }
 
-function Scope({ scope, onSave }: { scope: ConfigScope; onSave: (p: string, c: string) => Promise<void> }) {
+type Mode = "schema" | "render" | "view" | "raw" | "edit";
+
+function defaultModeFor(toolSchema: ToolSchema | null, format: ConfigScope["format"]): Mode {
+  if (toolSchema) return "schema";
+  if (format === "markdown") return "render";
+  return "view";
+}
+
+function Scope({
+  scope,
+  toolSchema,
+  onSave,
+  onPatchSave,
+  onToast,
+}: {
+  scope: ConfigScope;
+  toolSchema: ToolSchema | null;
+  onSave: (p: string, c: string) => Promise<void>;
+  onPatchSave: (p: string, c: string) => Promise<void>;
+  onToast: (msg: string, ok: boolean) => void;
+}) {
   const [open, setOpen] = useState(true);
-  const [mode, setMode] = useState<"view" | "raw" | "edit">("view");
+  const [mode, setMode] = useState<Mode>(defaultModeFor(toolSchema, scope.format));
   const [buf, setBuf] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // PR-G：稳定的 schema-driven CM6 extensions（含 lint + hover + completion）
+  // useMemo 稳定引用避免 CMEditor extraCompartment reconfigure 触发 noop transaction（R_2 D3）
+  // 仅 JSON 走 schema lint；TOML / dotfile / markdown 不走 codemirror-json-schema
+  const schemaExtras = useMemo(
+    () => (scope.format === "json" ? buildSchemaExtensions(toolSchema) : []),
+    [toolSchema, scope.format],
+  );
+
+  const fallbackMode: Mode = toolSchema ? "schema" : scope.format === "markdown" ? "render" : "view";
 
   return (
     <section className="scope">
@@ -50,12 +88,41 @@ function Scope({ scope, onSave }: { scope: ConfigScope; onSave: (p: string, c: s
           <span className={`badge ${scope.level}`}>{scope.level}</span>
           <code className="scope-path">{scope.label}</code>
           {!scope.exists && <span className="badge miss">不存在</span>}
+          {toolSchema && <span className="badge schema">schema</span>}
         </div>
         <div className="scope-right">
           {scope.exists && (
             <>
-              <button className={`btn-sm${mode === "raw" ? " active" : ""}`} onClick={(e) => { e.stopPropagation(); setMode(mode === "raw" ? "view" : "raw"); }}>源文件</button>
-              <button className="btn-sm" onClick={(e) => { e.stopPropagation(); setBuf(scope.content); setMode("edit"); }}>编辑</button>
+              {toolSchema && (
+                <button
+                  className={`btn-sm${mode === "schema" ? " active" : ""}`}
+                  onClick={(e) => { e.stopPropagation(); setMode("schema"); }}
+                  title="Schema-driven 行内编辑"
+                >Schema</button>
+              )}
+              {scope.format === "markdown" && (
+                // PR-H：CLAUDE.md / 类 markdown 文件渲染按钮
+                <button
+                  className={`btn-sm${mode === "render" ? " active" : ""}`}
+                  onClick={(e) => { e.stopPropagation(); setMode("render"); }}
+                  title="Markdown 渲染（GFM + 代码高亮）"
+                >渲染</button>
+              )}
+              {!toolSchema && scope.format !== "markdown" && (
+                <button
+                  className={`btn-sm${mode === "view" ? " active" : ""}`}
+                  onClick={(e) => { e.stopPropagation(); setMode("view"); }}
+                  title="只读列表展示"
+                >列表</button>
+              )}
+              <button
+                className={`btn-sm${mode === "raw" ? " active" : ""}`}
+                onClick={(e) => { e.stopPropagation(); setMode(mode === "raw" ? fallbackMode : "raw"); }}
+              >源文件</button>
+              <button
+                className="btn-sm"
+                onClick={(e) => { e.stopPropagation(); setBuf(scope.content); setMode("edit"); }}
+              >编辑</button>
             </>
           )}
           <span className="fmt">{scope.format}</span>
@@ -64,18 +131,25 @@ function Scope({ scope, onSave }: { scope: ConfigScope; onSave: (p: string, c: s
       {open && scope.exists && (
         <div className="scope-body">
           {mode === "edit" ? (
+            // PR-G：edit 模式 textarea → CMEditor + 注入 schema lint/hover/completion
             <div className="editor">
-              <textarea value={buf} onChange={(e) => setBuf(e.target.value)} spellCheck={false} disabled={saving} />
+              <CMEditor
+                value={buf}
+                onChange={setBuf}
+                language={languageExtensionFor(scope.format)}
+                extraExtensions={schemaExtras}
+                readOnly={saving}
+                maxHeight={500}
+              />
               <div className="editor-bar">
-                <button className="btn ghost" onClick={() => setMode("view")} disabled={saving}>取消</button>
-                {/* PR-4 (#H2)：必须 await 成功才 setMode；失败时 catch（App 已 toast）保留 edit 模式，
-                    让用户看到错误后能继续改 textarea 或重试，编辑内容（buf）不丢失 */}
+                <button className="btn ghost" onClick={() => setMode(fallbackMode)} disabled={saving}>取消</button>
+                {/* PR-4 (#H2)：必须 await 成功才 setMode；失败时 catch（App 已 toast）保留 edit 模式 */}
                 <button
                   className="btn primary"
                   disabled={saving}
                   onClick={async () => {
                     setSaving(true);
-                    try { await onSave(scope.filePath, buf); setMode("view"); }
+                    try { await onSave(scope.filePath, buf); setMode(fallbackMode); }
                     catch { /* App.tsx onSave 内已 flash 错误 toast；保留 edit 模式 */ }
                     finally { setSaving(false); }
                   }}
@@ -83,9 +157,28 @@ function Scope({ scope, onSave }: { scope: ConfigScope; onSave: (p: string, c: s
               </div>
             </div>
           ) : mode === "raw" ? (
-            <pre className="raw">{scope.content}</pre>
+            // PR-F + PR-G：只读 CodeMirror 6 + schema hover（让用户在 raw 模式也能 hover 看 schema 描述）
+            <CMEditor
+              value={scope.content}
+              readOnly
+              language={languageExtensionFor(scope.format)}
+              extraExtensions={schemaExtras}
+            />
+          ) : mode === "render" && scope.format === "markdown" ? (
+            // PR-H：markdown 文件（CLAUDE.md 等）默认渲染（GFM + 代码块 shiki 高亮 + sanitize）
+            <div className="markdown-scope-body">
+              <MarkdownView source={scope.content} />
+            </div>
+          ) : mode === "schema" && toolSchema ? (
+            // PR-D：schema-driven 行内编辑（用户感知第一波）
+            <SchemaScopeBody
+              scope={scope}
+              toolSchema={toolSchema}
+              onPatchSave={onPatchSave}
+              flash={onToast}
+            />
           ) : scope.format === "dotfile" || scope.format === "markdown" ? (
-            <pre className="raw">{scope.content}</pre>
+            <CMEditor value={scope.content} readOnly language={languageExtensionFor(scope.format)} />
           ) : scope.categories.length === 0 ? (
             <div className="empty">无配置项</div>
           ) : (
@@ -97,14 +190,43 @@ function Scope({ scope, onSave }: { scope: ConfigScope; onSave: (p: string, c: s
   );
 }
 
-export function ConfigPanel({ tool, onSave }: { tool: ToolConfig; onSave: (p: string, c: string) => Promise<void> }) {
+export function ConfigPanel({
+  tool,
+  onSave,
+  onPatchSave,
+  onToast,
+}: {
+  tool: ToolConfig;
+  onSave: (p: string, c: string) => Promise<void>;
+  onPatchSave: (p: string, c: string) => Promise<void>;
+  onToast: (msg: string, ok: boolean) => void;
+}) {
+  // detectScope 需要 home；一次性拿，所有 scope 共享
+  const [home, setHome] = useState<string | null>(null);
+  useEffect(() => {
+    getHomeDir().then(setHome).catch(() => setHome(""));
+  }, []);
+
   return (
     <div className="panel">
       <div className="panel-head">
         <h1>{tool.name}<span className="ver">v{tool.version}</span></h1>
         <p className="panel-desc">{tool.description}</p>
       </div>
-      {tool.scopes.map((s) => <Scope key={s.filePath} scope={s} onSave={onSave} />)}
+      {tool.scopes.map((s) => {
+        const scopeKind = home != null ? detectScope(s.filePath, home) : null;
+        const toolSchema = scopeKind ? getSchemaForScope(scopeKind) : null;
+        return (
+          <Scope
+            key={s.filePath}
+            scope={s}
+            toolSchema={toolSchema}
+            onSave={onSave}
+            onPatchSave={onPatchSave}
+            onToast={onToast}
+          />
+        );
+      })}
     </div>
   );
 }

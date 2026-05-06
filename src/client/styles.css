@@ -54,6 +54,7 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .badge.project { background: rgba(188,140,255,.12); color: var(--purple); }
 .badge.local { background: rgba(210,153,34,.12); color: var(--orange); }
 .badge.miss { background: rgba(248,81,73,.1); color: var(--red); font-weight: 600; text-transform: none; }
+.badge.schema { background: rgba(63,185,80,.12); color: var(--green); font-weight: 600; }
 .scope-path { font-size: 13px; color: var(--fg1); font-weight: 500; }
 .fmt { font-size: 10px; color: var(--fg3); background: var(--bg3); padding: 2px 6px; border-radius: 3px; font-family: 'SF Mono', monospace; }
 
@@ -91,6 +92,13 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .raw { padding: 14px 16px; font-size: 12px; line-height: 1.7; color: var(--fg1); white-space: pre-wrap; word-break: break-all; background: var(--bg0); margin: 0; }
 .editor textarea { width: 100%; min-height: 280px; padding: 14px 16px; border: none; outline: none; resize: vertical; font-size: 12px; line-height: 1.7; font-family: 'SF Mono', monospace; color: var(--fg0); background: var(--bg0); tab-size: 2; }
 .editor-bar { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; background: var(--bg2); border-top: 1px solid var(--border); }
+
+/* ── CodeMirror 6（PR-F） ──
+   语法高亮 / 行号容器；与 .scope-body 子元素其他部分视觉一致。
+   主题细节（颜色 / 字号 / gutter）见 components/editor/theme.ts */
+.cm-host { background: var(--bg0); }
+.cm-host .cm-editor { outline: none; }
+.cm-host .cm-editor.cm-focused { outline: none; }
 .btn { font-size: 12px; font-weight: 600; padding: 6px 16px; border-radius: var(--rs); cursor: pointer; font-family: inherit; transition: .15s; border: 1px solid transparent; }
 .btn.primary { background: var(--blue); color: #fff; }
 .btn.primary:hover { filter: brightness(1.1); }
@@ -204,3 +212,185 @@ code.fail { color: var(--red); }
 .prefs { position: relative; }
 .prefs-popover { position: absolute; right: 0; top: calc(100% + 6px); background: var(--bg1); border: 1px solid var(--border); border-radius: var(--r); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 260px; z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
 .prefs-popover .form-row > label { min-width: 90px; }
+
+/* ── fields/ 控件库（PR-C） ──
+   schema-driven 行内编辑 11 个控件 + FieldRow 通用包装。
+   token 严格复用 var(--bg0..fg3 / blue/green/red/orange/purple/cyan)。 */
+
+.field-row { display: grid; grid-template-columns: 200px 1fr; gap: 10px; padding: 10px 16px; font-size: 13px; align-items: start; min-height: 38px; border-bottom: 1px solid var(--border); }
+.field-row:last-child { border-bottom: none; }
+.field-row:hover { background: rgba(88,166,255,.03); }
+.field-key { display: flex; flex-direction: column; gap: 2px; }
+.field-key code { color: var(--cyan); font-weight: 600; font-size: 12px; word-break: break-all; }
+.field-desc { font-size: 11px; color: var(--fg3); line-height: 1.4; }
+.field-since { font-size: 10px; color: var(--fg3); font-family: 'SF Mono', monospace; margin-top: 2px; }
+.field-control { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.field-help { font-size: 11px; color: var(--blue); text-decoration: none; }
+.field-help:hover { text-decoration: underline; }
+.field-hint { font-size: 11px; color: var(--fg3); line-height: 1.4; }
+.field-empty { color: var(--fg3); font-size: 12px; padding: 4px 0; }
+
+/* badges */
+.field-badge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 2px 6px; border-radius: 3px; margin-left: 4px; }
+.field-badge.deprecated { background: rgba(248,81,73,.12); color: var(--red); text-decoration: line-through; }
+.field-badge.sensitive { background: rgba(210,153,34,.12); color: var(--orange); }
+.field-badge.unknown { background: rgba(210,153,34,.12); color: var(--orange); }
+
+/* errors */
+.field-errors { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.field-error { font-size: 11px; line-height: 1.4; }
+.field-error.error { color: var(--red); }
+.field-error.warning { color: var(--orange); }
+.field-error.info { color: var(--fg2); }
+
+/* boolean */
+.field-bool { display: flex; align-items: center; gap: 10px; }
+.field-toggle { width: 36px; height: 20px; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; padding: 0; position: relative; transition: .15s; }
+.field-toggle.on { background: rgba(63,185,80,.4); border-color: var(--green); }
+.field-toggle.unset { opacity: .5; }
+.field-toggle-knob { position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; background: var(--fg0); border-radius: 50%; transition: .15s; }
+.field-toggle.on .field-toggle-knob { transform: translateX(16px); background: var(--green); }
+.field-bool-label { font-size: 12px; font-family: 'SF Mono', monospace; color: var(--fg1); min-width: 50px; }
+.field-reset { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: var(--rs); background: var(--bg0); color: var(--fg2); cursor: pointer; font-family: inherit; }
+.field-reset:hover { color: var(--blue); border-color: rgba(88,166,255,.3); }
+.field-reset.danger { color: var(--red); border-color: rgba(248,81,73,.3); }
+.field-confirm-hint { font-size: 11px; color: var(--orange); }
+
+/* number / string / path / sensitive shared input */
+.field-input, .field-select { padding: 6px 10px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); color: var(--fg0); font-family: inherit; font-size: 13px; width: 100%; }
+.field-input:focus, .field-select:focus { outline: none; border-color: var(--blue); }
+.field-input.invalid, .field-number.invalid input { border-color: var(--red); }
+.field-textarea { min-height: 60px; font-family: 'SF Mono', monospace; font-size: 12px; resize: vertical; }
+.field-number { display: flex; align-items: center; gap: 6px; }
+.field-number input { flex: 1; }
+.field-unit { font-size: 11px; color: var(--fg3); font-family: 'SF Mono', monospace; padding-right: 4px; }
+
+/* enum */
+.field-radio-group { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px 0; }
+.field-radio { display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 13px; }
+.field-radio.deprecated { opacity: .5; text-decoration: line-through; }
+.field-radio input[type="radio"] { accent-color: var(--blue); }
+
+/* path */
+.field-path { display: flex; gap: 6px; align-items: center; }
+.field-path input { flex: 1; }
+.field-path-pick { padding: 6px 10px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); color: var(--fg2); cursor: pointer; font-size: 14px; }
+.field-path-pick:hover { background: var(--bg2); color: var(--fg0); }
+
+/* array */
+.field-array { display: flex; flex-direction: column; gap: 8px; }
+.field-array-card { background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); overflow: hidden; }
+.field-array-card-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--bg2); border-bottom: 1px solid var(--border); }
+.field-array-card-label { font-size: 11px; color: var(--fg3); font-family: 'SF Mono', monospace; }
+.field-array-card-actions { display: flex; gap: 4px; }
+.field-array-card-actions button { padding: 2px 8px; background: none; border: 1px solid var(--border); border-radius: 3px; color: var(--fg2); cursor: pointer; font-size: 11px; font-family: inherit; }
+.field-array-card-actions button:hover:not(:disabled) { background: var(--bg3); color: var(--fg0); }
+.field-array-card-actions button.danger:hover:not(:disabled) { color: var(--red); border-color: rgba(248,81,73,.3); }
+.field-array-card-actions button:disabled { opacity: .3; cursor: not-allowed; }
+.field-array-card-body { padding: 4px 0; }
+.field-array-add { padding: 6px 12px; background: var(--bg0); border: 1px dashed var(--border); border-radius: var(--rs); color: var(--fg2); cursor: pointer; font-size: 12px; font-family: inherit; align-self: flex-start; }
+.field-array-add:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.field-array-add:disabled { opacity: .3; cursor: not-allowed; }
+
+/* chips (array of short strings) */
+.field-chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 4px 6px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); }
+.field-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; font-size: 11px; }
+.field-chip code { color: var(--fg1); font-family: 'SF Mono', monospace; }
+.field-chip button { background: none; border: none; color: var(--fg3); cursor: pointer; padding: 0 2px; font-size: 12px; }
+.field-chip button:hover:not(:disabled) { color: var(--red); }
+.field-chip-input { flex: 1; min-width: 100px; border: none; outline: none; background: none; color: var(--fg0); font: inherit; font-size: 12px; padding: 2px 4px; }
+
+/* object */
+.field-object { display: flex; flex-direction: column; gap: 4px; }
+.field-object-toggle { background: none; border: none; color: var(--fg2); cursor: pointer; padding: 2px 0; text-align: left; font: inherit; font-size: 12px; }
+.field-object-toggle:hover { color: var(--blue); }
+.field-object-body { border-left: 2px solid var(--border); padding-left: 12px; margin-top: 4px; }
+
+/* kv-map */
+.field-kv { display: flex; flex-direction: column; gap: 6px; }
+.field-kv-row { display: grid; grid-template-columns: 160px 1fr auto; gap: 6px; align-items: start; }
+.field-kv-key { padding: 6px 10px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); color: var(--cyan); font-family: 'SF Mono', monospace; font-size: 12px; }
+.field-kv-key.invalid { border-color: var(--red); }
+.field-kv-key:focus { outline: none; border-color: var(--blue); }
+.field-kv-value { min-width: 0; }
+.field-kv-del { padding: 6px 10px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); color: var(--fg3); cursor: pointer; font-size: 14px; }
+.field-kv-del:hover:not(:disabled) { color: var(--red); border-color: rgba(248,81,73,.3); }
+.field-kv-add { align-self: flex-start; padding: 6px 12px; background: var(--bg0); border: 1px dashed var(--border); border-radius: var(--rs); color: var(--fg2); cursor: pointer; font-size: 12px; font-family: inherit; }
+.field-kv-add:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+
+/* sensitive */
+.field-warn { padding: 8px 10px; background: rgba(210,153,34,.1); border: 1px solid rgba(210,153,34,.3); border-radius: var(--rs); color: var(--orange); font-size: 11px; line-height: 1.4; }
+.field-warn code { color: var(--orange); font-weight: 600; }
+.field-sensitive { display: flex; gap: 6px; align-items: center; }
+.field-sensitive input { flex: 1; font-family: 'SF Mono', monospace; }
+.field-sensitive-toggle { padding: 6px 10px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); cursor: pointer; font-size: 14px; }
+.field-sensitive-toggle:hover:not(:disabled) { background: var(--bg2); }
+
+/* markdown / code */
+.field-markdown, .field-code { display: flex; flex-direction: column; gap: 4px; }
+
+/* unknown */
+.field-unknown { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.field-unknown-json { background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); padding: 8px 10px; font-size: 11px; font-family: 'SF Mono', monospace; color: var(--fg1); margin: 0; max-height: 200px; overflow: auto; flex: 1; }
+.field-null { color: var(--fg3); font-style: italic; font-size: 12px; }
+
+/* ── schema-mode（PR-D） ──
+   schema-driven scope body 的容器 + 未知 key 汇总 banner + saving 提示。 */
+.schema-scope-body { display: flex; flex-direction: column; }
+.schema-unknown-summary { padding: 8px 16px; background: rgba(210,153,34,.08); border-bottom: 1px solid rgba(210,153,34,.2); color: var(--orange); font-size: 11px; line-height: 1.5; }
+.schema-unknown-summary code { color: var(--orange); font-family: 'SF Mono', monospace; font-size: 11px; }
+.schema-saving { padding: 4px 16px; background: rgba(88,166,255,.06); color: var(--blue); font-size: 11px; text-align: right; border-bottom: 1px solid var(--border); }
+
+/* PR-G TOCTOU 冲突 banner */
+.schema-conflict { padding: 12px 16px; background: rgba(248,81,73,.08); border-bottom: 1px solid rgba(248,81,73,.3); display: flex; flex-direction: column; gap: 8px; }
+.schema-conflict-msg { color: var(--red); font-size: 12px; line-height: 1.5; }
+.schema-conflict-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* PR-J ajv 校验诊断（顶部可展开 banner） */
+.schema-diagnostics { background: rgba(210,153,34,.08); border-bottom: 1px solid rgba(210,153,34,.3); }
+.schema-diagnostics-head { width: 100%; padding: 8px 16px; background: none; border: none; color: var(--orange); font-size: 12px; text-align: left; cursor: pointer; font-family: inherit; }
+.schema-diagnostics-head:hover { background: rgba(210,153,34,.04); }
+.schema-diagnostics-list { list-style: none; padding: 4px 16px 8px 28px; margin: 0; display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow: auto; }
+.schema-diagnostic { font-size: 11px; line-height: 1.4; }
+.schema-diagnostic.error { color: var(--red); }
+.schema-diagnostic.warning { color: var(--orange); }
+.schema-diagnostic.info { color: var(--fg2); }
+.schema-diagnostic code { color: var(--cyan); font-family: 'SF Mono', monospace; font-size: 11px; }
+
+/* PR-H Markdown 渲染（react-markdown + shiki 代码块）*/
+.markdown-scope-body { padding: 16px 20px; max-height: 70vh; overflow: auto; }
+.md-view { font-size: 13px; line-height: 1.7; color: var(--fg0); }
+.md-view h1 { font-size: 20px; font-weight: 700; margin: 18px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.md-view h2 { font-size: 17px; font-weight: 700; margin: 16px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.md-view h3 { font-size: 15px; font-weight: 700; margin: 14px 0 6px; }
+.md-view h4 { font-size: 13px; font-weight: 700; margin: 12px 0 4px; }
+.md-view h5, .md-view h6 { font-size: 12px; font-weight: 700; margin: 10px 0 4px; color: var(--fg1); }
+.md-view p { margin: 8px 0; }
+.md-view ul, .md-view ol { margin: 8px 0; padding-left: 24px; }
+.md-view li { margin: 2px 0; }
+.md-view blockquote { margin: 8px 0; padding: 4px 12px; border-left: 3px solid var(--border); color: var(--fg2); }
+.md-view a { color: var(--blue); text-decoration: none; }
+.md-view a:hover { text-decoration: underline; }
+.md-view hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+.md-view img { max-width: 100%; border-radius: var(--rs); }
+
+/* GFM 表格 */
+.md-view table { border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+.md-view th, .md-view td { padding: 6px 12px; border: 1px solid var(--border); }
+.md-view th { background: var(--bg2); font-weight: 700; text-align: left; }
+.md-view tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+
+/* GFM 任务列表 */
+.md-view input[type="checkbox"] { margin-right: 6px; vertical-align: middle; }
+
+/* code */
+.md-code-inline { background: var(--bg3); color: var(--cyan); padding: 1px 6px; border-radius: 3px; font-family: 'SF Mono', monospace; font-size: 12px; }
+.md-code-block { background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); padding: 12px 14px; overflow: auto; margin: 10px 0; font-size: 12px; line-height: 1.5; max-height: 480px; }
+.md-code-block.plain code { font-family: 'SF Mono', monospace; color: var(--fg1); }
+/* shiki 注入 .shiki <pre> 自带背景；用 inherit 让外层 .md-code-block 覆盖背景 */
+.md-code-block .shiki { background: transparent !important; padding: 0; margin: 0; font-family: 'SF Mono', monospace; }
+.md-code-block .shiki code { background: transparent !important; }
+
+/* MarkdownField 内 toolbar */
+.field-markdown { display: flex; flex-direction: column; gap: 6px; }
+.field-markdown-toolbar { display: flex; gap: 4px; }

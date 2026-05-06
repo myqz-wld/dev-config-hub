@@ -26,7 +26,8 @@ Win 端真机 E2E 留待 CI 验证（参见 [REVIEW_1](reviews/REVIEW_1.md)）�
 ## 核心能力
 
 - **配置可视化**：按工具分组展示所有配置文件，附官方文档/Schema 描述
-- **原文查看 + 直接编辑保存**：源文件保真，无中间转换
+- **Schema-driven 行内编辑**（Claude `settings.json` 起步，PR-E 后扩到 Codex/OpenCode）：基于工具官方 Schema 的字段级表单（toggle / radio / select / chip / kv-map / sensitive 等 11 个原子控件），写回走 `jsonc-parser` 字段级 patch — **注释 / 字段顺序 / 缩进 / 未知 key 全部保留**
+- **源文件查看 + 直接编辑保存**：CodeMirror 6 语法高亮 + 行号 + 折叠 + 搜索（Cmd+F）；保留对全文 textarea 编辑作为 schema 模式的兜底
 - **自动检测工具版本**
 - **CLI + GUI 双入口**：`dch` 子命令完整覆盖功能；`dch gui` / `bun run dev` 启动桌面窗口
 - **Profile 快速切换**：维护多套 Claude / Codex 配置（如 `claude-pro` / `claude-api`、`codex-plus` / `codex-api`），一键原子切换 `~/.claude` / `~/.codex` symlink，全局生效
@@ -79,6 +80,11 @@ bun run cli profile                              # 列出所有 profile
 bun run cli profile init claude                  # 把 ~/.claude 转成 symlink/junction 并建立默认 profile
 bun run cli profile add claude claude-api --dir ~/.claude-api --env ANTHROPIC_API_KEY=sk-...
 bun run cli profile use claude-api               # 原子切换 + 跑 pre/post hook
+
+# Schema 维护（PR-J）
+bun src/schemas/sync.ts                          # 列出所有已注册 schema 元信息
+bun src/schemas/sync.ts --check-self             # ajv 自洽校验所有本地 schema（CI 友好）
+bun src/schemas/sync.ts --fetch claude-settings  # 拉上游 schemastore + 顶层字段 diff
 ```
 
 首次 `bun run dev` 需要编译 Rust 依赖，约 2-3 分钟，后续启动秒开。
@@ -244,7 +250,16 @@ function claude {
 │   ├── cli-colors.ts         # ANSI 颜色常量（cli.ts + cli-profile.ts 共享）
 │   ├── cli-profile.ts        # `dch profile ...` 子命令实现，支持 --json
 │   ├── types.ts              # 共享类型
-│   ├── descriptions.ts       # 配置项描述（来自官方文档 / Schema）
+│   ├── descriptions.ts       # 配置项描述（来自官方文档 / Schema；schema-driven 接入后逐步退役为 fallback）
+│   ├── schemas/              # Schema-driven 配置系统（PR-A..D）
+│   │   ├── types.ts          # FieldSchema 16 type / ToolSchema / ScopeKind / Diagnostic
+│   │   ├── helpers.ts        # buildFieldIndex / resolveFieldAtPath / normalizeEnum / pathToString
+│   │   ├── registry.ts       # detectScope / getSchemaForScope（filePath → ScopeKind 严格全等匹配）
+│   │   ├── claude-settings.ts # Claude Code settings.json schema（25+ 字段，每条 // source: 注释绑约束）
+│   │   ├── json-patcher.ts   # jsonc-parser 包装：字段级 modify + applyEdits + 注释/顺序保留
+│   │   ├── diff.ts           # object diff → JsonPatch[]（schema mode 字段级写回用）
+│   │   ├── sync.ts           # bun src/schemas/sync.ts 拉上游 + diff 报告（PR-J 完整化）
+│   │   └── index.ts
 │   ├── utils.ts              # 文件读取等工具
 │   ├── profiles/             # Profile 系统核心（Bun-only）
 │   │   ├── types.ts          # Profile / ProfileStore / HookScript / HookResult / ...
@@ -264,12 +279,24 @@ function claude {
 │       ├── index.html
 │       ├── main.tsx
 │       ├── App.tsx
-│       ├── bridge.ts         # Tauri IPC 桥接 + dchProfile.* 包装
+│       ├── bridge.ts         # Tauri IPC 桥接 + dchProfile.* 包装 + readFileWithMtime + getHomeDir
 │       ├── styles.css
 │       ├── dev-server.ts
 │       └── components/
-│           ├── ConfigPanel.tsx
-│           └── ProfilePanel.tsx
+│           ├── ConfigPanel.tsx       # 配置主面板（schema / 列表 / 源文件 / 编辑 四模式）
+│           ├── ProfilePanel.tsx
+│           ├── editor/               # CodeMirror 6 包装（PR-F）
+│           │   ├── CMEditor.tsx      # React 19 受控包装（自包，非 @uiw）
+│           │   ├── theme.ts          # one-dark + 项目颜色 token
+│           │   └── languages.ts      # ConfigScope.format → CM6 lang 扩展
+│           ├── fields/               # Schema-driven 字段控件库（PR-C，11 个原子控件）
+│           │   ├── BooleanField.tsx / NumberField.tsx / EnumField.tsx / StringField.tsx
+│           │   ├── PathField.tsx / ArrayField.tsx / ObjectField.tsx / KVMapField.tsx
+│           │   ├── SensitiveField.tsx / MarkdownField.tsx / CodeField.tsx / UnknownField.tsx
+│           │   ├── FieldRow.tsx      # 通用包装（label + control + desc + errors）
+│           │   └── index.tsx         # renderField 调度器
+│           └── schema-mode/          # Schema-driven scope body（PR-D）
+│               └── SchemaScopeBody.tsx  # 字段级 onChange → diffPatches → patchJson → onPatchSave
 ├── src-tauri/                # Tauri 后端（Rust）
 │   ├── Cargo.toml
 │   ├── tauri.conf.json

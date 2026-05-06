@@ -123,6 +123,23 @@ UI 展示的配置项描述全部来自各工具的官方文档 / Schema，**不
 
 新增工具支持时，按这个原则给 `descriptions.ts` 喂数据。
 
+### Schema 系统硬约束（PR-D 升级，schema-driven 行内编辑生效后）
+
+`src/schemas/` 是 schema-driven UI 的真理来源，三条铁律不可破：
+
+1. **行内编辑必须走 `src/schemas/` 的 `FieldSchema`**，禁止控件层（`src/client/components/fields/*`）自创类型 / 字段语义。所有 enum / range / pattern / sensitive / default 都必须从 schema 读，不准在控件里硬编码
+2. **schema 字段必须带 `// source:` 注释**绑约束（enum 值 / default / min/max / type）。来源记在每份 schema 文件的 `$source: <上游 URL>`；上游漂移走 `bun src/schemas/sync.ts --fetch <scope>` 拉 diff 后人工对照修改。**严禁揣测字段语义**（REVIEW_3 R_1·C1/C2/C3 教训：手工翻译漏档 / default 反转 / max 揣测都被对抗 review 实证抓住）
+3. **写回必须基于「原文 + 字段级 patch」**（`patchJson` 走 `jsonc-parser` modify + applyEdits / `patchToml` 行级 in-place + fallback 重新 stringify），**禁止「全量序列化 `parsed`」**。这是「schema 不认识的用户自定义 key 永远不丢」的根本保障 —— `additionalProperties: true` + 字段级 patch 的双重防护。`SchemaScopeBody` 用 `diffPatches(old, new)` 算最小 patch 集合后再走 patcher，绝不全量重写
+
+**CI 门禁**：`bun src/schemas/sync.ts --check-self` 校验所有 schema 自洽（ajv compile），schema 写错立刻 fail。建议接到 git hook 或 CI 流水线。
+
+### 单文件 ≤ 500 行
+
+- 一般代码文件**含注释 / 空行不超过 500 行**。超过后下一次改动必须先拆分 / 重构再加新逻辑（按职责拆 / pure 逻辑 vs IO 分层 / 一个 component 一个文件）
+- **例外**：测试文件、数据字典（如 schema 字段定义、`descriptions.ts`）、单份 changelog / review 可放宽到 ≤ 800 行；超 800 也要考虑按主题拆
+- 现存超标已知（不重构不让新加）：`ProfilePanel.tsx` ~1000 行（已规划 PR-I 拆 7 文件）；`bridge.ts` 接近上限待观察
+- 新文件创建时 first commit 就要保持 ≤ 500，宁可一开始就拆，也不要先怼到一份再后期拆
+
 ---
 
 ## 反复反馈 / 反复踩坑 → 升级约定（自维护机制）

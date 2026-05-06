@@ -18,6 +18,8 @@ async function readFile(path: string): Promise<{ exists: boolean; content: strin
   // 另一进程 / profile 切换可能在此期间删除该文件 → read_file Err。
   // 旧版无 catch → 异常上抛 loadAllConfigs reject → App 「加载失败」整个 UI 挂。
   // 改：失败时降级为「文件不存在」语义，让 UI 优雅退化。
+  // **PR-B 后**：PR-D 集成时切换到下面的 readFileWithMtime（单次 IPC + mtime 回报），
+  // 顺带消除 file_exists/read_file 双 IPC race；本函数保留为兼容入口。
   try {
     const content = await call<string>("read_file", { path });
     return { exists: true, content };
@@ -25,6 +27,51 @@ async function readFile(path: string): Promise<{ exists: boolean; content: strin
     console.warn(`readFile race: ${path} 在 file_exists 与 read_file 之间消失:`, e);
     return { exists: false, content: "" };
   }
+}
+
+/**
+ * Tauri `read_file_with_mtime` 命令的回报。
+ *
+ * **字段契约必须与 `src-tauri/src/lib.rs` 的 `ReadFileWithMtimeResult` Rust struct 同步**
+ * （REVIEW_3 R_1·C12）：Rust 端用 `#[serde(rename_all = "camelCase")]` 把 `mtime_us`
+ * 序列化成 `mtimeUs`。改 Rust 端字段名时务必同步改这里，否则前端 `r.mtimeUs` 静默
+ * undefined → PR-D loadedMtime 比对永远不命中 → 误报「文件已外部变更」。
+ */
+export interface ReadFileWithMtimeResult {
+  exists: boolean;
+  content: string;
+  /**
+   * Unix epoch microseconds；不存在 / 拿不到 mtime 时 null。
+   *
+   * 用 us 精度而非 ms（REVIEW_3 R_1·C7）：APFS 连续两次 fs::write 实测间隔
+   * ~335 µs（< 1 ms）→ ms 精度看不出差异 → TOCTOU 漏判。us 精度 + JS Number
+   * 2^53 上限到公元 ~285616 年，安全。
+   *
+   * **三态语义**（REVIEW_3 R_1·C17 + R_2 D2 补全）：
+   *   - `null` 三种合并来源（PR-D consumer 一律跳过 TOCTOU，是 fail-safe）：
+   *     1. 文件不存在 / 不是 regular file
+   *     2. metadata.modified() 失败（罕见 FS 不支持 mtime）
+   *     3. mtime 早于 UNIX_EPOCH（pre-1970 文件，APFS u64 ns 时间戳实质不可达，但
+   *        rsync --times / git checkout 老仓库 / `touch -t 196812310000` 可造）
+   *     上述三种 lib.rs 端各自 eprintln 留痕，可从 Console.app 区分（前端不区分）
+   *   - `number`：正常 mtime
+   *   PR-D consumer 禁止用 `if (!r.mtimeUs)`（false 分支会覆盖 0 / null 双语义），
+   *   必须用 `if (r.mtimeUs == null)` 显式判 null。
+   */
+  mtimeUs: number | null;
+}
+
+/**
+ * 单次 IPC 拿 exists + content + mtime。
+ *
+ * 相比 readFile（file_exists + read_file 双 IPC），原子读取消除中间 race，
+ * 且回报 mtime 给 PR-D 之后的 schema-aware 写回路径做 TOCTOU 比对。
+ *
+ * Rust 端 `read_file_with_mtime` 内部已 graceful degrade（不存在 / 不是 regular file /
+ * 中途读失败 → exists=false），不会抛 IPC 异常。
+ */
+export async function readFileWithMtime(path: string): Promise<ReadFileWithMtimeResult> {
+  return call<ReadFileWithMtimeResult>("read_file_with_mtime", { path });
 }
 
 function expandHomePath(p: string, home: string): string {
