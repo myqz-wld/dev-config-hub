@@ -28,7 +28,7 @@ function expandHomePath(p: string, home: string | null): string {
   return p;
 }
 
-export function PathField({ schema, value, onChange, path, errors, scopeContext, disabled }: FieldProps<string>) {
+export function PathField({ schema, value, onChange, path, errors, scopeContext, disabled, embedded, menu }: FieldProps<string>) {
   const [home, setHome] = useState<string | null>(null);
   const [draft, setDraft] = useState<string>(value ?? "");
   const [pickError, setPickError] = useState<string | null>(null);
@@ -98,8 +98,8 @@ export function PathField({ schema, value, onChange, path, errors, scopeContext,
     }
   };
 
-  return (
-    <FieldRow schema={schema} path={path} errors={errors}>
+  const inner = (
+    <>
       <div className="field-path">
         <input
           type="text"
@@ -121,6 +121,12 @@ export function PathField({ schema, value, onChange, path, errors, scopeContext,
         </button>
       </div>
       {pickError && <span className="field-error error">{pickError}</span>}
+    </>
+  );
+  if (embedded) return inner;
+  return (
+    <FieldRow schema={schema} path={path} errors={errors} menu={menu}>
+      {inner}
     </FieldRow>
   );
 }

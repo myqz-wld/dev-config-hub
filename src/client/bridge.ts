@@ -93,6 +93,57 @@ export async function getHomeDir(): Promise<string> {
   return call<string>("get_home_dir");
 }
 
+/**
+ * 读目录下文件列表（name + isFile）。
+ *
+ * **安全**：Rust 端 `read_dir` 拒绝非 HOME 路径（webview 不能列任意目录）。
+ * 不存在的目录返回空数组（不当 error）。
+ */
+export interface DirEntry {
+  name: string;
+  isFile: boolean;
+}
+export async function readDir(path: string): Promise<DirEntry[]> {
+  return call<DirEntry[]>("read_dir", { path });
+}
+
+// ── ui-prefs（自定义 schema feature B 配套：用户隐藏字段列表持久化）──────
+//
+// 存储位置 ~/.dch/ui-prefs.json，仅 UI 写入；CLI 不读不写。
+// JSON parse 失败 → 返回默认空 prefs + console.warn，不阻塞 UI 启动。
+
+import type { ScopeKind } from "../schemas/registry.ts";
+
+export interface UiPrefs {
+  /** 用户主动隐藏的 root level 字段。key 为 ScopeKind，value 为字段 key 列表。 */
+  hiddenFields: Partial<Record<ScopeKind, string[]>>;
+}
+
+const DEFAULT_UI_PREFS: UiPrefs = { hiddenFields: {} };
+
+export async function loadUiPrefs(): Promise<UiPrefs> {
+  const home = await getHomeDir();
+  const r = await readFile(`${home}/.dch/ui-prefs.json`);
+  if (!r.exists) return { ...DEFAULT_UI_PREFS };
+  try {
+    const parsed = JSON.parse(r.content) as UiPrefs;
+    // shape guard：保证 hiddenFields 是 object（不是 array / null / 别的）
+    if (!parsed.hiddenFields || typeof parsed.hiddenFields !== "object" || Array.isArray(parsed.hiddenFields)) {
+      console.warn("[ui-prefs] hiddenFields 形状异常，使用默认值");
+      return { ...DEFAULT_UI_PREFS };
+    }
+    return parsed;
+  } catch (e) {
+    console.warn(`[ui-prefs] parse 失败，使用默认值:`, e);
+    return { ...DEFAULT_UI_PREFS };
+  }
+}
+
+export async function saveUiPrefs(prefs: UiPrefs): Promise<void> {
+  const home = await getHomeDir();
+  await saveFile(`${home}/.dch/ui-prefs.json`, JSON.stringify(prefs, null, 2) + "\n");
+}
+
 // 读 profile configDir 下的某个文件（如 settings.json / config.toml）。不存在返回空串。
 export async function readProfileConfigFile(configDir: string, filename: string): Promise<string> {
   const home = await getHomeDir();

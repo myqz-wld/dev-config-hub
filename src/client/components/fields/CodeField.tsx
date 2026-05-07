@@ -12,19 +12,23 @@ import { languageByName } from "../editor/languages.ts";
  * - min-height 通过 maxHeight=400 间接限制（CM6 自身按内容自适配最小高）
  * - PR-G 之后接 JSON Schema lint（codeLanguage="json" 时通过 extraExtensions 注入）
  */
-export function CodeField({ schema, value, onChange, path, errors, disabled }: FieldProps<string>) {
+export function CodeField({ schema, value, onChange, path, errors, disabled, embedded, menu }: FieldProps<string>) {
   const lang = languageByName(schema.codeLanguage ?? "shell");
+  const inner = (
+    <div className="field-code">
+      <CMEditor
+        value={value ?? ""}
+        language={lang}
+        readOnly={disabled}
+        maxHeight={400}
+        onChange={(next) => onChange(next === "" ? undefined : next)}
+      />
+    </div>
+  );
+  if (embedded) return inner;
   return (
-    <FieldRow schema={schema} path={path} errors={errors}>
-      <div className="field-code">
-        <CMEditor
-          value={value ?? ""}
-          language={lang}
-          readOnly={disabled}
-          maxHeight={400}
-          onChange={(next) => onChange(next === "" ? undefined : next)}
-        />
-      </div>
+    <FieldRow schema={schema} path={path} errors={errors} menu={menu}>
+      {inner}
     </FieldRow>
   );
 }

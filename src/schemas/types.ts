@@ -98,6 +98,16 @@ export interface FieldSchema {
 
   // 通用 UX
   hidden?: boolean;                 // 默认折叠
+  /**
+   * 高级字段：默认在 UI 隐藏，需用户在 SchemaScopeBody 顶部 toggle "显示隐藏字段" 才显示。
+   *
+   * 用于上游存在但日常少用的字段（如 `experimental_*` / `companyAnnouncements` /
+   * `managed_*`），减少 root level 字段列表噪音。reviews/REVIEW_5.md PR-CSv1 引入。
+   *
+   * **粒度**：仅作用于 root level 字段（与 hide-field feature 一致）。嵌套字段标 advanced
+   * 不生效（ObjectField 仅在 root path 时执行 advanced/hidden 过滤）。
+   */
+  advanced?: boolean;
   readOnly?: boolean;
   helpUrl?: string;                 // 跳转官方文档锚点
 }

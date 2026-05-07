@@ -1,0 +1,16 @@
+diff --git a/dist/Grammars/W3CEBNF.js b/dist/Grammars/W3CEBNF.js
+index df00a8112745f62d68ef7726653a1b8af2921900..6e1d3c6de333a4b94420f6035b63b3043c8d2c87 100644
+--- a/dist/Grammars/W3CEBNF.js
++++ b/dist/Grammars/W3CEBNF.js
+@@ -312,4 +312,10 @@ var BNF;
+     BNF.Parser = Parser;
+ })(BNF || (BNF = {}));
+ exports.default = BNF;
++// Bun bundler CJS interop fix: 让 `import EBNF from "ebnf/dist/Grammars/W3CEBNF"` 在 Bun build 下也能拿到 BNF。
++// 上游写 `exports.default = BNF` 期望 ESM/CJS interop 给 default import 拿到 BNF；但 Bun bundler 处理时
++// `import_X.default` 解析为 undefined → @sagold/json-query 顶层 `new EBNF.Parser(...)` 抛 TypeError →
++// 整个前端模块加载失败、React 起不来、Tauri 卡 Loading。把 module.exports 整个换成 BNF（保留 .default 字段）
++// 让 Bun 能正确解析。dch fork patch，详见 reviews/REVIEW_9.md。
++module.exports = Object.assign(BNF, { default: BNF });
+ //# sourceMappingURL=W3CEBNF.js.map
+\ No newline at end of file

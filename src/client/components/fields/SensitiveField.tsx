@@ -10,7 +10,7 @@ import { FieldRow } from "./FieldRow.tsx";
  *   - 点 reveal 按钮切 type="text"，5 秒后自动复原（防止离开屏幕忘关）
  *   - scopeContext.level !== "local" 时顶部 banner 警告（敏感值不该写到 user / global / project 共享文件）
  */
-export function SensitiveField({ schema, value, onChange, path, errors, scopeContext, disabled }: FieldProps<string>) {
+export function SensitiveField({ schema, value, onChange, path, errors, scopeContext, disabled, embedded, menu }: FieldProps<string>) {
   const [draft, setDraft] = useState<string>(value ?? "");
   const [revealed, setRevealed] = useState(false);
 
@@ -35,33 +35,49 @@ export function SensitiveField({ schema, value, onChange, path, errors, scopeCon
 
   const showWarning = scopeContext && scopeContext.level !== "local";
 
+  const sensitiveControl = (
+    <div className="field-sensitive">
+      <input
+        type={revealed ? "text" : "password"}
+        className="field-input"
+        value={revealed ? draft : (value ? maskValue(draft) : "")}
+        disabled={disabled || !revealed}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        placeholder={schema.default != null ? "（已设默认）" : ""}
+      />
+      <button
+        type="button"
+        className="field-sensitive-toggle"
+        disabled={disabled}
+        onClick={() => setRevealed(!revealed)}
+        title={revealed ? "隐藏（5s 后自动）" : "显示"}
+      >
+        {revealed ? "🙈" : "👁️"}
+      </button>
+    </div>
+  );
+
+  // embedded 模式（KV value 列）：只渲染裸控件 + warning，避免双层 FieldRow 把布局挤崩
+  if (embedded) {
+    return showWarning ? (
+      <>
+        <div className="field-warn">
+          ⚠️ 敏感值写到 <code>{scopeContext.level}</code> 文件可能被共享 / 入版控；建议用 settings.local.json 或环境变量
+        </div>
+        {sensitiveControl}
+      </>
+    ) : sensitiveControl;
+  }
+
   return (
-    <FieldRow schema={schema} path={path} errors={errors}>
+    <FieldRow schema={schema} path={path} errors={errors} menu={menu}>
       {showWarning && (
         <div className="field-warn">
           ⚠️ 敏感值写到 <code>{scopeContext.level}</code> 文件可能被共享 / 入版控；建议用 settings.local.json 或环境变量
         </div>
       )}
-      <div className="field-sensitive">
-        <input
-          type={revealed ? "text" : "password"}
-          className="field-input"
-          value={revealed ? draft : (value ? maskValue(draft) : "")}
-          disabled={disabled || !revealed}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          placeholder={schema.default != null ? "（已设默认）" : ""}
-        />
-        <button
-          type="button"
-          className="field-sensitive-toggle"
-          disabled={disabled}
-          onClick={() => setRevealed(!revealed)}
-          title={revealed ? "隐藏（5s 后自动）" : "显示"}
-        >
-          {revealed ? "🙈" : "👁️"}
-        </button>
-      </div>
+      {sensitiveControl}
     </FieldRow>
   );
 }

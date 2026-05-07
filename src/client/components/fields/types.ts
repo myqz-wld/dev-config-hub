@@ -23,6 +23,22 @@ export interface FieldProps<T = unknown> {
   /** 嵌套层级。用于 ObjectField 折叠决策（≤2 直接展开） */
   depth?: number;
   disabled?: boolean;
+  /**
+   * 嵌入模式：当前 field 是被父容器（KVMapField 的 value 列 / ArrayItemCard 的 body）渲染的。
+   *
+   * embedded=true 时，leaf field 必须**跳过 FieldRow 包装**，只渲染裸控件。
+   * 否则父容器的 grid 会被 nested FieldRow 的 200px label 列挤掉布局，造成
+   * KV row 的 × 按钮被裁切 / 重复显示 path 末段 label（reviews/REVIEW_5.md follow-up）。
+   *
+   * errors / description / helpUrl 在 embedded 时不显示（外层容器自己包了 FieldRow，
+   * 顶层 ajv diagnostics 也会汇总）。
+   */
+  embedded?: boolean;
+  /**
+   * 「⋯」菜单 slot（PR-CSv1）。仅 root level 字段会有（ObjectField 给 root 子字段传 `<FieldMenu>`）。
+   * 非 root / 嵌套字段不传 → 不渲染菜单按钮。
+   */
+  menu?: React.ReactNode;
 }
 
 export interface ScopeContext {

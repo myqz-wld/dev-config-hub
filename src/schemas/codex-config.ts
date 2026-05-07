@@ -111,6 +111,20 @@ export const CODEX_CONFIG: ToolSchema = {
         pathKind: "file",
         expandHome: true,
       },
+      // source: upstream `personality` (Codex CLI 新增) — 调整 Codex 系统 prompt 风格
+      // 当前 enum 值是社区观察的常见取值；不确定全集，用 enumOpen 让用户填自定义也合法
+      personality: {
+        type: "enum",
+        description: "Codex 系统 prompt 风格预设（影响回答语气 / 详尽度 / 主动性等）。",
+        enum: [
+          { value: "pragmatic", label: "Pragmatic", description: "务实、直接给方案" },
+          { value: "concise", label: "Concise", description: "极简、最少话" },
+          { value: "friendly", label: "Friendly", description: "友好、解释更详细" },
+          { value: "formal", label: "Formal", description: "正式、商务化措辞" },
+        ],
+        enumStyle: "select",
+        enumOpen: true,
+      },
 
       // ─── 沙箱 / 审批 ───
       // source: upstream `sandbox_mode` enum: read-only/workspace-write/danger-full-access
@@ -145,17 +159,7 @@ export const CODEX_CONFIG: ToolSchema = {
         ],
         enumStyle: "radio",
       },
-      // source: upstream `web_search` enum: disabled/cached/live
-      web_search: {
-        type: "enum",
-        description: "Web 搜索能力。",
-        enum: [
-          { value: "disabled", label: "Disabled" },
-          { value: "cached", label: "Cached", description: "仅查 cache" },
-          { value: "live", label: "Live", description: "实时网络查询" },
-        ],
-        enumStyle: "radio",
-      },
+      // source: upstream `web_search` enum: disabled/cached/live （已迁移到下方常见字段补全节）
 
       // ─── 复杂嵌套（先浅声明，UnknownField 兜底） ───
       model_providers: {
@@ -179,9 +183,14 @@ export const CODEX_CONFIG: ToolSchema = {
         additionalProperties: true,
       },
       mcp_servers: {
-        type: "object",
-        description: "MCP 服务器配置。**注意**：此字段常用 inline-table 写，patch 会触发 fallback（重新序列化丢注释）。",
-        additionalProperties: true,
+        type: "kv-map",
+        description: "MCP 服务器配置。key 为 server name，value 为 transport 配置 object。**注意**：此字段常用 inline-table 写，patch 会触发 fallback（重新序列化丢注释）。",
+        keyHint: "MCP server name",
+        valueSchema: {
+          type: "object",
+          description: "MCP server 配置 object（command / args / env / type / url 等）。",
+          additionalProperties: true,
+        },
       },
       agents: AGENTS_FIELD,
       tui: NESTED_OBJ,
@@ -189,6 +198,175 @@ export const CODEX_CONFIG: ToolSchema = {
       memories: NESTED_OBJ,
       permissions: NESTED_OBJ,
       otel: NESTED_OBJ,
+
+      // ─── 补齐 codex-rs/core/config.schema.json 常见字段（CHANGELOG_8 后续） ───
+      // source: upstream `notify` array of string (external command for end-user notification)
+      notify: {
+        type: "array",
+        description: "外部通知命令（每项是命令 + 参数串），任务完成时触发。",
+        itemSchema: { type: "string" },
+      },
+      // source: upstream `instructions` string (system instructions)
+      instructions: {
+        type: "string",
+        description: "系统级 instructions（追加到 default system prompt）。",
+        multiline: true,
+      },
+      // source: upstream `developer_instructions` string
+      developer_instructions: {
+        type: "string",
+        description: "Developer 角色 instructions（仅开发者上下文场景使用）。",
+        multiline: true,
+      },
+      // source: upstream `chatgpt_base_url` string
+      chatgpt_base_url: {
+        type: "url",
+        description: "ChatGPT API 请求 base URL（区别于 `openai_base_url`）。",
+      },
+      // source: upstream `openai_base_url` string
+      openai_base_url: {
+        type: "url",
+        description: "OpenAI API 请求 base URL（覆盖内置 `openai` provider）。",
+      },
+      // source: upstream `oss_provider` string (e.g. "lmstudio" / "ollama")
+      oss_provider: {
+        type: "enum",
+        description: "本地 OSS 模型提供商。",
+        enum: [
+          { value: "lmstudio", label: "LM Studio" },
+          { value: "ollama", label: "Ollama" },
+        ],
+        enumStyle: "select",
+        enumOpen: true,
+      },
+      // source: upstream `commit_attribution` string (e.g. "Codex <noreply@openai.com>")
+      commit_attribution: {
+        type: "string",
+        description: "Codex 生成的 commit message 归属署名（co-authored-by 行）。",
+      },
+      // source: upstream `default_permissions` string (permissions profile name)
+      default_permissions: {
+        type: "string",
+        description: "默认应用的 permissions profile 名（对应 `permissions` 表的 key）。",
+      },
+      // source: upstream `service_tier` string (e.g. "auto" / "flex")
+      service_tier: {
+        type: "enum",
+        description: "OpenAI API service tier 偏好（影响成本 / 速度 / 可用性）。",
+        enum: [
+          { value: "auto", label: "Auto", description: "自动选择" },
+          { value: "default", label: "Default" },
+          { value: "flex", label: "Flex", description: "弹性（更便宜，可能更慢）" },
+          { value: "scale", label: "Scale", description: "Scale tier" },
+        ],
+        enumStyle: "select",
+        enumOpen: true,
+      },
+      // source: upstream `review_model` string (override model for /review)
+      review_model: {
+        type: "string",
+        description: "`/review` 功能使用的模型 ID（覆盖默认 model）。",
+      },
+      // source: upstream `tool_output_token_limit` integer
+      tool_output_token_limit: {
+        type: "integer",
+        description: "工具 / 函数输出存储到 thread store 时的 Token 预算（避免单工具输出爆炸）。",
+        min: 256,
+        unit: "tokens",
+      },
+
+      // ─── 行为开关 ───
+      // source: upstream `allow_login_shell` boolean
+      allow_login_shell: {
+        type: "boolean",
+        description: "允许模型为 shell-based 工具请求登录式 shell。",
+      },
+      // source: upstream `check_for_update_on_startup` boolean
+      check_for_update_on_startup: {
+        type: "boolean",
+        description: "启动时检查 Codex 更新。",
+      },
+      // source: upstream `hide_agent_reasoning` boolean
+      hide_agent_reasoning: {
+        type: "boolean",
+        description: "隐藏 AgentReasoning 事件（清爽输出）。",
+      },
+      // source: upstream `show_raw_agent_reasoning` boolean
+      show_raw_agent_reasoning: {
+        type: "boolean",
+        description: "显示原始 AgentReasoningRawContent 事件（调试用）。",
+      },
+      // source: upstream `disable_paste_burst` boolean
+      disable_paste_burst: {
+        type: "boolean",
+        description: "禁用快速粘贴检测（输入处理）。",
+      },
+      // source: upstream `model_supports_reasoning_summaries` boolean
+      model_supports_reasoning_summaries: {
+        type: "boolean",
+        description: "强制启用 reasoning summaries（即使模型未声明支持）。",
+      },
+      // source: upstream `include_apps_instructions` boolean
+      include_apps_instructions: {
+        type: "boolean",
+        description: "注入 `<apps_instructions>` developer block。",
+      },
+      // source: upstream `include_environment_context` boolean
+      include_environment_context: {
+        type: "boolean",
+        description: "注入 `<environment_context>` user block。",
+      },
+      // source: upstream `include_permissions_instructions` boolean
+      include_permissions_instructions: {
+        type: "boolean",
+        description: "注入 `<permissions_instructions>` developer block。",
+      },
+
+      // ─── KV map 类（user-level 集合） ───
+      // source: upstream `marketplaces` object (user-level marketplace entries by name)
+      marketplaces: {
+        type: "kv-map",
+        description: "用户级 marketplace 注册表。key 为 marketplace 名。",
+        keyHint: "marketplace 名",
+        valueSchema: {
+          type: "object",
+          additionalProperties: true,
+        },
+      },
+      // source: upstream `plugins` object (user-level plugin config by name)
+      plugins: {
+        type: "kv-map",
+        description: "用户级 plugin 配置。key 为 plugin 名。",
+        keyHint: "plugin 名",
+        valueSchema: {
+          type: "object",
+          additionalProperties: true,
+        },
+      },
+      // source: upstream `skills` object (user-level skill config by SKILL.md path)
+      skills: {
+        type: "kv-map",
+        description: "用户级 skill 配置。key 为 SKILL.md 路径。",
+        keyHint: "SKILL.md 路径",
+        valueSchema: {
+          type: "object",
+          additionalProperties: true,
+        },
+      },
+
+      // source: upstream `tools` (object) — feature toggles for built-in tools
+      tools: NESTED_OBJ,
+      // source: upstream `web_search` enum: disabled / cached / live
+      web_search: {
+        type: "enum",
+        description: "Web search 工具模式。",
+        enum: [
+          { value: "disabled", label: "Disabled", description: "禁用" },
+          { value: "cached", label: "Cached", description: "缓存模式" },
+          { value: "live", label: "Live", description: "实时（成本最高）" },
+        ],
+        enumStyle: "radio",
+      },
     },
   },
 };
