@@ -217,14 +217,64 @@ code.fail { color: var(--red); }
    schema-driven 行内编辑 11 个控件 + FieldRow 通用包装。
    token 严格复用 var(--bg0..fg3 / blue/green/red/orange/purple/cyan)。 */
 
-.field-row { display: grid; grid-template-columns: 200px 1fr; gap: 10px; padding: 10px 16px; font-size: 13px; align-items: start; min-height: 38px; border-bottom: 1px solid var(--border); }
+.field-row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; padding: 10px 14px; font-size: 13px; align-items: start; min-height: 38px; border-bottom: 1px solid var(--border); }
 .field-row:last-child { border-bottom: none; }
 .field-row:hover { background: rgba(88,166,255,.03); }
 .field-key { display: flex; flex-direction: column; gap: 2px; }
+.field-key-head { display: flex; align-items: center; gap: 4px; }
 .field-key code { color: var(--cyan); font-weight: 600; font-size: 12px; word-break: break-all; }
 .field-desc { font-size: 11px; color: var(--fg3); line-height: 1.4; }
 .field-since { font-size: 10px; color: var(--fg3); font-family: 'SF Mono', monospace; margin-top: 2px; }
 .field-control { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+
+/* PR-CSv1：字段「⋯」菜单（隐藏字段） */
+.field-menu { position: relative; display: inline-block; margin-left: auto; }
+.field-menu-button { background: none; border: none; color: var(--fg3); cursor: pointer; font-size: 14px; padding: 0 4px; line-height: 1; opacity: 0; transition: opacity .15s, color .15s; }
+.field-row:hover .field-menu-button { opacity: 1; }
+.field-menu-button:hover { color: var(--blue); }
+.field-menu-button[aria-expanded="true"] { opacity: 1; color: var(--blue); }
+.field-menu-popover { position: absolute; right: 0; top: calc(100% + 4px); background: var(--bg1); border: 1px solid var(--border); border-radius: var(--rs); min-width: 140px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,.4); padding: 4px 0; }
+.field-menu-item { display: block; width: 100%; padding: 6px 12px; background: none; border: none; color: var(--fg1); cursor: pointer; text-align: left; font-size: 12px; font-family: inherit; }
+.field-menu-item:hover { background: var(--bg2); color: var(--blue); }
+
+/* PR-CSv1：advanced 字段 badge */
+.field-badge.advanced { background: rgba(137,87,229,.15); color: var(--purple); }
+
+/* PR-CSv1：SchemaScopeBody 顶部「显示隐藏字段」toggle */
+.schema-hidden-toggle { padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--bg1); }
+.schema-hidden-toggle-btn { background: none; border: 1px dashed var(--border); border-radius: var(--rs); padding: 4px 10px; color: var(--fg2); cursor: pointer; font-size: 11px; font-family: inherit; }
+.schema-hidden-toggle-btn:hover { border-color: var(--blue); color: var(--blue); }
+
+/* 嵌套场景：ObjectField/ArrayItemCard/KVMapField value 列内的 FieldRow 改纵向 stack
+ * 否则 nested FieldRow 的 160px label + 1fr 控件 grid 会被挤出父容器宽度，
+ * label 跑到外层 KV key 同高度造成视觉错位（如 extraKnownMarketplaces 的 source 字段）。
+ * 纵向 stack 更紧凑，且 label 始终对齐控件上方。 */
+.field-object-body .field-row,
+.field-array-card-body .field-row,
+.field-kv-value .field-row {
+  grid-template-columns: 1fr;
+  gap: 4px;
+  padding: 6px 0;
+  border-bottom: 1px dashed rgba(255,255,255,.04);
+  min-height: auto;
+}
+.field-object-body .field-row:last-child,
+.field-array-card-body .field-row:last-child,
+.field-kv-value .field-row:last-child { border-bottom: none; }
+.field-object-body .field-key,
+.field-array-card-body .field-key,
+.field-kv-value .field-key {
+  flex-direction: row;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.field-object-body .field-desc,
+.field-array-card-body .field-desc,
+.field-kv-value .field-desc {
+  font-size: 10px;
+  color: var(--fg3);
+}
 .field-help { font-size: 11px; color: var(--blue); text-decoration: none; }
 .field-help:hover { text-decoration: underline; }
 .field-hint { font-size: 11px; color: var(--fg3); line-height: 1.4; }
@@ -308,8 +358,8 @@ code.fail { color: var(--red); }
 
 /* kv-map */
 .field-kv { display: flex; flex-direction: column; gap: 6px; }
-.field-kv-row { display: grid; grid-template-columns: 160px 1fr auto; gap: 6px; align-items: start; }
-.field-kv-key { padding: 6px 10px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); color: var(--cyan); font-family: 'SF Mono', monospace; font-size: 12px; }
+.field-kv-row { display: grid; grid-template-columns: minmax(120px, 180px) 1fr auto; gap: 6px; align-items: start; min-width: 0; }
+.field-kv-key { padding: 6px 10px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); color: var(--cyan); font-family: 'SF Mono', monospace; font-size: 12px; width: 100%; min-width: 0; }
 .field-kv-key.invalid { border-color: var(--red); }
 .field-kv-key:focus { outline: none; border-color: var(--blue); }
 .field-kv-value { min-width: 0; }

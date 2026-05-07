@@ -12,7 +12,7 @@ import { FieldRow } from "./FieldRow.tsx";
  *   - schema.min / max / step 直接传给 input
  *   - 单位后缀显示在右侧（schema.unit）
  */
-export function NumberField({ schema, value, onChange, path, errors, disabled }: FieldProps<number>) {
+export function NumberField({ schema, value, onChange, path, errors, disabled, embedded, menu }: FieldProps<number>) {
   const [draft, setDraft] = useState<string>(value != null ? String(value) : "");
   const [invalid, setInvalid] = useState(false);
 
@@ -45,23 +45,27 @@ export function NumberField({ schema, value, onChange, path, errors, disabled }:
     if (n !== value) onChange(n);
   };
 
+  const inner = (
+    <div className={`field-number${invalid ? " invalid" : ""}`}>
+      <input
+        type="number"
+        value={draft}
+        min={schema.min}
+        max={schema.max}
+        step={step}
+        disabled={disabled}
+        placeholder={schema.default != null ? String(schema.default) : ""}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      />
+      {schema.unit && <span className="field-unit">{schema.unit}</span>}
+    </div>
+  );
+  if (embedded) return inner;
   return (
-    <FieldRow schema={schema} path={path} errors={errors}>
-      <div className={`field-number${invalid ? " invalid" : ""}`}>
-        <input
-          type="number"
-          value={draft}
-          min={schema.min}
-          max={schema.max}
-          step={step}
-          disabled={disabled}
-          placeholder={schema.default != null ? String(schema.default) : ""}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-        />
-        {schema.unit && <span className="field-unit">{schema.unit}</span>}
-      </div>
+    <FieldRow schema={schema} path={path} errors={errors} menu={menu}>
+      {inner}
     </FieldRow>
   );
 }

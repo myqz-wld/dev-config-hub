@@ -240,6 +240,69 @@ function claude {
 
 切换 profile 后**新跑**的 claude / codex 自动用新 profile 的 env，无需 reload shell。
 
+## 自定义 schema（本地 override）
+
+dch 内置 schema（`src/schemas/*.ts`）描述了 4 个工具配置文件的字段语义。当上游加了新字段、或 dch 内置 schema 描述错了 / 落后了，可以在 `~/.dch/schemas/<scopeKind>.json` 放**字段级 override** JSON，启动时与内置 schema 合并 —— 不用等 dch 主线发新版。
+
+**支持的 scopeKind**（与内置 5 个对应，文件名必须严格匹配）：
+
+| scopeKind | 对应配置文件 |
+|---|---|
+| `claude-settings` | `~/.claude/settings.json` |
+| `claude-mcp` | `~/.claude/.mcp.json` |
+| `codex-config` | `~/.codex/config.toml` |
+| `opencode-config` | `~/.config/opencode/opencode.json` |
+| `dch-store` | `~/.dch/profiles.json`（dch 自己的 profile 状态） |
+
+**最小示例 — 给某字段加描述**：
+
+```jsonc
+// ~/.dch/schemas/claude-settings.json
+{
+  "rootSchema": {
+    "properties": {
+      "alwaysThinkingEnabled": {
+        "type": "boolean",
+        "description": "（本地 override）我习惯总开着思考"
+      }
+    }
+  }
+}
+```
+
+**示例 — 加自定义字段**（schema 不识别的 key 默认走 unknown badge，加进 properties 后会被识别）：
+
+```jsonc
+// ~/.dch/schemas/claude-settings.json
+{
+  "rootSchema": {
+    "properties": {
+      "myCustomKey": {
+        "type": "string",
+        "description": "我自己的扩展字段（非上游官方）"
+      }
+    }
+  }
+}
+```
+
+**合并语义**：
+- 顶层 `description` / `$source` / `fetchedAt`：override 优先
+- `rootSchema.properties`：dict-level shallow merge（同 key 的 FieldSchema 整体替换；新 key 添加；未出现在 override 的 builtin key 保留）
+- `rootSchema.propertyOrder`：override 在前，builtin 剩余 key 追加在末尾
+- `additionalProperties` 强制 `true`（数据完整性铁律：用户 JSON 里有什么都不丢）
+- `$id` / `scopeKind` 写了会被忽略（运行时由内置 + 文件名决定）
+
+**错误隔离**：单文件 JSON parse / shape 不合法 → 启动时 `console.warn` + 跳过该文件，不阻塞 app；其他自定义 schema 仍正常加载。改完 override 文件需要**重启 app** 生效（不热重载）。
+
+## 字段隐藏
+
+root level 字段右侧 hover 出现「⋯」按钮 → 点开菜单 → 「隐藏此字段」即可隐藏。隐藏列表存在 `~/.dch/ui-prefs.json`，**仅 root level 字段**支持隐藏（嵌套字段如 `permissions.allow` 不支持）。
+
+schema 字段标了 `advanced: true` 的也默认隐藏。
+
+scope panel 顶部出现「▸ 显示隐藏字段（N）」toggle，点击后会临时显示**所有**隐藏字段（含手动 + advanced），方便编辑后再切回去。toggle 状态仅 session 级（关闭 app 后下次又默认隐藏）。
+
 ## 项目结构
 
 ```

@@ -11,7 +11,7 @@ import { FieldRow } from "./FieldRow.tsx";
  *   - schema.minLength / maxLength：HTML 原生约束
  *   - 类型 url / regex 走相同 input + 自定义校验（regex 是 onChange 即时编译；url 走 ajv）
  */
-export function StringField({ schema, value, onChange, path, errors, disabled }: FieldProps<string>) {
+export function StringField({ schema, value, onChange, path, errors, disabled, embedded, menu }: FieldProps<string>) {
   const [draft, setDraft] = useState<string>(value ?? "");
   const [invalid, setInvalid] = useState(false);
 
@@ -52,28 +52,9 @@ export function StringField({ schema, value, onChange, path, errors, disabled }:
   const className = `field-input${invalid ? " invalid" : ""}`;
 
   if (schema.multiline) {
-    return (
-      <FieldRow schema={schema} path={path} errors={errors}>
-        <textarea
-          className={`${className} field-textarea`}
-          value={draft}
-          disabled={disabled}
-          minLength={schema.minLength}
-          maxLength={schema.maxLength}
-          placeholder={schema.default != null ? String(schema.default) : (schema.patternHint ?? "")}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-        />
-        {schema.patternHint && <span className="field-hint">{schema.patternHint}</span>}
-      </FieldRow>
-    );
-  }
-
-  return (
-    <FieldRow schema={schema} path={path} errors={errors}>
-      <input
-        type="text"
-        className={className}
+    const inner = (
+      <textarea
+        className={`${className} field-textarea`}
         value={draft}
         disabled={disabled}
         minLength={schema.minLength}
@@ -81,8 +62,35 @@ export function StringField({ schema, value, onChange, path, errors, disabled }:
         placeholder={schema.default != null ? String(schema.default) : (schema.patternHint ?? "")}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
-        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
       />
+    );
+    if (embedded) return inner;
+    return (
+      <FieldRow schema={schema} path={path} errors={errors} menu={menu}>
+        {inner}
+        {schema.patternHint && <span className="field-hint">{schema.patternHint}</span>}
+      </FieldRow>
+    );
+  }
+
+  const inner = (
+    <input
+      type="text"
+      className={className}
+      value={draft}
+      disabled={disabled}
+      minLength={schema.minLength}
+      maxLength={schema.maxLength}
+      placeholder={schema.default != null ? String(schema.default) : (schema.patternHint ?? "")}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+    />
+  );
+  if (embedded) return inner;
+  return (
+    <FieldRow schema={schema} path={path} errors={errors} menu={menu}>
+      {inner}
       {schema.patternHint && <span className="field-hint">{schema.patternHint}</span>}
     </FieldRow>
   );

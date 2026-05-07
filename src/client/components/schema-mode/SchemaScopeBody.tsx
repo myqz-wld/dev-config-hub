@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { parse as parseToml } from "smol-toml";
 import type { ConfigScope } from "../../../types.ts";
-import type { ToolSchema } from "../../../schemas/types.ts";
+import type { ToolSchema, FieldSchema } from "../../../schemas/types.ts";
 import { renderField } from "../fields/index.tsx";
 import { FieldErrorsProvider } from "../fields/errors-context.tsx";
+import { ScopedUiPrefsProvider, useScopedUiPrefs } from "../fields/ui-prefs-context.tsx";
 import { patchJson } from "../../../schemas/json-patcher.ts";
 import { patchToml } from "../../../schemas/toml-patcher.ts";
 import { diffPatches } from "../../../schemas/diff.ts";
@@ -198,7 +199,82 @@ export function SchemaScopeBody({
   };
 
   return (
+    <ScopedUiPrefsProvider scopeKind={toolSchema.scopeKind}>
+      <SchemaScopeBodyInner
+        scope={scope}
+        toolSchema={toolSchema}
+        parsed={parsed}
+        diagnostics={diagnostics}
+        showDiagnostics={showDiagnostics}
+        setShowDiagnostics={setShowDiagnostics}
+        unknownKeys={unknownKeys}
+        conflict={conflict}
+        onConflictReload={onConflictReload}
+        onConflictOverwrite={onConflictOverwrite}
+        onConflictCancel={onConflictCancel}
+        saving={saving}
+        handleRootChange={handleRootChange}
+      />
+    </ScopedUiPrefsProvider>
+  );
+}
+
+interface InnerProps {
+  scope: ConfigScope;
+  toolSchema: ToolSchema;
+  parsed: Record<string, unknown>;
+  diagnostics: ReturnType<typeof validate>;
+  showDiagnostics: boolean;
+  setShowDiagnostics: (v: boolean) => void;
+  unknownKeys: string[];
+  conflict: ConflictState | null;
+  onConflictReload: () => void;
+  onConflictOverwrite: () => void;
+  onConflictCancel: () => void;
+  saving: boolean;
+  handleRootChange: (next: Record<string, unknown> | undefined) => Promise<void>;
+}
+
+/**
+ * Inner body：必须在 ScopedUiPrefsProvider 内才能 useScopedUiPrefs。
+ * 拆出来是为了让 hidden-toggle / hiddenCount 在 provider 内消费 context（外层组件
+ * 在 provider 之外，调 hook 会拿 null）。
+ */
+function SchemaScopeBodyInner({
+  scope,
+  toolSchema,
+  parsed,
+  diagnostics,
+  showDiagnostics,
+  setShowDiagnostics,
+  unknownKeys,
+  conflict,
+  onConflictReload,
+  onConflictOverwrite,
+  onConflictCancel,
+  saving,
+  handleRootChange,
+}: InnerProps) {
+  const ui = useScopedUiPrefs();
+  // 计算当前 scope 隐藏的字段数（手动 + advanced）。仅 root level properties 参与统计。
+  const rootProps = (toolSchema.rootSchema.properties ?? {}) as Record<string, FieldSchema>;
+  const hiddenCount = ui ? ui.countHidden(rootProps) : 0;
+
+  return (
     <div className="schema-scope-body">
+      {hiddenCount > 0 && ui && (
+        <div className="schema-hidden-toggle">
+          <button
+            type="button"
+            className="schema-hidden-toggle-btn"
+            onClick={() => ui.setShowHidden(!ui.showHidden)}
+          >
+            {ui.showHidden
+              ? `▾ 收起隐藏字段（${hiddenCount}）`
+              : `▸ 显示隐藏字段（${hiddenCount}）`}
+          </button>
+        </div>
+      )}
       {conflict && (
         <div className="schema-conflict">
           <div className="schema-conflict-msg">

@@ -335,6 +335,55 @@ fn run_dch_command(args: Vec<String>) -> Result<DchCommandResult, String> {
     })
 }
 
+#[derive(Serialize)]
+struct DirEntryView {
+    name: String,
+    #[serde(rename = "isFile")]
+    is_file: bool,
+}
+
+/// 读目录下文件列表（name + isFile）。
+///
+/// **安全边界**：拒绝任何不在 `$HOME` 下的路径。webview 不应能列任意目录
+/// （避免泄漏 PII / 系统结构）。HOME 比对走 `get_home_dir()` 同源，与该函数
+/// 跨平台行为一致（macOS/Linux=$HOME，Windows=USERPROFILE/$HOME fallback）。
+///
+/// **不存在的目录返回空 Vec**（不当 error） —— 自定义 schema 目录 `~/.dch/schemas/`
+/// 通常用户没建过，要求文件不存在不报错让 caller 路径更平。
+///
+/// **非目录** / **权限不足** / **其他 IO 错误** → Err，由 caller 决定是 warn 还是 fatal。
+#[tauri::command]
+fn read_dir(path: String) -> Result<Vec<DirEntryView>, String> {
+    let home = get_home_dir();
+    if home.is_empty() {
+        return Err("HOME 未设置".to_string());
+    }
+    // 边界：path 必须以 $HOME 起头（含 $HOME 本身）
+    let p = std::path::Path::new(&path);
+    let home_p = std::path::Path::new(&home);
+    if !(p == home_p || p.starts_with(home_p)) {
+        return Err(format!("拒绝读非 HOME 路径: {}", path));
+    }
+
+    let entries = match fs::read_dir(p) {
+        Ok(it) => it,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("{}: {}", path, e)),
+    };
+
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // 跳过隐藏 dotfiles（除 caller 显式想要 — 当前用例 ~/.dch/schemas/*.json 不会有 dotfile）
+        if name.starts_with('.') {
+            continue;
+        }
+        let is_file = entry.file_type().map(|t| t.is_file()).unwrap_or(false);
+        out.push(DirEntryView { name, is_file });
+    }
+    Ok(out)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -343,6 +392,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_file,
             read_file_with_mtime,
+            read_dir,
             file_exists,
             save_file,
             get_tool_version,

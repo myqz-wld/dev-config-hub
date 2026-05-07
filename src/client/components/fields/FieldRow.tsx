@@ -5,22 +5,27 @@ import { useFieldErrors } from "./errors-context.tsx";
 /**
  * 字段通用包装：label + 控件 + description + errors + deprecated/sensitive 提示。
  *
- * 三栏布局对齐 ConfigPanel.tsx 现有 `.item` 视觉（200px label + 1fr control）。
+ * 三栏布局对齐 ConfigPanel.tsx 现有 `.item` 视觉（160px label + 1fr control）。
  *
  * **errors 来源**（PR-J follow-up #3）：
  *   1. 显式 props.errors（caller 直接传，最高优先级，向后兼容）
  *   2. useFieldErrors(path) Context 取（SchemaScopeBody 包了 FieldErrorsProvider 时生效）
  *   合并显示。
+ *
+ * **menu slot**（PR-CSv1）：可选 `menu` prop，用来渲染 root level 字段的「⋯」按钮（隐藏字段）。
+ * 仅 root level ObjectField 给子字段传 menu，嵌套字段不传 → menu 为 undefined → 不渲染。
  */
 export function FieldRow({
   schema,
   path,
   errors,
+  menu,
   children,
 }: {
   schema: FieldSchema;
   path: string;
   errors?: Diagnostic[];
+  menu?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const ctxErrors = useFieldErrors(path);
@@ -29,11 +34,15 @@ export function FieldRow({
   return (
     <div className="field-row">
       <div className="field-key">
-        <code>{keyLabel}</code>
+        <div className="field-key-head">
+          <code>{keyLabel}</code>
+          {menu}
+        </div>
         {schema.description && <span className="field-desc">{schema.description}</span>}
         {schema.since && <span className="field-since">since {schema.since}</span>}
         {schema.deprecated && <DeprecatedBadge value={schema.deprecated} />}
         {schema.sensitive && <span className="field-badge sensitive">sensitive</span>}
+        {schema.advanced && <span className="field-badge advanced">advanced</span>}
       </div>
       <div className="field-control">
         {children}

@@ -8,36 +8,40 @@ import { FieldRow } from "./FieldRow.tsx";
  * iOS 风格切换 + 右侧「重置」按钮把 value 设回 undefined。
  * value=undefined 时 toggle 显示半透明（暗示未设置 / 走 default）。
  */
-export function BooleanField({ schema, value, onChange, path, errors, disabled }: FieldProps<boolean>) {
+export function BooleanField({ schema, value, onChange, path, errors, disabled, embedded, menu }: FieldProps<boolean>) {
   const effective = value ?? (schema.default as boolean | undefined);
   const isUnset = value === undefined;
 
-  return (
-    <FieldRow schema={schema} path={path} errors={errors}>
-      <div className="field-bool">
+  const inner = (
+    <div className="field-bool">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={effective ?? false}
+        className={`field-toggle${effective ? " on" : ""}${isUnset ? " unset" : ""}`}
+        disabled={disabled}
+        onClick={() => onChange(!(effective ?? false))}
+      >
+        <span className="field-toggle-knob" />
+      </button>
+      <span className="field-bool-label">{String(effective ?? "—")}</span>
+      {!isUnset && (
         <button
           type="button"
-          role="switch"
-          aria-checked={effective ?? false}
-          className={`field-toggle${effective ? " on" : ""}${isUnset ? " unset" : ""}`}
+          className="field-reset"
           disabled={disabled}
-          onClick={() => onChange(!(effective ?? false))}
+          onClick={() => onChange(undefined)}
+          title={`重置为默认值（${String(schema.default ?? "未定义")}）`}
         >
-          <span className="field-toggle-knob" />
+          重置
         </button>
-        <span className="field-bool-label">{String(effective ?? "—")}</span>
-        {!isUnset && (
-          <button
-            type="button"
-            className="field-reset"
-            disabled={disabled}
-            onClick={() => onChange(undefined)}
-            title={`重置为默认值（${String(schema.default ?? "未定义")}）`}
-          >
-            重置
-          </button>
-        )}
-      </div>
+      )}
+    </div>
+  );
+  if (embedded) return inner;
+  return (
+    <FieldRow schema={schema} path={path} errors={errors} menu={menu}>
+      {inner}
     </FieldRow>
   );
 }

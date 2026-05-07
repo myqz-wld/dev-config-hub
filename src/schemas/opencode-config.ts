@@ -68,26 +68,44 @@ export const OPENCODE_CONFIG: ToolSchema = {
         description: "未指定时使用的默认 Agent。",
       },
 
-      // ─── 复杂嵌套（先浅声明，PR-H/I 按需深化） ───
+      // ─── 复杂嵌套（KV-map：key 为标识符，value 为配置 object 浅声明） ───
+      // 这些字段上游都是「key 任意标识 → 配置 object」结构，用 kv-map 而非 object。
+      // 否则 ObjectField 把每个 key 当 unknown 渲染，UI 会塞一堆橙色 UNKNOWN badge。
       provider: {
-        type: "object",
-        description: "模型提供商配置。子字段：whitelist / options（apiKey/baseURL）/ models / npm / env。",
-        additionalProperties: true,
+        type: "kv-map",
+        description: "模型提供商配置。key 为 provider id（如 `anthropic` / `openai` / `azure`），value 为该 provider 的配置（whitelist / options.apiKey / options.baseURL / models / npm / env）。",
+        keyHint: "provider id（任意标识）",
+        valueSchema: {
+          type: "object",
+          description: "Provider 配置 object（whitelist / options / models / npm / env）。",
+          additionalProperties: true,
+        },
       },
       agent: {
-        type: "object",
-        description: "自定义 Agent 定义（description / model / prompt / tools）。",
-        additionalProperties: true,
+        type: "kv-map",
+        description: "自定义 Agent 定义。key 为 agent name，value 为 agent 定义（description / model / prompt / tools）。",
+        keyHint: "agent name",
+        valueSchema: {
+          type: "object",
+          description: "Agent 定义 object（description / model / prompt / tools）。",
+          additionalProperties: true,
+        },
       },
       tools: {
-        type: "object",
-        description: "启用 / 禁用特定工具（write / bash 等）。",
-        additionalProperties: true,
+        type: "kv-map",
+        description: "启用 / 禁用特定工具。key 为 tool name（write / bash / read 等），value 为 boolean。",
+        keyHint: "tool name",
+        valueSchema: { type: "boolean" },
       },
       command: {
-        type: "object",
-        description: "自定义命令模板。",
-        additionalProperties: true,
+        type: "kv-map",
+        description: "自定义命令模板。key 为 command name，value 为命令定义 object。",
+        keyHint: "command name",
+        valueSchema: {
+          type: "object",
+          description: "命令定义 object。",
+          additionalProperties: true,
+        },
       },
       formatter: NESTED_OBJ,
       permission: {
@@ -97,9 +115,14 @@ export const OPENCODE_CONFIG: ToolSchema = {
       },
       server: NESTED_OBJ,
       mcp: {
-        type: "object",
-        description: "Model Context Protocol 服务器连接。",
-        additionalProperties: true,
+        type: "kv-map",
+        description: "Model Context Protocol 服务器连接。key 为 server name，value 为 transport 配置（stdio / SSE / HTTP）。",
+        keyHint: "MCP server name",
+        valueSchema: {
+          type: "object",
+          description: "MCP server 配置 object（command / args / env / type / url 等，按 transport 类型不同）。",
+          additionalProperties: true,
+        },
       },
       compaction: {
         type: "object",
@@ -140,6 +163,44 @@ export const OPENCODE_CONFIG: ToolSchema = {
         description: "启用的 Provider 白名单。",
         itemSchema: { type: "string" },
         uniqueItems: true,
+      },
+
+      // ─── 补齐 opencode.ai/config.json 常见字段（CHANGELOG_8 后续） ───
+      // source: upstream `lsp` (object | false) — LSP 服务器配置
+      lsp: {
+        type: "object",
+        description: "LSP（Language Server Protocol）服务器配置。设为 false 可禁用全部 LSP。",
+        additionalProperties: true,
+      },
+      // source: upstream `tool_output` (object) — 工具输出截断阈值
+      tool_output: {
+        type: "object",
+        description: "工具输出截断阈值（避免单工具输出爆掉 context window）。",
+        additionalProperties: true,
+      },
+      // source: upstream `logLevel` enum: DEBUG / INFO / WARN / ERROR
+      logLevel: {
+        type: "enum",
+        description: "日志级别。",
+        enum: [
+          { value: "DEBUG", label: "DEBUG", description: "最详细（含每次 prompt）" },
+          { value: "INFO", label: "INFO" },
+          { value: "WARN", label: "WARN" },
+          { value: "ERROR", label: "ERROR", description: "最少（仅错误）" },
+        ],
+        enumStyle: "radio",
+      },
+      // source: upstream `shell` string (default shell for terminal/bash tool)
+      shell: {
+        type: "path",
+        description: "终端 / bash 工具默认 shell 路径（如 `/bin/zsh`）。",
+        pathKind: "file",
+        expandHome: true,
+      },
+      // source: upstream `username` string (custom display name in conversations)
+      username: {
+        type: "string",
+        description: "对话中显示的自定义用户名（覆盖系统用户名）。",
       },
     },
   },

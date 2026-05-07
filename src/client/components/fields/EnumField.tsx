@@ -11,36 +11,40 @@ import type { EnumOption } from "../../../schemas/types.ts";
  * - 每项 hover 显示 description tooltip；deprecated 项灰底删除线
  * - 短形式 ["low", "high"] 与长形式 [{value, label, description}] 都支持（normalizeEnum 升格）
  */
-export function EnumField({ schema, value, onChange, path, errors, disabled }: FieldProps<string | number>) {
+export function EnumField({ schema, value, onChange, path, errors, disabled, embedded, menu }: FieldProps<string | number>) {
   const options = normalizeEnum(schema.enum ?? []);
   const style = schema.enumStyle ?? (options.length <= 4 ? "radio" : "select");
 
   if (style === "radio") {
+    const inner = (
+      <div className="field-radio-group">
+        {options.map((opt) => (
+          <label key={String(opt.value)} className={`field-radio${isDeprecated(opt) ? " deprecated" : ""}`} title={opt.description ?? ""}>
+            <input
+              type="radio"
+              name={path}
+              value={String(opt.value)}
+              checked={value === opt.value}
+              disabled={disabled}
+              onChange={() => onChange(opt.value)}
+            />
+            <span>{opt.label ?? String(opt.value)}</span>
+          </label>
+        ))}
+      </div>
+    );
+    if (embedded) return inner;
     return (
-      <FieldRow schema={schema} path={path} errors={errors}>
-        <div className="field-radio-group">
-          {options.map((opt) => (
-            <label key={String(opt.value)} className={`field-radio${isDeprecated(opt) ? " deprecated" : ""}`} title={opt.description ?? ""}>
-              <input
-                type="radio"
-                name={path}
-                value={String(opt.value)}
-                checked={value === opt.value}
-                disabled={disabled}
-                onChange={() => onChange(opt.value)}
-              />
-              <span>{opt.label ?? String(opt.value)}</span>
-            </label>
-          ))}
-        </div>
+      <FieldRow schema={schema} path={path} errors={errors} menu={menu}>
+        {inner}
       </FieldRow>
     );
   }
 
   if (schema.enumOpen) {
     const listId = `${path}-list`;
-    return (
-      <FieldRow schema={schema} path={path} errors={errors}>
+    const inner = (
+      <>
         <input
           type="text"
           className="field-input"
@@ -56,25 +60,35 @@ export function EnumField({ schema, value, onChange, path, errors, disabled }: F
             </option>
           ))}
         </datalist>
+      </>
+    );
+    if (embedded) return inner;
+    return (
+      <FieldRow schema={schema} path={path} errors={errors} menu={menu}>
+        {inner}
       </FieldRow>
     );
   }
 
+  const inner = (
+    <select
+      className="field-select"
+      value={value != null ? String(value) : ""}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value || undefined)}
+    >
+      <option value="">{schema.default != null ? `（默认：${schema.default}）` : "（未设置）"}</option>
+      {options.map((opt) => (
+        <option key={String(opt.value)} value={String(opt.value)} disabled={isDeprecated(opt)}>
+          {opt.label ?? String(opt.value)}
+        </option>
+      ))}
+    </select>
+  );
+  if (embedded) return inner;
   return (
-    <FieldRow schema={schema} path={path} errors={errors}>
-      <select
-        className="field-select"
-        value={value != null ? String(value) : ""}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value || undefined)}
-      >
-        <option value="">{schema.default != null ? `（默认：${schema.default}）` : "（未设置）"}</option>
-        {options.map((opt) => (
-          <option key={String(opt.value)} value={String(opt.value)} disabled={isDeprecated(opt)}>
-            {opt.label ?? String(opt.value)}
-          </option>
-        ))}
-      </select>
+    <FieldRow schema={schema} path={path} errors={errors} menu={menu}>
+      {inner}
     </FieldRow>
   );
 }

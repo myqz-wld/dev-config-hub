@@ -80,9 +80,16 @@ const PERMISSIONS_FIELD: FieldSchema = {
 };
 
 // ─── object：插件相关（嵌套深，先浅声明）───
-const PLUGINS_OBJ: FieldSchema = {
-  type: "object",
-  additionalProperties: true,
+// extraKnownMarketplaces / pluginConfigs 实际都是 KV-map（key=marketplace/plugin id，value=配置 object）。
+// 用 kv-map 而非 object，否则 ObjectField 把每个 key 当 unknown 渲染挂橙色 badge。
+const PLUGINS_KV: FieldSchema = {
+  type: "kv-map",
+  keyHint: "plugin / marketplace 标识",
+  valueSchema: {
+    type: "object",
+    description: "插件 / marketplace 配置 object。",
+    additionalProperties: true,
+  },
 };
 
 export const CLAUDE_SETTINGS: ToolSchema = {
@@ -139,24 +146,41 @@ export const CLAUDE_SETTINGS: ToolSchema = {
       permissions: PERMISSIONS_FIELD,
 
       // ─── 插件 ───
-      // source: upstream `enabledPlugins` is array of string (pluginName@marketplace)
+      // source: schemastore.org/claude-code-settings.json — `enabledPlugins` 是 **object**（kv-map of boolean），
+      // 不是 array。key=`pluginName@marketplace`，value=true/false（启用/禁用）。
+      // 注：之前 dch v0.1.0 误判成 `array of map`（用户实测 settings.json 报错
+      // "Expected record, but received array"），已纠正。
       enabledPlugins: {
-        type: "array",
-        description: "已启用的插件，格式为 `pluginName@marketplace`。",
-        itemSchema: { type: "string" },
-        uniqueItems: true,
+        type: "kv-map",
+        description: "插件启用映射。key 为 `pluginName@marketplace`，value 为 boolean（true=启用 / false=禁用）。",
+        keyHint: "pluginName@marketplace",
+        valueSchema: { type: "boolean" },
       },
       // source: upstream `extraKnownMarketplaces` is object map
-      extraKnownMarketplaces: PLUGINS_OBJ,
+      extraKnownMarketplaces: {
+        ...PLUGINS_KV,
+        description: "额外的 plugin marketplace 注册表。key 为 marketplace 标识，value 为 source 配置（github / git / file 等）。",
+      },
       // source: upstream `pluginConfigs` is object map (各插件运行时配置)
-      pluginConfigs: PLUGINS_OBJ,
+      pluginConfigs: {
+        ...PLUGINS_KV,
+        description: "各插件的运行时配置。key 为 `pluginName@marketplace`，value 为该插件配置（如 mcpServers / 自定义参数）。",
+      },
 
       // ─── hooks / 沙箱 / 状态栏（复杂嵌套先浅声明） ───
-      // source: upstream `hooks` is object (PreToolUse / PostToolUse / Stop / ... 嵌套数组结构)
+      // source: upstream `hooks` is object：key 为 hook 事件名（PreToolUse / PostToolUse / Stop / SessionStart / ...），value 为 hook 定义数组
       hooks: {
-        type: "object",
-        description: "自定义命令钩子（PreToolUse / PostToolUse / Stop 等）。子字段嵌套较深，建议直接编辑 raw JSON。",
-        additionalProperties: true,
+        type: "kv-map",
+        description: "自定义命令钩子。key 为 hook 事件名（PreToolUse / PostToolUse / Stop / SessionStart 等），value 为 hook 定义数组（嵌套 matcher + command）。子字段嵌套较深，建议直接编辑 raw JSON。",
+        keyHint: "hook 事件名（如 PreToolUse / SessionStart）",
+        valueSchema: {
+          type: "array",
+          description: "hook 触发器列表。",
+          itemSchema: {
+            type: "object",
+            additionalProperties: true,
+          },
+        },
       },
       // source: upstream `statusLine` is object
       statusLine: {
@@ -263,6 +287,97 @@ export const CLAUDE_SETTINGS: ToolSchema = {
           { value: "tmux", label: "tmux", description: "tmux 多窗格（独立可见）" },
         ],
         enumStyle: "radio",
+      },
+
+      // ─── MCP servers 控制（CHANGELOG_8 后补齐 schemastore.org/claude-code-settings.json） ───
+      // source: upstream `enableAllProjectMcpServers` boolean
+      enableAllProjectMcpServers: {
+        type: "boolean",
+        description: "自动批准当前项目目录下声明的所有 MCP server（无需逐个 prompt）。",
+      },
+      // source: upstream `enabledMcpjsonServers` array of string
+      enabledMcpjsonServers: {
+        type: "array",
+        description: "已批准的 .mcp.json server 名称白名单。",
+        itemSchema: { type: "string" },
+        uniqueItems: true,
+      },
+      // source: upstream `disabledMcpjsonServers` array of string
+      disabledMcpjsonServers: {
+        type: "array",
+        description: "禁用的 .mcp.json server 名称黑名单。",
+        itemSchema: { type: "string" },
+        uniqueItems: true,
+      },
+
+      // ─── hooks / plugin 控制 ───
+      // source: upstream `disableAllHooks` boolean
+      disableAllHooks: {
+        type: "boolean",
+        description: "全局禁用所有 hook 执行（紧急关闭开关）。",
+      },
+      // source: upstream `skippedMarketplaces` array of string
+      skippedMarketplaces: {
+        type: "array",
+        description: "用户主动跳过（不再询问）的 marketplace 名称。",
+        itemSchema: { type: "string" },
+        uniqueItems: true,
+      },
+      // source: upstream `skippedPlugins` array of string
+      skippedPlugins: {
+        type: "array",
+        description: "用户主动跳过的插件标识（pluginName@marketplace）。",
+        itemSchema: { type: "string" },
+        uniqueItems: true,
+      },
+
+      // ─── 登录 ───
+      // source: upstream `forceLoginMethod` enum: claudeai/console
+      forceLoginMethod: {
+        type: "enum",
+        description: "强制登录方式（管理员场景）。",
+        enum: [
+          { value: "claudeai", label: "claudeai", description: "claude.ai 账号登录" },
+          { value: "console", label: "console", description: "Console / API key 登录" },
+        ],
+        enumStyle: "radio",
+      },
+
+      // ─── UI / 行为开关 ───
+      // source: upstream `alwaysThinkingEnabled` boolean
+      alwaysThinkingEnabled: {
+        type: "boolean",
+        description: "默认开启思考模式（无需每次手动触发）。",
+      },
+      // source: upstream `prefersReducedMotion` boolean, default false
+      prefersReducedMotion: {
+        type: "boolean",
+        description: "减弱 UI 动画效果（无障碍）。",
+        default: false,
+      },
+      // source: upstream `showTurnDuration` boolean, default true
+      showTurnDuration: {
+        type: "boolean",
+        description: "显示每轮对话耗时。",
+        default: true,
+      },
+      // source: upstream `terminalProgressBarEnabled` boolean, default true
+      terminalProgressBarEnabled: {
+        type: "boolean",
+        description: "终端进度条显示。",
+        default: true,
+      },
+      // source: upstream `spinnerTipsEnabled` boolean, default true
+      spinnerTipsEnabled: {
+        type: "boolean",
+        description: "等待动画时显示小贴士。",
+        default: true,
+      },
+
+      // source: upstream `prUrlTemplate` string (URL template with placeholders)
+      prUrlTemplate: {
+        type: "string",
+        description: "PR badge URL 模板（含 `{repo}` / `{branch}` 等占位符）。",
       },
     },
   },
