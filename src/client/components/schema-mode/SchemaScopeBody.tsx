@@ -10,6 +10,7 @@ import { patchToml } from "../../../schemas/toml-patcher.ts";
 import { diffPatches } from "../../../schemas/diff.ts";
 import { validate } from "../../../schemas/validator.ts";
 import { readFileWithMtime } from "../../bridge.ts";
+import { usePanelVisible } from "../panel-visibility.tsx";
 
 /**
  * 用户是否正在输入控件中（focus 在 input/textarea/contenteditable）。
@@ -149,7 +150,12 @@ export function SchemaScopeBody({
   const pollStateRef = useRef({ saving, conflict, loadedMtimeUs });
   useEffect(() => { pollStateRef.current = { saving, conflict, loadedMtimeUs }; });
 
+  // Panel 常驻后，隐藏 panel 不应继续 5s mtime poll（4 工具 × 3-4 scope ≈ 12-16 个 timer 后台空转）
+  // 切回时 deps 变化重新挂上 interval。focus / visibilitychange reload 由 App.tsx 兜底磁盘新鲜度。
+  const panelVisible = usePanelVisible();
+
   useEffect(() => {
+    if (!panelVisible) return;
     const id = window.setInterval(() => {
       const before = pollStateRef.current;
       if (before.saving || before.conflict || before.loadedMtimeUs == null) return;
@@ -178,7 +184,7 @@ export function SchemaScopeBody({
       }).catch(() => {});
     }, 5000);
     return () => clearInterval(id);
-  }, [scope.filePath, scope.format]);
+  }, [scope.filePath, scope.format, panelVisible]);
 
   const declaredKeys = new Set(Object.keys(toolSchema.rootSchema.properties ?? {}));
   const unknownKeys = Object.keys(parsed).filter((k) => !declaredKeys.has(k));

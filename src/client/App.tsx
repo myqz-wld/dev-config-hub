@@ -5,6 +5,7 @@ import { applyCustomSchemas } from "../schemas/registry.ts";
 import { ConfigPanel } from "./components/ConfigPanel.tsx";
 import { ProfilePanel } from "./components/ProfilePanel.tsx";
 import { RootUiPrefsProvider } from "./components/fields/ui-prefs-context.tsx";
+import { PanelVisibilityProvider } from "./components/panel-visibility.tsx";
 
 const ICONS: Record<string, string> = { terminal: ">_", claude: "C", codex: "X", opencode: "O" };
 
@@ -145,9 +146,28 @@ export function App() {
           </div>
         </nav>
         <main className="main" ref={mainRef}>
-          {view.kind === "profile"
-            ? <ProfilePanel onToast={flash} onProfileChanged={() => void load()} />
-            : tools[view.index] && <ConfigPanel tool={tools[view.index]!} onSave={onSave} onPatchSave={onPatchSave} onToast={flash} />}
+          {/* Panel 常驻渲染 + display 切换：消除 tab 切换时整个 ConfigPanel/ProfilePanel
+              unmount/remount 卡顿（每次重 mount 会重发 N 次 readFileWithMtime IPC + 重建
+              整棵字段树 + Markdown shiki 重渲染 + spawn dch CLI）。
+              首屏多花一次性 mount 成本，之后切换近乎零延迟，且各 panel 内部 state（mode /
+              open / collapsed / edit buf）也保留。
+              PanelVisibilityProvider 让隐藏 panel 内的 SchemaScopeBody 5s mtime poll 暂停，
+              避免 12-16 个 timer 后台空转。 */}
+          <PanelVisibilityProvider visible={view.kind === "profile"}>
+            <div className={view.kind === "profile" ? "panel-host" : "panel-host panel-hidden"}>
+              <ProfilePanel onToast={flash} onProfileChanged={() => void load()} />
+            </div>
+          </PanelVisibilityProvider>
+          {tools.map((t, i) => {
+            const isVisible = view.kind === "tool" && i === view.index;
+            return (
+              <PanelVisibilityProvider key={t.name} visible={isVisible}>
+                <div className={isVisible ? "panel-host" : "panel-host panel-hidden"}>
+                  <ConfigPanel tool={t} onSave={onSave} onPatchSave={onPatchSave} onToast={flash} />
+                </div>
+              </PanelVisibilityProvider>
+            );
+          })}
         </main>
         {toast && <div className={`toast ${toast.ok ? "ok" : "err"}`}>{toast.msg}</div>}
       </div>
