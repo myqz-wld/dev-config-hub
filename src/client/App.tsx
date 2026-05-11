@@ -25,6 +25,10 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
+      // CHANGELOG_10 review fix R_1·L1 (codex LOW)：清零 error，否则首次 load 失败 setError 后
+      // focus reload 即便成功也跑不掉「if (error) return <error screen>」hard-block，UI 永远卡 error 页。
+      // 本 PR 之前 load 只在 mount 跑一次，error 一次性硬挂可接受；focus reload 落地后变成可重试路径。
+      setError(null);
       // 1) 先拿 home + 应用自定义 schema（影响 loadAllConfigs 内部 detectScope→getSchemaForScope 拿到的 schema）
       //    串行：自定义 schema 文件少 + 解析快，不并行避免 race
       const home = await getHomeDir();
@@ -48,6 +52,23 @@ export function App() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // 自动刷新：窗口 focus / 标签页可见性恢复 → reload。
+  // 场景：用户从外部（vim / `dch profile use` / 手敲 settings.json）改完文件切回 Tauri 窗口，
+  // UI 必须反映磁盘最新状态。focus + visibilitychange 双监听覆盖 macOS 切 App / 切 Space / 退后台。
+  // 不做防抖：load() 内部已 try/catch + setLoading 不阻塞 UI；连续多次切窗口最多多跑几次 IPC，
+  // 比加 debounce 引入「最后一次切回后还要等 N ms 才刷新」的体感延迟更值得。
+  // SchemaScopeBody 内部有 saving guard，reload 不会覆盖 in-flight 编辑。
+  useEffect(() => {
+    const onFocus = () => { void load(); };
+    const onVisibility = () => { if (document.visibilityState === "visible") void load(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [load]);
 
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [view]);
 
