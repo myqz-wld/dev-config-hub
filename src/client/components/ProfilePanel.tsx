@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState } from "react";
 import {
   dchProfile, type ProfileStore, type ToolKind,
   type HookResult,
@@ -12,68 +12,48 @@ import { HookOutputModal } from "./profile/HookOutputModal.tsx";
 import { PreferencesEditor } from "./profile/PreferencesEditor.tsx";
 import { ProfileStoreEditor } from "./profile/ProfileStoreEditor.tsx";
 
+/**
+ * CHANGELOG_13：ProfilePanel 改受控组件。
+ *
+ * 旧设计（CHANGELOG_10）：ProfilePanel 自己 useState store/active + 自挂 focus/visibilitychange
+ * listener + 内部 reload。问题：与 App.tsx 的 listener 重复，外部切回 Tauri 窗口时同时 fire
+ * focus + visibilitychange × 2 组件 = 4 次 reload trigger → 14 IPC 风暴砸 main thread。
+ *
+ * 新设计：store/active 由 App.tsx 单点持有 + 单点 listener 触发 reload；ProfilePanel 接 props
+ * 渲染。`onReloadProfile` 给 handle/onUse 用（CRUD 后立即 silent reload 拿最新数据）。
+ *
+ * 不再需要 `onProfileChanged` —— App.tsx 内部 reloadProfile 会自动 propagate 新 store/active 下来；
+ * 也不再需要 onProfileChanged 反过来调 App.load() 全量刷 tool configs（profile 切换跟 Claude/Codex
+ * 配置无关，没必要刷）。
+ */
 interface Props {
+  store: ProfileStore | null;
+  active: Record<ToolKind, { id: string | null; symlinkTarget: string | null }> | null;
   onToast: (msg: string, ok: boolean) => void;
-  onProfileChanged?: () => void;
+  onReloadProfile: (silent?: boolean) => Promise<void>;
 }
 
-/**
- * Profile 主面板。PR-I 拆分后保留主框架（reload / handle / onUse / onTestHook + UI 编排），
- * ProfileCard / AddProfileModal / HookOutputModal / PreferencesEditor / ProfileStoreEditor 都在 profile/ 子目录。
- */
-export function ProfilePanel({ onToast, onProfileChanged }: Props) {
-  const [store, setStore] = useState<ProfileStore | null>(null);
+export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props) {
   const [tool, setTool] = useState<ToolKind>("claude");
-  const [active, setActive] = useState<Record<ToolKind, { id: string | null; symlinkTarget: string | null }> | null>(null);
   const [busy, setBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [showStoreEditor, setShowStoreEditor] = useState(false);
   const [hookOutput, setHookOutput] = useState<{ id: string; which: string; result: HookResult | null } | null>(null);
 
-  const reload = useCallback(async (silent = false) => {
-    try {
-      const [s, a] = await Promise.all([dchProfile.list(), dchProfile.current()]);
-      setStore(s);
-      setActive(a);
-    } catch (e) {
-      // silent=true 是给 handle catch 块用的：原 action 已经 toast 了一个错误，
-      // 这里 reload 自身再失败时不能再 toast，否则会盖掉原错误让用户根本看不到根因。
-      if (silent) console.warn("reload silent fail:", e);
-      else onToast(`加载失败: ${e instanceof Error ? e.message : String(e)}`, false);
-    }
-  }, [onToast]);
-
-  useEffect(() => { reload(); }, [reload]);
-
-  // 自动刷新：窗口 focus / 标签页可见性恢复 → reload(silent=true)。
-  // 场景：用户在外部跑 `dch profile use` / 手改 ~/.dch/profiles.json / 删 ~/.<tool> symlink 后切回，
-  // UI 当前 active / store 必须反映磁盘最新状态。silent=true 避免「切窗口失败」时盖掉其他 toast。
-  // 不做防抖（理由同 App.tsx）：reload 内部有 try/catch + busy 不在 reload 路径上，连切窗口仅多跑几次 IPC。
-  useEffect(() => {
-    const onFocus = () => { void reload(true); };
-    const onVisibility = () => { if (document.visibilityState === "visible") void reload(true); };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [reload]);
-
+  // store/active 在 App.tsx 的首屏 loadProfileData 失败时可能 null；panel 常驻必须永远 mount
+  // （CHANGELOG_11），所以接受 null + 渲染 placeholder。Hook 必须在 early return 之前声明。
   const handle = async <T,>(action: () => Promise<T>, successMsg: string): Promise<boolean> => {
     setBusy(true);
     try {
       await action();
       onToast(successMsg, true);
-      await reload();
-      onProfileChanged?.();
+      await onReloadProfile();
       return true;
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
       // 失败时也 reload：action 可能已经把部分状态落盘（如 profile 已建但配置文件写失败），
       // 不刷新会让 UI 列表跟实际状态错位。silent 模式避免 reload 失败时盖掉上面的 action toast。
-      await reload(true);
-      onProfileChanged?.();
+      await onReloadProfile(true);
       return false;
     } finally {
       setBusy(false);
@@ -81,11 +61,12 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
   };
 
   const onUse = async (id: string) => {
+    if (!store) return;
     setBusy(true);
     try {
       // REVIEW_7 H2：传 store.preferences.hookTimeoutMs 让 bridge 算 Rust 端 timeout
-      // = 2 × hookTimeoutMs + 5s grace（pre + post hook）。store 在 mount 时已 reload。
-      const r = await dchProfile.use(id, store?.preferences.hookTimeoutMs ?? 30_000);
+      // = 2 × hookTimeoutMs + 5s grace（pre + post hook）
+      const r = await dchProfile.use(id, store.preferences.hookTimeoutMs);
       if (!r.ok) {
         onToast(r.message ?? `切换失败`, false);
         // PR-4 (#M11 / #R3-M2)：失败时弹 HookOutputModal 显示失败 hook 的完整 stdout/stderr。
@@ -102,8 +83,7 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
         return;
       }
       onToast(`已切换 → ${id}`, true);
-      await reload();
-      onProfileChanged?.();
+      await onReloadProfile();
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
     } finally {
@@ -112,9 +92,10 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
   };
 
   const onTestHook = async (id: string, which: "pre" | "post") => {
+    if (!store) return;
     try {
       // REVIEW_7 H2：单 hook = hookTimeoutMs + 5s grace
-      const r = await dchProfile.testHook(id, which, store?.preferences.hookTimeoutMs ?? 30_000);
+      const r = await dchProfile.testHook(id, which, store.preferences.hookTimeoutMs);
       setHookOutput({ id, which, result: r });
       if (!r) onToast(`profile ${id} 未配置 ${which}Switch hook`, true);
     } catch (e) {
@@ -152,7 +133,7 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
         <button className="btn-sm" onClick={() => setShowStoreEditor(true)} title="编辑 ~/.dch/profiles.json (schema-aware)">
           编辑 store
         </button>
-        <PreferencesEditor store={store} onChange={reload} onToast={onToast} />
+        <PreferencesEditor store={store} onChange={() => onReloadProfile()} onToast={onToast} />
       </div>
 
       <div className="profile-status">
@@ -270,7 +251,7 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
       {showStoreEditor && (
         <ProfileStoreEditor
           onClose={() => setShowStoreEditor(false)}
-          onSaved={reload}
+          onSaved={() => onReloadProfile()}
           onToast={onToast}
         />
       )}

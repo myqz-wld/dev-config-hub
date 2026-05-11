@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import type { ToolConfig } from "../types.ts";
-import { loadAllConfigs, saveFile, getHomeDir, loadUiPrefs, type UiPrefs } from "./bridge.ts";
+import { loadAllConfigs, saveFile, getHomeDir, loadUiPrefs, type UiPrefs, dchProfile, type ProfileStore, type ToolKind } from "./bridge.ts";
 import { applyCustomSchemas } from "../schemas/registry.ts";
 import { ConfigPanel } from "./components/ConfigPanel.tsx";
 import { ProfilePanel } from "./components/ProfilePanel.tsx";
@@ -10,9 +10,12 @@ import { PanelVisibilityProvider } from "./components/panel-visibility.tsx";
 const ICONS: Record<string, string> = { terminal: ">_", claude: "C", codex: "X", opencode: "O" };
 
 type View = { kind: "tool"; index: number } | { kind: "profile" };
+type ProfileActive = Record<ToolKind, { id: string | null; symlinkTarget: string | null }>;
 
 export function App() {
   const [tools, setTools] = useState<ToolConfig[]>([]);
+  const [profileStore, setProfileStore] = useState<ProfileStore | null>(null);
+  const [profileActive, setProfileActive] = useState<ProfileActive | null>(null);
   const [view, setView] = useState<View>({ kind: "tool", index: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +26,23 @@ export function App() {
   // 旧 8s timer 会在第 8s 把 ok toast 也清掉（看起来 ok toast 提前消失）；
   // 反过来 ok 后立即 err，3s timer 会把 err 在第 3s 清掉，用户读不完。
   const toastTimerRef = useRef<number | null>(null);
+
+  // CHANGELOG_13：profile 数据上提到 App.tsx 单点持有；ProfilePanel 改受控组件接 props。
+  // 旧设计 ProfilePanel 自管 store/active + 自挂 focus/visibility listener，与 App.tsx 同源
+  // 重复 → 外部切回 Tauri 窗口同时 fire focus + visibilitychange × 两组件 = 14 IPC 风暴。
+  const loadProfileData = useCallback(async (silent = false) => {
+    try {
+      const [s, a] = await Promise.all([dchProfile.list(), dchProfile.current()]);
+      setProfileStore(s);
+      setProfileActive(a);
+    } catch (e) {
+      if (silent) console.warn("loadProfileData silent fail:", e);
+      else flash(`加载 profile 失败: ${e instanceof Error ? e.message : String(e)}`, false);
+    }
+    // flash 在下面定义；useCallback deps 用 [] 因为 flash 自己也是 useCallback []，不会变。
+    // 这里不能写 [flash] 因为定义顺序（hoisted 的 useCallback 引用要 lint 配合）—— 拿 ref 比较安全。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -52,24 +72,44 @@ export function App() {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
-
-  // 自动刷新：窗口 focus / 标签页可见性恢复 → reload。
-  // 场景：用户从外部（vim / `dch profile use` / 手敲 settings.json）改完文件切回 Tauri 窗口，
-  // UI 必须反映磁盘最新状态。focus + visibilitychange 双监听覆盖 macOS 切 App / 切 Space / 退后台。
-  // 不做防抖：load() 内部已 try/catch + setLoading 不阻塞 UI；连续多次切窗口最多多跑几次 IPC，
-  // 比加 debounce 引入「最后一次切回后还要等 N ms 才刷新」的体感延迟更值得。
-  // SchemaScopeBody 内部有 saving guard，reload 不会覆盖 in-flight 编辑。
+  // 首屏：configs + profile data 并发拿，进入主界面时 ProfilePanel 已有数据。
   useEffect(() => {
-    const onFocus = () => { void load(); };
-    const onVisibility = () => { if (document.visibilityState === "visible") void load(); };
-    window.addEventListener("focus", onFocus);
+    void Promise.all([load(), loadProfileData()]);
+  }, [load, loadProfileData]);
+
+  // CHANGELOG_13：focus + visibilitychange 去重 + 同步刷 configs + profile。
+  //
+  // 旧设计两组件各挂双 listener，外部切回时同时 fire focus + visibilitychange × 两组件 = 4 次
+  // reload trigger → 14 IPC 砸（4 version + N readFile + 2 dch CLI）× 2 = 主线程在 React commit
+  // 间频繁切，UI「点按钮也慢」。新设计：
+  //   - 单点 listener（App.tsx 一处）
+  //   - 100ms 窗口去重（focus + visibilitychange 同事件源算 1 次）
+  //   - reloading guard（前一轮 IPC 没完，新 trigger 不入队）
+  //   - 同时刷 configs + profile（用户可能在外部改 settings.json 也可能改 ~/.dch/profiles.json）
+  //
+  // 不做 N 秒缓存：磁盘新鲜度优先级 > 微秒级 IPC 节流。
+  const lastReloadAtRef = useRef(0);
+  const reloadingRef = useRef(false);
+  useEffect(() => {
+    const onAppActive = () => {
+      if (reloadingRef.current) return;
+      if (Date.now() - lastReloadAtRef.current < 100) return;
+      lastReloadAtRef.current = Date.now();
+      reloadingRef.current = true;
+      Promise.all([load(), loadProfileData(true)]).finally(() => {
+        reloadingRef.current = false;
+      });
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") onAppActive();
+    };
+    window.addEventListener("focus", onAppActive);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("focus", onAppActive);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [load]);
+  }, [load, loadProfileData]);
 
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [view]);
 
@@ -155,7 +195,12 @@ export function App() {
               避免 12-16 个 timer 后台空转。 */}
           <PanelVisibilityProvider visible={view.kind === "profile"}>
             <div className={view.kind === "profile" ? "panel-host" : "panel-host panel-hidden"}>
-              <ProfilePanel onToast={flash} onProfileChanged={() => void load()} />
+              <ProfilePanel
+                store={profileStore}
+                active={profileActive}
+                onToast={flash}
+                onReloadProfile={loadProfileData}
+              />
             </div>
           </PanelVisibilityProvider>
           {tools.map((t, i) => {
