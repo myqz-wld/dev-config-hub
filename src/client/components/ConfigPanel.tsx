@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import type { ToolConfig, ConfigScope, ConfigEntry } from "../../types.ts";
 import { CMEditor } from "./editor/CMEditor.tsx";
 import { languageExtensionFor } from "./editor/languages.ts";
@@ -70,6 +70,41 @@ function Scope({
   const [buf, setBuf] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // CHANGELOG_10 review fix R_1·H1（双方一致 ✅ HIGH）：edit 模式 + focus reload 联动 silent overwrite
+  //
+  // 问题：CHANGELOG_10 加 focus / visibilitychange 后，edit 活跃期 scope.content 会被外部 reload 推变；
+  // 但 buf 只在点「编辑」按钮 setBuf(scope.content) 一次性 snapshot，再无回流 → CMEditor 始终显示旧 buf。
+  // 用户保存触发 onSave(buf) → fs::write(buf) 无 mtime check → **静默覆盖外部修改 5 步必中复现**。
+  //
+  // 修法：进 edit 模式时记录 enterEditContent 基线；scope.content 后续变化（必然来自外部 reload，
+  // 因为 onSave 成功后已 setMode 退出 edit）→ 设 externalChanged=true → 顶部 banner 让用户决策
+  // [重新加载放弃改动 / 保留改动（保存覆盖）/ 取消编辑]，与 SchemaScopeBody PR-G TOCTOU banner 风格一致。
+  //
+  // 不在 save 前 stat 比对（方案 A）：那种是「最后一刻才提示」，用户白打字风险更大；
+  // 改用 reactive 监测，让用户在打字过程中就能看到 banner，主动决定怎么处理。
+  const [externalChanged, setExternalChanged] = useState(false);
+  const enterEditRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (mode !== "edit") {
+      enterEditRef.current = null;
+      setExternalChanged(false);
+      return;
+    }
+    if (enterEditRef.current === null) {
+      // 第一次进 edit（onClick 那一帧）：记录基线（与 setBuf(scope.content) 同源）
+      enterEditRef.current = scope.content;
+    } else if (scope.content !== enterEditRef.current) {
+      // 基线已存 + scope.content 变了 = 外部 reload 推过来的
+      setExternalChanged(true);
+    } else {
+      // CHANGELOG_10 R_2 R2-INFO-1 (codex INFO)：对称清零分支
+      // 场景：外部改了 → banner 弹 → 外部又撤销回基线（如 git checkout）→ scope.content === enterEditRef.current
+      // 之前漏 else 分支 → externalChanged 永久 true → banner 虚假残留
+      setExternalChanged(false);
+    }
+  }, [mode, scope.content]);
+
   // PR-G：稳定的 schema-driven CM6 extensions（含 lint + hover + completion）
   // useMemo 稳定引用避免 CMEditor extraCompartment reconfigure 触发 noop transaction（R_2 D3）
   // 仅 JSON 走 schema lint；TOML / dotfile / markdown 不走 codemirror-json-schema
@@ -133,6 +168,41 @@ function Scope({
           {mode === "edit" ? (
             // PR-G：edit 模式 textarea → CMEditor + 注入 schema lint/hover/completion
             <div className="editor">
+              {/* CHANGELOG_10 R_1·H1 fix：外部 reload 推过来 scope.content 变化时 banner 让用户决策 */}
+              {externalChanged && (
+                <div className="schema-conflict">
+                  <div className="schema-conflict-msg">
+                    ⚠️ 文件已被外部修改。继续保存会覆盖外部改动。
+                  </div>
+                  <div className="schema-conflict-actions">
+                    <button
+                      className="btn-sm"
+                      disabled={saving}
+                      onClick={() => {
+                        setBuf(scope.content);
+                        enterEditRef.current = scope.content;
+                        setExternalChanged(false);
+                      }}
+                    >重新加载（放弃我的改动）</button>
+                    <button
+                      className="btn-sm danger"
+                      // CHANGELOG_10 R_2·H1-followup（双方一致 ✅ HIGH）：buf 没动过时禁用「保留我的改动」
+                      // 语义错位：用户进 edit 只看不改 → buf === enterEditRef.current；点此按钮等于「我没改但要覆盖外部」
+                      disabled={saving || buf === enterEditRef.current}
+                      onClick={() => {
+                        // 用户主动接受「保存覆盖」语义；重置基线避免反复弹
+                        enterEditRef.current = scope.content;
+                        setExternalChanged(false);
+                      }}
+                    >保留我的改动（保存会覆盖）</button>
+                    <button
+                      className="btn-sm"
+                      disabled={saving}
+                      onClick={() => setMode(fallbackMode)}
+                    >取消编辑</button>
+                  </div>
+                </div>
+              )}
               <CMEditor
                 value={buf}
                 onChange={setBuf}
@@ -146,7 +216,10 @@ function Scope({
                 {/* PR-4 (#H2)：必须 await 成功才 setMode；失败时 catch（App 已 toast）保留 edit 模式 */}
                 <button
                   className="btn primary"
-                  disabled={saving}
+                  // CHANGELOG_10 R_2·H1-followup（双方一致 ✅ HIGH）：banner 是装饰品 → 加 || externalChanged
+                  // 让 banner 真正「拦截」save。用户必须先点 banner 三按钮之一才能继续保存
+                  // 与 SchemaScopeBody PR-G conflict 「硬 gate」语义对齐
+                  disabled={saving || externalChanged}
                   onClick={async () => {
                     setSaving(true);
                     try { await onSave(scope.filePath, buf); setMode(fallbackMode); }

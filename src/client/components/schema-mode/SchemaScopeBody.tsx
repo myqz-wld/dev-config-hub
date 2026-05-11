@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { parse as parseToml } from "smol-toml";
 import type { ConfigScope } from "../../../types.ts";
 import type { ToolSchema, FieldSchema } from "../../../schemas/types.ts";
@@ -10,6 +10,27 @@ import { patchToml } from "../../../schemas/toml-patcher.ts";
 import { diffPatches } from "../../../schemas/diff.ts";
 import { validate } from "../../../schemas/validator.ts";
 import { readFileWithMtime } from "../../bridge.ts";
+
+/**
+ * 用户是否正在输入控件中（focus 在 input/textarea/contenteditable）。
+ *
+ * CHANGELOG_10 review fix R_1·M1 (claude MED)：5s mtime poll silent setParsed 会让
+ * fields/{StringField,NumberField,PathField,SensitiveField}.tsx 的 useEffect [value]
+ * 触发 setDraft(value)，把用户中途打字未 blur 的 draft 擦掉。poll 触发 reload 前调本函数
+ * → 命中跳过本次覆盖，等用户 blur 后下次 poll 间隔自然 reload（磁盘新内容不会丢失）。
+ *
+ * **export 仅给单测用**（CHANGELOG_10 R_3 N3·5 必修 test #2 + #4 测 helper 直接行为）；
+ * 生产代码不应直接 import，sync prop-sync useEffect 与 5s poll 的 isUserTyping guard 保持单一来源。
+ */
+export function isUserTyping(): boolean {
+  if (typeof document === "undefined") return false;
+  const el = document.activeElement;
+  if (!el || el === document.body) return false;
+  const tag = el.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return true;
+  if ((el as HTMLElement).isContentEditable) return true;
+  return false;
+}
 
 /**
  * Schema-driven scope body：把 ToolSchema + ConfigScope 接到 fields/renderField 调度器，
@@ -59,12 +80,48 @@ export function SchemaScopeBody({
   // 外部 scope 变化（reload 触发）→ 同步本地
   // REVIEW_4 R_2 R-M3：saving 期间 reload 会覆盖乐观更新中的 newParsed 让 in-flight 改动丢失；
   // 加 saving guard：保存中时不接受外部 reload（用户的 in-flight 改动 > 磁盘旧值）
+  //
+  // CHANGELOG_10 review fix R_1·双方一致 MED（claude R1 ❓ + codex M1 ✅）：
+  //   原 deps 含 [saving] → saving 从 true→false 时 effect 重跑；若 focus reload 在 doSave 期间到达
+  //   把 stale scope.parsed/scope.content 推过来，doSave 完成 setSaving(false) 那一帧 effect 用
+  //   stale prop 反转 setParsed/setContent → UI 回退到 save 前内容（磁盘已新，UI 旧，下次 focus 才自愈）。
+  //   修法：saving 从 deps 移除 + savingRef 镜像。effect 只在 scope.parsed/scope.content 真变化时跑，
+  //   不再因 saving 转换额外重跑；ref 拿到的是 effect 触发那一刻 React commit 后的最新 saving 值。
+  //
+  // CHANGELOG_10 review fix R_2·N-conflict-lost（双方一致 ✅ MED）：
+  //   sync effect 不检 conflict → focus reload 在 PR-G TOCTOU banner 显示期间触发会
+  //   setConflict(null) 静默清掉 banner + setParsed/setContent 应用外部内容 → 用户待保存的
+  //   newParsed/newContent（藏在 conflict 对象里）永久丢失。conflict 清零只应由用户三按钮触发
+  //   （onConflictReload/Overwrite/Cancel）。修法：加 conflictRef 镜像 + effect 加 conflict guard。
+  //
+  // CHANGELOG_10 review fix R_2·M1-followup（claude MED）：
+  //   M1 (Round 1 fix) isUserTyping guard 只盖 5s poll，不盖 prop-sync 路径（focus reload → setTools
+  //   → ConfigPanel 推 scope.parsed prop → SchemaScopeBody prop-sync setParsed → 字段 useEffect[value]
+  //   触发 setDraft → 用户中途打字未 blur 被擦）。修法：prop-sync 内同样加 isUserTyping() guard。
+  const savingRef = useRef(saving);
+  const conflictRef = useRef(conflict);
+  // R_2·R1-residual：独立 writingRef，不被 ref-sync useEffect 覆盖；handleRootChange try/finally 显式管理
+  // 用于 hold prop-sync 在「optimistic setParsed → await TOCTOU stat → doSave 内 setSaving(true)」窗口期间
+  const writingRef = useRef(false);
   useEffect(() => {
-    if (saving) return;  // R-M3 saving 中跳过同步，等 doSave finally setSaving(false) 后下次 reload 触发
+    savingRef.current = saving;
+    conflictRef.current = conflict;
+  });
+
+  useEffect(() => {
+    // R-M3 saving 中跳过同步；ref 拿当前最新值，不靠 deps
+    if (savingRef.current) return;
+    // R_2·R1-residual：handleRootChange optimistic→IPC→doSave 全程 hold（writingRef 不被 ref-sync 覆盖）
+    if (writingRef.current) return;
+    // R_2 N-conflict-lost：PR-G TOCTOU banner 期间不接受 prop-sync，避免静默清 conflict + 丢用户改动
+    if (conflictRef.current) return;
+    // R_2 M1-followup：用户正在 input/textarea 中打字未 blur，prop-sync 也会触发 field useEffect[value]
+    // 擦掉 draft；与 5s poll 同 guard 对齐
+    if (isUserTyping()) return;
     setParsed(scope.parsed);
     setContent(scope.content);
     setConflict(null);
-  }, [scope.content, scope.parsed, saving]);
+  }, [scope.content, scope.parsed]);
 
   // mount + scope 变化时刷新 mtime（PR-G TOCTOU）
   useEffect(() => {
@@ -72,6 +129,56 @@ export function SchemaScopeBody({
       .then((r) => setLoadedMtimeUs(r.mtimeUs))
       .catch(() => setLoadedMtimeUs(null));
   }, [scope.filePath, scope.content]);
+
+  // 自动刷新：5s 周期 mtime poll → 检测外部修改 → safe state 下 silent 重新 parse 同步本地。
+  //
+  // **safe state**：!saving && !conflict && loadedMtimeUs != null（基准已建立）
+  //   - saving 中：等 doSave 内部 setLoadedMtimeUs 跟上，此次 poll 跳过
+  //   - conflict 中：用户正在 resolve banner，不能背后改本地
+  //   - loadedMtimeUs == null：mount mtime 还没拿到（pre-1970 / metadata 失败），跳过
+  //
+  // **不会覆盖自己 save**：doSave 成功后已 setLoadedMtimeUs(after.mtimeUs)，下次 poll 比对相等 → return。
+  // 仅当 r.mtimeUs !== loadedMtimeUs 才认定外部修改 → reload。
+  //
+  // **parse 失败静默 return**：磁盘上半成品（用户手编了一半未存）让 schema 模式不闪到空，
+  // 等用户下次主动改字段时走 handleRootChange → save 前 stat → conflict banner。
+  //
+  // **stale closure 防御**：用 ref 镜像 saving/conflict/loadedMtimeUs，interval 只在
+  // [scope.filePath, scope.format] 变化时重启（避免每次 save 后清重 setInterval 让 poll 时钟漂移）。
+  // ref sync useEffect 无 deps 每次 render 后 commit 跑一次：5s 间隔下 ref 永远 fresh enough。
+  const pollStateRef = useRef({ saving, conflict, loadedMtimeUs });
+  useEffect(() => { pollStateRef.current = { saving, conflict, loadedMtimeUs }; });
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const before = pollStateRef.current;
+      if (before.saving || before.conflict || before.loadedMtimeUs == null) return;
+      readFileWithMtime(scope.filePath).then((r) => {
+        // 二次检查：readFileWithMtime 在飞期间用户可能开始 save / 弹 conflict / loadedMtimeUs 已被自己 save 推进
+        const now = pollStateRef.current;
+        if (now.saving || now.conflict) return;
+        if (r.mtimeUs == null || r.mtimeUs === now.loadedMtimeUs) return;
+        // CHANGELOG_10 review fix R_1·M1 (claude MED)：5s poll 静默 setParsed 会让 fields/StringField 等
+        // 4 个文本控件的 useEffect [value] 触发 setDraft(value)，把用户中途打字未 blur 的 draft 擦掉。
+        // 修法：poll 触发覆盖前检查 document.activeElement，若用户正在 input/textarea/contenteditable 中
+        // → 跳过本次 silent 覆盖，等用户 blur 后下次 poll 间隔自然 reload。
+        // 数据完整性：磁盘新内容不会丢失，下次 poll（5s）/ user blur / focus reload 都能拿到最新 mtime。
+        if (isUserTyping()) return;
+        // 外部修改：silent 重新 parse + 覆盖本地
+        let reparsed: Record<string, unknown> = {};
+        try {
+          if (scope.format === "toml") reparsed = parseToml(r.content) as Record<string, unknown>;
+          else reparsed = JSON.parse(r.content);
+        } catch {
+          return;  // 半成品文件，等用户操作再处理
+        }
+        setParsed(reparsed);
+        setContent(r.content);
+        setLoadedMtimeUs(r.mtimeUs);
+      }).catch(() => {});
+    }, 5000);
+    return () => clearInterval(id);
+  }, [scope.filePath, scope.format]);
 
   const declaredKeys = new Set(Object.keys(toolSchema.rootSchema.properties ?? {}));
   const unknownKeys = Object.keys(parsed).filter((k) => !declaredKeys.has(k));
@@ -129,31 +236,46 @@ export function SchemaScopeBody({
     // 乐观更新本地
     const oldParsed = parsed;
     const oldContent = content;
-    setParsed(newParsed);
-    setContent(newContent);
+    // CHANGELOG_10 review fix R_2·R1-residual（claude MED *未验证* + lead 代码路径实证）：
+    //   原 saving guard 修了 saving false→true 的 React commit 延迟，但 handleRootChange 内
+    //   optimistic setParsed → await readFileWithMtime（5-50ms IPC）→ doSave 内 setSaving(true) 之间
+    //   savingRef 仍是 false（doSave 触发的 setSaving 要等 React commit 后 ref-sync 才同步）。期间若
+    //   focus reload 推 prop → prop-sync setParsed(stale scope.parsed) 覆盖刚写的 newParsed → doSave
+    //   完成后本地 parsed 永久停留 pre-save 旧值（磁盘正确，UI 旧）。
+    //   修法：独立 writingRef（不被 ref-sync useEffect 覆盖；try/finally 显式管理），prop-sync 加
+    //   writingRef check。语义：「handleRootChange 整段执行期间 prop-sync 都 hold」。
+    //   conflict / save 路径退出后由 conflictRef / savingRef 接力 hold（ref-sync 跟 React commit 同步），
+    //   不存在 ref handoff race（React 同步代码不 yield；commit phase ref-sync useEffect 按 source order 先于 prop-sync 跑）。
+    writingRef.current = true;
+    try {
+      setParsed(newParsed);
+      setContent(newContent);
 
-    // PR-G TOCTOU：save 前 stat 比对（仅当 loadedMtimeUs 已知）
-    if (loadedMtimeUs != null) {
-      try {
-        const fresh = await readFileWithMtime(scope.filePath);
-        if (fresh.mtimeUs != null && fresh.mtimeUs !== loadedMtimeUs) {
-          setConflict({
-            freshContent: fresh.content,
-            freshMtimeUs: fresh.mtimeUs,
-            newContent,
-            newParsed,
-            oldContent,
-            oldParsed,
-            fallbackReason,  // REVIEW_4 R_2 L1：透传给 onConflictOverwrite → doSave
-          });
-          return;
+      // PR-G TOCTOU：save 前 stat 比对（仅当 loadedMtimeUs 已知）
+      if (loadedMtimeUs != null) {
+        try {
+          const fresh = await readFileWithMtime(scope.filePath);
+          if (fresh.mtimeUs != null && fresh.mtimeUs !== loadedMtimeUs) {
+            setConflict({
+              freshContent: fresh.content,
+              freshMtimeUs: fresh.mtimeUs,
+              newContent,
+              newParsed,
+              oldContent,
+              oldParsed,
+              fallbackReason,  // REVIEW_4 R_2 L1：透传给 onConflictOverwrite → doSave
+            });
+            return;
+          }
+        } catch {
+          // stat 失败不阻塞 save，继续
         }
-      } catch {
-        // stat 失败不阻塞 save，继续
       }
-    }
 
-    await doSave(newContent, newParsed, oldContent, oldParsed, fallbackReason);
+      await doSave(newContent, newParsed, oldContent, oldParsed, fallbackReason);
+    } finally {
+      writingRef.current = false;
+    }
   };
 
   const onConflictReload = () => {

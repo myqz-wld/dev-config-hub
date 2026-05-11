@@ -45,6 +45,21 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
 
   useEffect(() => { reload(); }, [reload]);
 
+  // 自动刷新：窗口 focus / 标签页可见性恢复 → reload(silent=true)。
+  // 场景：用户在外部跑 `dch profile use` / 手改 ~/.dch/profiles.json / 删 ~/.<tool> symlink 后切回，
+  // UI 当前 active / store 必须反映磁盘最新状态。silent=true 避免「切窗口失败」时盖掉其他 toast。
+  // 不做防抖（理由同 App.tsx）：reload 内部有 try/catch + busy 不在 reload 路径上，连切窗口仅多跑几次 IPC。
+  useEffect(() => {
+    const onFocus = () => { void reload(true); };
+    const onVisibility = () => { if (document.visibilityState === "visible") void reload(true); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [reload]);
+
   const handle = async <T,>(action: () => Promise<T>, successMsg: string): Promise<boolean> => {
     setBusy(true);
     try {
