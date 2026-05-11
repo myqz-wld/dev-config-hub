@@ -234,8 +234,14 @@ export interface DchCommandResult {
   code: number;
 }
 
-async function runDch<T = unknown>(args: string[]): Promise<T> {
-  const r = await call<DchCommandResult>("run_dch_command", { args: ["profile", ...args, "--json"] });
+async function runDch<T = unknown>(args: string[], timeoutMs?: number): Promise<T> {
+  // REVIEW_7 H2：按命令传 timeoutMs；Rust 端 spawn_with_timeout 兜底 1800s 上限。
+  // 不传 = Rust 默认（30 分钟，覆盖最坏 hookTimeoutMs 600000ms × 2 + 余量）。
+  const r = await call<DchCommandResult>("run_dch_command", { args: ["profile", ...args, "--json"], timeoutMs });
+  // code = -2 表示 Rust watchdog 超时杀的（区分 CLI 内部 exit 1）
+  if (r.code === -2) {
+    throw new Error(`命令超时被强制终止 (timeout=${timeoutMs ?? "default"}ms)。检查 hook 脚本是否阻塞`);
+  }
   if (r.code !== 0) {
     let parsed: { error?: string } = {};
     try { parsed = JSON.parse(r.stdout) as { error?: string }; } catch {}
@@ -247,6 +253,11 @@ async function runDch<T = unknown>(args: string[]): Promise<T> {
   return JSON.parse(r.stdout) as T;
 }
 
+// REVIEW_7 H2：按命令分类的默认 timeout（UI 不传 hookTimeoutMs 时的兜底）。
+// 跑 hook 的命令（use / hook test）由 caller 显式传 hookTimeoutMs 算出。
+const TIMEOUT_FAST_MS = 10_000;   // 纯文件读写：list / current / show / add / remove / env / config
+const TIMEOUT_INIT_MS = 30_000;   // init：含 mv + ln 等 fs 操作
+
 import type {
   Profile, ProfileStore, SwitchResult, ToolKind, HookResult,
 } from "../profiles/types.ts";
@@ -254,7 +265,7 @@ import type {
 export type { Profile, ProfileStore, SwitchResult, ToolKind, HookResult };
 
 export const dchProfile = {
-  list: () => runDch<ProfileStore>(["list"]),
+  list: () => runDch<ProfileStore>(["list"], TIMEOUT_FAST_MS),
 
   add: (tool: ToolKind, id: string, opts: {
     dir?: string; env?: Record<string, string>; description?: string; from?: string;
@@ -267,19 +278,25 @@ export const dchProfile = {
     for (const [k, v] of Object.entries(opts.env ?? {})) args.push("--env", `${k}=${v}`);
     if (opts.preHook) args.push("--pre-hook", opts.preHook);
     if (opts.postHook) args.push("--post-hook", opts.postHook);
-    return runDch<{ ok: true; profile: Profile }>(args);
+    return runDch<{ ok: true; profile: Profile }>(args, TIMEOUT_FAST_MS);
   },
 
-  remove: (id: string) => runDch<{ ok: true; removed: string }>(["remove", id, "--yes"]),
+  remove: (id: string) => runDch<{ ok: true; removed: string }>(["remove", id, "--yes"], TIMEOUT_FAST_MS),
 
-  use: (id: string) => runDch<SwitchResult>(["use", id]),
+  // REVIEW_7 H2：use 跑 pre + post 两个 hook，给 `2 × hookTimeoutMs + 5000ms`。
+  // caller（ProfilePanel）从 store.preferences.hookTimeoutMs 取真实值传进来。
+  use: (id: string, hookTimeoutMs: number) =>
+    runDch<SwitchResult>(["use", id], 2 * hookTimeoutMs + 5_000),
 
-  current: () => runDch<Record<ToolKind, { id: string | null; symlinkTarget: string | null }>>(["current"]),
+  current: () => runDch<Record<ToolKind, { id: string | null; symlinkTarget: string | null }>>(["current"], TIMEOUT_FAST_MS),
 
-  init: (tool: ToolKind) => runDch<{ ok: true; state: string; profileId: string; configDir: string }>(["init", tool]),
+  init: (tool: ToolKind) =>
+    runDch<{ ok: true; state: string; profileId: string; configDir: string }>(["init", tool], TIMEOUT_INIT_MS),
 
-  testHook: (id: string, which: "pre" | "post") => runDch<HookResult | null>(["hook", "test", id, which]),
+  // testHook 跑单个 hook，给 hookTimeoutMs + 5000ms grace。
+  testHook: (id: string, which: "pre" | "post", hookTimeoutMs: number) =>
+    runDch<HookResult | null>(["hook", "test", id, which], hookTimeoutMs + 5_000),
 
   config: (key: "hookTimeoutMs", value: number) =>
-    runDch<{ ok: true }>(["config", key, String(value)]),
+    runDch<{ ok: true }>(["config", key, String(value)], TIMEOUT_FAST_MS),
 };

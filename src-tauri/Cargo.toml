@@ -17,3 +17,8 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex-lite = "0.1"
+
+# REVIEW_7 H4：process group + killpg 杀整组（child.kill 只杀 direct child，
+# bun 孙子 + hook 曾孙仍持 stdio pipe FD 让 reader 永不 EOF）。仅 Unix 用。
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

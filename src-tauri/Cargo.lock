@@ -553,6 +553,7 @@ dependencies = [
 name = "dev-config-hub"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "regex-lite",
  "serde",
  "serde_json",

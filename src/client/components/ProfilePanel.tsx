@@ -83,7 +83,9 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
   const onUse = async (id: string) => {
     setBusy(true);
     try {
-      const r = await dchProfile.use(id);
+      // REVIEW_7 H2：传 store.preferences.hookTimeoutMs 让 bridge 算 Rust 端 timeout
+      // = 2 × hookTimeoutMs + 5s grace（pre + post hook）。store 在 mount 时已 reload。
+      const r = await dchProfile.use(id, store?.preferences.hookTimeoutMs ?? 30_000);
       if (!r.ok) {
         onToast(r.message ?? `切换失败`, false);
         // PR-4 (#M11 / #R3-M2)：失败时弹 HookOutputModal 显示失败 hook 的完整 stdout/stderr。
@@ -111,7 +113,8 @@ export function ProfilePanel({ onToast, onProfileChanged }: Props) {
 
   const onTestHook = async (id: string, which: "pre" | "post") => {
     try {
-      const r = await dchProfile.testHook(id, which);
+      // REVIEW_7 H2：单 hook = hookTimeoutMs + 5s grace
+      const r = await dchProfile.testHook(id, which, store?.preferences.hookTimeoutMs ?? 30_000);
       setHookOutput({ id, which, result: r });
       if (!r) onToast(`profile ${id} 未配置 ${which}Switch hook`, true);
     } catch (e) {

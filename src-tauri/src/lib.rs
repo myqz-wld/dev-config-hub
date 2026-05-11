@@ -1,7 +1,10 @@
 use std::fs;
 use std::process::Command;
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 use serde::Serialize;
+
+mod proc_timeout;
+use proc_timeout::spawn_with_timeout;
 
 #[tauri::command]
 fn read_file(path: String) -> Result<String, String> {
@@ -217,17 +220,19 @@ fn get_tool_version(command: String) -> String {
     }
     cmd.arg(&wrapped);
 
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            let stderr = String::from_utf8_lossy(&o.stderr);
-            let text = format!("{}{}", stdout, stderr);
-            let re = regex_lite::Regex::new(r"\d+\.\d+(?:\.\d+)?").unwrap();
-            re.find(&text).map(|m| m.as_str().to_string()).unwrap_or("unknown".to_string())
-        }
-        Err(_) => "not installed".to_string(),
-    }
+    // REVIEW_7 H5：原 cmd.output() 同根 H1/H2 卡死路径。用户 .zshrc 含 `(bg-cmd &)`
+    // （typical：proxy ensure / nvm preload / shell prompt async refresh）→ source rc 时
+    // 后台进程继承 stdio pipe FD → loadAllConfigs Promise.all × 4 全踩 → App 首屏 / focus
+    // reload / visibility 切换全卡。version 命令本就秒级返回，给 5s timeout 足够。
+    let output = match spawn_with_timeout(cmd, Duration::from_secs(5)) {
+        Ok(o) => o,
+        Err(_) => return "not installed".to_string(),
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let text = format!("{}{}", stdout, stderr);
+    let re = regex_lite::Regex::new(r"\d+\.\d+(?:\.\d+)?").unwrap();
+    re.find(&text).map(|m| m.as_str().to_string()).unwrap_or("unknown".to_string())
 }
 
 /// 跨平台 home dir：
@@ -260,8 +265,16 @@ struct DchCommandResult {
 /// `DCH_PROJECT_ROOT` 环境变量里指定项目源码位置。
 ///
 /// Win：走 PowerShell（不 source profile）；POSIX：走 user shell + source rc。
+///
+/// **REVIEW_7 H2/H3/H4 落地**：走 `spawn_with_timeout` helper（process group + 增量读 +
+/// timeout killpg），不再用同步 `cmd.output()`。`timeout_ms` 由 UI 按命令传：
+/// - `use` = `2 × hookTimeoutMs + 5000ms`（pre+post hook + GRACE 余量）
+/// - `hook test` = `hookTimeoutMs + 5000ms`
+/// - `init` = `30s`（含 mv/ln 等 fs 操作）
+/// - `list/current/config/env/show/add/remove` = `10s`（纯文件读写）
+/// 缺省（未传）= `1800s`（30 分钟绝对上限，覆盖 `hookTimeoutMs` 上限 600000ms × 2 + 余量）。
 #[tauri::command]
-fn run_dch_command(args: Vec<String>) -> Result<DchCommandResult, String> {
+fn run_dch_command(args: Vec<String>, timeout_ms: Option<u64>) -> Result<DchCommandResult, String> {
     let project_root = std::env::var("DCH_PROJECT_ROOT").ok().or_else(|| {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         std::path::Path::new(manifest_dir)
@@ -324,14 +337,16 @@ fn run_dch_command(args: Vec<String>) -> Result<DchCommandResult, String> {
     }
     command.arg(&wrapped);
 
-    let output = command
-        .output()
+    // REVIEW_7 H2：UI 按命令传 timeout；缺省 1800s 兜底（绝对上限）。
+    let timeout = Duration::from_millis(timeout_ms.unwrap_or(1_800_000));
+    let outcome = spawn_with_timeout(command, timeout)
         .map_err(|e| format!("spawn failed: {}", e))?;
 
     Ok(DchCommandResult {
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        code: output.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&outcome.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&outcome.stderr).to_string(),
+        // outcome.code = -2 表示 watchdog 杀；UI 端可据此判断是否 timeout 还是 CLI 内部失败。
+        code: outcome.code,
     })
 }
 
