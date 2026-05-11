@@ -14,14 +14,42 @@ const TOOLS: ToolKind[] = ["claude", "codex"];
 
 let JSON_MODE = false;
 
-function jsonOut(data: unknown) {
-  process.stdout.write(JSON.stringify(data) + "\n");
+// REVIEW_7 H1（双方实证）：Bun 在 stdout=pipe 场景下（Tauri Rust `command.output()` 调 CLI 的真实场景）
+// 单次 `process.stdout.write(big)` + 立即 `process.exit(0)` 在 ≥ 65537 byte 时**必被截断到 65536 byte**
+// （macOS pipe buffer 上限）。`SwitchResult.hooks[].stdout/stderr` 跑大输出 hook（npm install / 大 curl）
+// 时完全可能超 64KB → UI `JSON.parse(r.stdout)` 抛 SyntaxError → 用户看到「切换失败：Unexpected end
+// of JSON input」比卡死还难诊断。
+//
+// 实测：`process.stdout.end(cb)` 与 `'drain' event` 都不能保证 flush；**只有 `write(data, callback)`
+// 的 callback 形式生效**。所有 stdout 输出统一走该模式。
+function flushStdout(): Promise<void> {
+  return new Promise((resolve) => {
+    // 写零字节强制让 Bun 把已 buffered 的字节真正 flush 到 pipe；callback 触发即代表 OS 已收
+    process.stdout.write("", () => resolve());
+  });
+}
+
+async function jsonOut(data: unknown): Promise<void> {
+  await new Promise<void>((resolve) => {
+    process.stdout.write(JSON.stringify(data) + "\n", () => resolve());
+  });
+}
+
+// 给 cmdEnv 这种「多行 export 直接走 process.stdout.write」的非 JSON 路径用：
+// 同样有 65536 截断风险（codex MED-A1：cmdEnv 大 env 场景下也会被 process.exit 截断）。
+async function writeOut(s: string): Promise<void> {
+  await new Promise<void>((resolve) => {
+    process.stdout.write(s, () => resolve());
+  });
 }
 
 function err(msg: string): never {
   if (JSON_MODE) {
-    process.stdout.write(JSON.stringify({ error: msg }) + "\n");
-    process.exit(1);
+    // 同样要 await flush 后再 exit；但 err() 类型契约是 never（不 return），用 setImmediate 起一个微小
+    // 异步窗口让 callback 触发后再 exit(1)，throw 兜类型让 TS 满意（callback 触发前 throw 同步抛出）。
+    process.stdout.write(JSON.stringify({ error: msg }) + "\n", () => process.exit(1));
+    // throw 让函数满足 never（callback 是异步的，throw 先于 callback 触发）
+    throw new Error(msg);
   }
   console.error(`${c.red}${msg}${c.reset}`);
   process.exit(1);
@@ -275,7 +303,10 @@ async function cmdEnv(args: string[]) {
   if (JSON_MODE) return jsonOut({ tool, active: activeId, env });
   for (const [k, v] of Object.entries(env)) {
     if (!ENV_KEY_RE.test(k)) continue; // 拒绝非法 key，防止 shell 注入
-    process.stdout.write(`export ${k}=${shellQuote(String(v))}\n`);
+    // REVIEW_7 H1（codex MED-A1）：cmdEnv 大 env（多条 + 大 value）+ 上层 wrapper eval 时也会被
+    // runProfileCommand 末尾的 process.exit(0) 截断到 65536 byte → wrapper eval 拿不到完整 export
+    // → API key 被静默截尾 → 后续请求鉴权失败。统一走 await writeOut。
+    await writeOut(`export ${k}=${shellQuote(String(v))}\n`);
   }
 }
 
@@ -302,7 +333,12 @@ async function cmdHook(args: string[]) {
     return;
   }
   console.log(fmtHookResult(r));
-  if (r.exitCode !== 0) process.exit(1);
+  // REVIEW_7 H1：原 process.exit(1) 同样有 stdout 截断风险（fmtHookResult 大输出场景）。
+  // 改 flushAndExit 让上面 console.log 的所有字节都 flush 到 pipe 再退；调用 await flushStdout 强制。
+  if (r.exitCode !== 0) {
+    await flushStdout();
+    process.exit(1);
+  }
 }
 
 async function cmdConfig(args: string[]) {
@@ -350,17 +386,37 @@ export async function runProfileCommand(args: string[]): Promise<void> {
     args = args.filter((a) => a !== "--json");
   }
   const [sub, ...rest] = args;
-  if (!sub || sub === "list") return cmdList();
-  if (sub === "show") return rest[0] ? cmdShow(rest[0]) : err("用法: dch profile show <id>");
-  if (sub === "add") return cmdAdd(rest);
-  if (sub === "edit") return rest[0] ? cmdEdit(rest[0]) : err("用法: dch profile edit <id>");
-  if (sub === "remove" || sub === "rm") return cmdRemove(rest);
-  if (sub === "use") return cmdUse(rest);
-  if (sub === "current") return cmdCurrent(rest);
-  if (sub === "env") return cmdEnv(rest);
-  if (sub === "init") return cmdInit(rest);
-  if (sub === "hook") return cmdHook(rest);
-  if (sub === "config") return cmdConfig(rest);
-  if (sub === "--help" || sub === "-h" || sub === "help") return help();
-  err(`未知子命令: ${sub}\n跑 dch profile --help 查看用法`);
+
+  // REVIEW_7 H7（codex HIGH-A3 实证）：runHook 内 Promise.race 输掉的 setTimeout 仍保活 bun
+  // event loop（实测 hook=`echo ok` 函数 3ms 返回但 bun 进程总耗时 4510ms ≈ timeoutMs+1000ms）。
+  // REVIEW_2 H1 detach 子进程（hook 内 `(sleep N &)`）继承 bun stdio pipe FD 让 ReadableStream
+  // pump 永挂同样让 bun 不退。
+  // 兜底：所有 profile 子命令走完后 await flushStdout + process.exit(0) 强退，让 Tauri Rust
+  // `command.output()` 立即拿到结果，UI 不卡。
+  // 例外：cmdEdit 走 spawn editor + await proc.exited（vim/nano 长时交互），不能强退；提前 return。
+  if (sub === "edit") {
+    if (!rest[0]) err("用法: dch profile edit <id>");
+    return cmdEdit(rest[0]);
+  }
+
+  // 路由：所有非 edit 子命令统一 await，让 cmd 内部 await（loadStore/saveStore/runHook/jsonOut/...）
+  // 全 settle 才到末尾兜底强退。jsonOut 已改 async + write callback，process.exit 不会截断 stdout
+  // （详 REVIEW_7 H1 + 本文件顶部 flushStdout/jsonOut 注释）。
+  if (!sub || sub === "list") await cmdList();
+  else if (sub === "show") rest[0] ? await cmdShow(rest[0]) : err("用法: dch profile show <id>");
+  else if (sub === "add") await cmdAdd(rest);
+  else if (sub === "remove" || sub === "rm") await cmdRemove(rest);
+  else if (sub === "use") await cmdUse(rest);
+  else if (sub === "current") await cmdCurrent(rest);
+  else if (sub === "env") await cmdEnv(rest);
+  else if (sub === "init") await cmdInit(rest);
+  else if (sub === "hook") await cmdHook(rest);
+  else if (sub === "config") await cmdConfig(rest);
+  else if (sub === "--help" || sub === "-h" || sub === "help") help();
+  else err(`未知子命令: ${sub}\n跑 dch profile --help 查看用法`);
+
+  // 统一兜底强退：先 flush stdout（防 65536 截断 — 双 reviewer 实测 macOS pipe buffer 边界），
+  // 再 exit(0) 干掉 race 输掉的 setTimeout / detach 孙子持 pipe FD 等任何 keep-alive task。
+  await flushStdout();
+  process.exit(0);
 }
