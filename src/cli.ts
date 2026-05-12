@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { resolve as pathResolve } from "node:path";
-import type { ToolConfig, ConfigScope, ConfigEntry } from "./types.ts";
+import type { ToolConfig, ConfigScope } from "./types.ts";
 import { readShellConfig } from "./readers/shell.ts";
 import { readClaudeCodeConfig } from "./readers/claude-code.ts";
 import { readCodexConfig } from "./readers/codex.ts";
@@ -8,39 +8,6 @@ import { readOpenCodeConfig } from "./readers/opencode.ts";
 import { runProfileCommand } from "./cli-profile.ts";
 import { c, LEVEL_COLORS } from "./cli-colors.ts";
 import { HOME, defaultEditor } from "./platform.ts";
-
-function renderValue(value: unknown, indent: number): string {
-  const pad = " ".repeat(indent);
-  if (value === null || value === undefined) return `${c.gray}null${c.reset}`;
-  if (typeof value === "boolean") return value ? `${c.green}true${c.reset}` : `${c.red}false${c.reset}`;
-  if (typeof value === "number") return `${c.yellow}${value}${c.reset}`;
-  if (typeof value === "string") return `${c.green}"${value}"${c.reset}`;
-  if (Array.isArray(value)) {
-    if (value.length === 0) return `${c.gray}[]${c.reset}`;
-    if (value.every((v) => typeof v === "string") && value.length <= 5) {
-      return value.map((v) => `${c.green}"${v}"${c.reset}`).join(`${c.gray}, ${c.reset}`);
-    }
-    const lines = JSON.stringify(value, null, 2).split("\n");
-    return lines.map((l, i) => i === 0 ? l : pad + l).join("\n");
-  }
-  if (typeof value === "object") {
-    const json = JSON.stringify(value, null, 2);
-    if (json.length < 80 && !json.includes("\n")) return `${c.gray}${json}${c.reset}`;
-    const lines = json.split("\n");
-    return lines.map((l, i) => i === 0 ? l : pad + l).join("\n");
-  }
-  return String(value);
-}
-
-function renderEntry(entry: ConfigEntry, keyWidth: number): string {
-  const key = `${c.cyan}${entry.key.padEnd(keyWidth)}${c.reset}`;
-  const val = renderValue(entry.value, keyWidth + 6);
-  const desc = entry.description ? `  ${c.gray}# ${entry.description}${c.reset}` : "";
-  if (typeof entry.value === "object" && entry.value !== null) {
-    return `  ${key}${desc}\n      ${val}`;
-  }
-  return `  ${key}  ${val}${desc}`;
-}
 
 function renderScope(scope: ConfigScope): string {
   const lines: string[] = [];
@@ -53,33 +20,19 @@ function renderScope(scope: ConfigScope): string {
     return lines.join("\n");
   }
 
-  if (scope.format === "dotfile" || scope.format === "markdown") {
-    const contentLines = scope.content.split("\n").filter((l) => l.trim());
-    if (contentLines.length === 0) {
-      lines.push(`    ${c.gray}(空文件)${c.reset}`);
-    } else {
-      for (const line of contentLines) {
-        if (line.trimStart().startsWith("#")) {
-          lines.push(`    ${c.gray}${line}${c.reset}`);
-        } else {
-          lines.push(`    ${c.white}${line}${c.reset}`);
-        }
-      }
-    }
+  const contentLines = scope.content.split("\n");
+  if (!scope.content || contentLines.every((l) => !l.trim())) {
+    lines.push(`    ${c.gray}(空文件)${c.reset}`);
     return lines.join("\n");
   }
 
-  for (const cat of scope.categories) {
-    const maxKeyLen = Math.min(30, Math.max(...cat.items.map((i) => i.key.length)));
-    for (const item of cat.items) {
-      lines.push(renderEntry(item, maxKeyLen));
+  for (const line of contentLines) {
+    if (line.trimStart().startsWith("#")) {
+      lines.push(`    ${c.gray}${line}${c.reset}`);
+    } else {
+      lines.push(`    ${c.white}${line}${c.reset}`);
     }
   }
-
-  if (scope.categories.length === 0 && scope.content) {
-    lines.push(`    ${c.gray}(已解析但无配置项)${c.reset}`);
-  }
-
   return lines.join("\n");
 }
 

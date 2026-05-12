@@ -112,32 +112,23 @@ DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 - **不要用 `window.confirm`**：Tauri 2 的 webview 不弹原生 confirm，所有确认必须改成内联 UI 状态（CHANGELOG_5）
 - 前端表单一次填齐 preHook / postHook + 模型配置，不要分多步引导（CHANGELOG_5）
 
-### 配置描述来源
+### 配置文件展示与编辑
 
-UI 展示的配置项描述全部来自各工具的官方文档 / Schema，**不允许自行揣测**：
+工具配置文件（`~/.claude/settings.json` / `~/.codex/config.toml` / `~/.config/opencode/opencode.json` / `~/.zshrc` 等）在 ConfigPanel 里只有三种 mode：
 
-- Claude Code: `https://json.schemastore.org/claude-code-settings.json`
-- Codex CLI: 官方 config-reference 文档
-- OpenCode: 官方 config docs
-- Shell（zprofile / zshrc）: 不做语法解析，直接展示原文
+- **view**（默认，markdown 文件除外）：CodeMirror 6 只读 + 语法高亮
+- **edit**：CodeMirror 6 可写 + 保存（带 TOCTOU 外部修改检测）
+- **render**（仅 markdown 文件，如 `CLAUDE.md`）：react-markdown + GFM + shiki 代码块
 
-新增工具支持时，按这个原则给 `descriptions.ts` 喂数据。
+**没有「列表」/「schema-driven 行内编辑」/「字段控件」这些概念了**（CHANGELOG_14 删掉）。曾经的 `src/schemas/` schema 系统、`src/client/components/fields/` 字段控件库、`src/client/components/schema-mode/SchemaScopeBody`、`src/descriptions.ts` 描述字典都已删除——配置文件展示就是「源文件 / 编辑 / markdown 渲染」三选一，简单直接。
 
-### Schema 系统硬约束（PR-D 升级，schema-driven 行内编辑生效后）
-
-`src/schemas/` 是 schema-driven UI 的真理来源，三条铁律不可破：
-
-1. **行内编辑必须走 `src/schemas/` 的 `FieldSchema`**，禁止控件层（`src/client/components/fields/*`）自创类型 / 字段语义。所有 enum / range / pattern / sensitive / default 都必须从 schema 读，不准在控件里硬编码
-2. **schema 字段必须带 `// source:` 注释**绑约束（enum 值 / default / min/max / type）。来源记在每份 schema 文件的 `$source: <上游 URL>`；上游漂移走 `bun src/schemas/sync.ts --fetch <scope>` 拉 diff 后人工对照修改。**严禁揣测字段语义**（REVIEW_3 R_1·C1/C2/C3 教训：手工翻译漏档 / default 反转 / max 揣测都被对抗 review 实证抓住）
-3. **写回必须基于「原文 + 字段级 patch」**（`patchJson` 走 `jsonc-parser` modify + applyEdits / `patchToml` 行级 in-place + fallback 重新 stringify），**禁止「全量序列化 `parsed`」**。这是「schema 不认识的用户自定义 key 永远不丢」的根本保障 —— `additionalProperties: true` + 字段级 patch 的双重防护。`SchemaScopeBody` 用 `diffPatches(old, new)` 算最小 patch 集合后再走 patcher，绝不全量重写
-
-**CI 门禁**：`bun src/schemas/sync.ts --check-self` 校验所有 schema 自洽（ajv compile），schema 写错立刻 fail。建议接到 git hook 或 CI 流水线。
+唯一保留的 schema 残余是 `~/.dch/profiles.json` 编辑 modal（`ProfileStoreEditor`）的 lint：用 `src/schemas/dch-store.ts` + `editor/schema-lint.ts` 走 codemirror-json-schema 给 dch 自身状态文件做 hover / completion / 报错。这跟工具配置 schema 没关系，是 dch 内部约束。
 
 ### 单文件 ≤ 500 行
 
 - 一般代码文件**含注释 / 空行不超过 500 行**。超过后下一次改动必须先拆分 / 重构再加新逻辑（按职责拆 / pure 逻辑 vs IO 分层 / 一个 component 一个文件）
-- **例外**：测试文件、数据字典（如 schema 字段定义、`descriptions.ts`）、单份 changelog / review 可放宽到 ≤ 800 行；超 800 也要考虑按主题拆
-- 现存超标已知（不重构不让新加）：`ProfilePanel.tsx` ~1000 行（已规划 PR-I 拆 7 文件）；`bridge.ts` 接近上限待观察
+- **例外**：测试文件、单份 changelog / review 可放宽到 ≤ 800 行；超 800 也要考虑按主题拆
+- 现存超标已知（不重构不让新加）：`ProfilePanel.tsx` 已拆；`bridge.ts` 接近上限待观察
 - 新文件创建时 first commit 就要保持 ≤ 500，宁可一开始就拆，也不要先怼到一份再后期拆
 
 ---

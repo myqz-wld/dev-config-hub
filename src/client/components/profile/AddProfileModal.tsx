@@ -5,9 +5,10 @@ import {
 } from "../../bridge.ts";
 import { defaultProfileDir } from "../../../profiles/defaults.ts";
 import {
-  TOOLS, MAIN_CONFIG, REASONING_OPTIONS,
-  type AddForm, hookToString, parseConfigCore,
+  TOOLS, MAIN_CONFIG,
+  type AddForm, hookToString,
 } from "./helpers.ts";
+import { Select } from "../Select.tsx";
 
 export function AddProfileModal({
   tool, busy, existing, onClose, onSubmit,
@@ -20,7 +21,7 @@ export function AddProfileModal({
 }) {
   const [form, setForm] = useState<AddForm>({
     tool, id: "", dir: "", description: "", from: "", env: {}, preHook: "", postHook: "",
-    configContent: "", cfgModel: "", cfgReasoning: "",
+    configContent: "",
   });
   const [envKey, setEnvKey] = useState("");
   const [envVal, setEnvVal] = useState("");
@@ -46,7 +47,6 @@ export function AddProfileModal({
     const initialSrc = findSrc();
     if (!initialSrc) return;
     let usedConfigDir = initialSrc.configDir;
-    let usedFormat = MAIN_CONFIG[initialSrc.tool].format;
     let usedFilename = MAIN_CONFIG[initialSrc.tool].filename;
     let cloneContent = "";
     try {
@@ -62,7 +62,6 @@ export function AddProfileModal({
     // 元数据和内容会脱节。重读一遍并 race-check。
     if (src.configDir !== usedConfigDir || src.tool !== initialSrc.tool) {
       usedConfigDir = src.configDir;
-      usedFormat = MAIN_CONFIG[src.tool].format;
       usedFilename = MAIN_CONFIG[src.tool].filename;
       try {
         cloneContent = await readProfileConfigFile(usedConfigDir, usedFilename);
@@ -72,7 +71,6 @@ export function AddProfileModal({
       }
       if (latestFromRef.current !== fromId) return;
     }
-    const { cfgModel, cfgReasoning } = parseConfigCore(cloneContent, usedFormat);
     setForm((cur) => ({
       ...cur,
       from: fromId,
@@ -85,21 +83,24 @@ export function AddProfileModal({
       preHook: cur.preHook || hookToString(src.hooks?.preSwitch),
       postHook: cur.postHook || hookToString(src.hooks?.postSwitch),
       configContent: cur.configContent || cloneContent,
-      cfgModel: cur.cfgModel || cfgModel,
-      cfgReasoning: cur.cfgReasoning || cfgReasoning,
     }));
   };
 
   const onChangeTool = (t: ToolKind) => {
-    // 切换 tool 时清掉跟 tool 绑定的字段（dir 占位、configContent 格式、cfgReasoning 仅 codex 用）
+    // 切换 tool 时清掉跟 tool 绑定的字段（dir 占位、configContent 格式）
     setForm((cur) => ({
       ...cur,
       tool: t,
       from: "",
       configContent: "",
-      cfgReasoning: t === "codex" ? cur.cfgReasoning : "",
     }));
   };
+
+  const toolOptions = TOOLS.map((t) => ({ value: t, label: t }));
+  const cloneOptions = [
+    { value: "", label: "（不 clone）" },
+    ...sameTooLProfiles.map((p) => ({ value: p.id, label: p.id })),
+  ];
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -111,9 +112,11 @@ export function AddProfileModal({
         <div className="modal-body">
           <div className="form-row">
             <label>tool</label>
-            <select value={form.tool} onChange={(e) => onChangeTool(e.target.value as ToolKind)}>
-              {TOOLS.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            <Select
+              value={form.tool}
+              options={toolOptions}
+              onChange={(v) => onChangeTool(v as ToolKind)}
+            />
           </div>
           <div className="form-row">
             <label>id *</label>
@@ -144,37 +147,16 @@ export function AddProfileModal({
           </div>
           <div className="form-row">
             <label>从已有 profile clone</label>
-            <select value={form.from} onChange={(e) => applyClone(e.target.value)}>
-              <option value="">（不 clone）</option>
-              {sameTooLProfiles.map((p) => <option key={p.id} value={p.id}>{p.id}</option>)}
-            </select>
-          </div>
-
-          <div className="form-section-title">模型配置 — 写入 <code>{form.dir || dirPlaceholder}/{main.filename}</code></div>
-          <div className="form-row">
-            <label>model</label>
-            <input
-              type="text"
-              value={form.cfgModel}
-              onChange={(e) => setForm({ ...form, cfgModel: e.target.value })}
-              placeholder={form.tool === "claude" ? "claude-opus-4-7 / claude-sonnet-4-6" : "gpt-5.5 / gpt-5.4-mini"}
+            <Select
+              value={form.from}
+              options={cloneOptions}
+              onChange={(v) => applyClone(v)}
+              placeholder="（不 clone）"
             />
           </div>
-          {form.tool === "codex" && (
-            <div className="form-row">
-              <label>reasoning_effort</label>
-              <select
-                value={form.cfgReasoning}
-                onChange={(e) => setForm({ ...form, cfgReasoning: e.target.value })}
-              >
-                {REASONING_OPTIONS.map((r) => (
-                  <option key={r} value={r}>{r || "(默认)"}</option>
-                ))}
-              </select>
-            </div>
-          )}
+
           <div className="form-row form-row-block">
-            <label>{main.filename} 完整内容（可选；非空则覆盖上面的 model 字段）</label>
+            <label>{main.filename} 内容（写入 <code>{form.dir || dirPlaceholder}/{main.filename}</code>；空则不创建）</label>
             <textarea
               className="form-hook-input form-config-input"
               value={form.configContent}
@@ -183,9 +165,6 @@ export function AddProfileModal({
               rows={8}
               spellCheck={false}
             />
-            <p className="form-hint">
-              留空则不创建 <code>{main.filename}</code>。
-            </p>
           </div>
 
           <div className="form-section-title">profile 元信息</div>

@@ -2,31 +2,25 @@ import { describe, expect, it, mock, beforeEach, afterEach } from "bun:test";
 import { render, cleanup, act, fireEvent } from "@testing-library/react";
 import React from "react";
 
-// Mock bridge IPC（getHomeDir / readFileWithMtime / saveFile）以避免 happy-dom 下 invoke Tauri command
-// 必须在 ConfigPanel import 之前 mock；bun:test mock.module 会替换整个模块
+// Mock bridge IPC（避免 happy-dom 下 invoke Tauri command）
 mock.module("../../bridge.ts", () => ({
   getHomeDir: () => Promise.resolve("/Users/test"),
   readFileWithMtime: () => Promise.resolve({ exists: true, content: '{"theme":"dark"}', mtimeUs: 1_000 }),
   saveFile: () => Promise.resolve(),
 }));
 
-// 同样 mock CMEditor 的语言扩展（不需要真编辑器逻辑，只测 banner / disabled 行为）
+// stub CMEditor 的语言扩展
 mock.module("./editor/languages.ts", () => ({
   languageExtensionFor: () => undefined,
   languageByName: () => undefined,
-}));
-
-// schema-lint 用到的 codemirror-json-schema 在 happy-dom 偶尔报 navigator/clipboard 缺失，stub 掉
-mock.module("./editor/schema-lint.ts", () => ({
-  buildSchemaExtensions: () => [],
 }));
 
 import { ConfigPanel } from "./ConfigPanel.tsx";
 import type { ToolConfig } from "../../types.ts";
 
 /**
- * 构造一份最小化 ToolConfig，仅 1 个 JSON scope（claude settings.json 形态）。
- * 不带 schema 也能跑（无 toolSchema 时 mode 默认 view，加「编辑」按钮触发 edit 模式）。
+ * 构造一份最小化 ToolConfig，仅 1 个 JSON scope。
+ * 默认 view 模式（CMEditor 只读），点「编辑」进 edit。
  */
 function makeTool(content: string): ToolConfig {
   return {
@@ -41,27 +35,24 @@ function makeTool(content: string): ToolConfig {
       exists: true,
       format: "json",
       content,
-      parsed: JSON.parse(content),
-      categories: [],
     }],
   };
 }
 
-describe("ConfigPanel H1 fix (CHANGELOG_10 R_2·H1-followup)", () => {
+describe("ConfigPanel TOCTOU banner (CHANGELOG_10 R_2·H1-followup)", () => {
   beforeEach(() => {});
   afterEach(() => cleanup());
 
   it("T1: edit 模式下外部 reload 推 scope.content 变 → banner 出现 + 保存按钮 disabled", async () => {
     const onSave = mock(() => Promise.resolve());
-    const onPatchSave = mock(() => Promise.resolve());
     const onToast = mock(() => {});
     const tool = makeTool('{"theme":"dark"}');
 
     const { container, rerender } = render(
-      <ConfigPanel tool={tool} onSave={onSave} onPatchSave={onPatchSave} onToast={onToast} />,
+      <ConfigPanel tool={tool} onSave={onSave} onToast={onToast} />,
     );
 
-    // 进 edit 模式：点「编辑」按钮（最后一个 .btn-sm 即「编辑」）
+    // 进 edit 模式：点「编辑」按钮
     const editBtn = Array.from(container.querySelectorAll("button"))
       .find((b) => b.textContent === "编辑");
     expect(editBtn).toBeTruthy();
@@ -72,20 +63,19 @@ describe("ConfigPanel H1 fix (CHANGELOG_10 R_2·H1-followup)", () => {
       .find((b) => b.textContent === "保存") as HTMLButtonElement | undefined;
     expect(saveBtn).toBeTruthy();
     expect(saveBtn!.disabled).toBe(false);
-    // banner 不应显示
     expect(container.querySelector(".schema-conflict")).toBeNull();
 
     // 模拟外部 reload 推 scope.content 变化
     const newTool = makeTool('{"theme":"light"}');
     await act(async () => { rerender(
-      <ConfigPanel tool={newTool} onSave={onSave} onPatchSave={onPatchSave} onToast={onToast} />,
+      <ConfigPanel tool={newTool} onSave={onSave} onToast={onToast} />,
     ); });
 
-    // banner 应出现（externalChanged=true）
+    // banner 应出现
     expect(container.querySelector(".schema-conflict")).toBeTruthy();
     expect(container.querySelector(".schema-conflict-msg")?.textContent).toContain("外部修改");
 
-    // **核心断言**：保存按钮 disabled = true（H1-followup HIGH 必修：banner 期间硬拦截 save）
+    // 核心断言：保存按钮 disabled = true
     saveBtn = Array.from(container.querySelectorAll("button"))
       .find((b) => b.textContent === "保存") as HTMLButtonElement | undefined;
     expect(saveBtn).toBeTruthy();
@@ -94,25 +84,22 @@ describe("ConfigPanel H1 fix (CHANGELOG_10 R_2·H1-followup)", () => {
 
   it("T2: 「保留我的改动」按钮在 buf===enterEditRef（用户没真改过）时 disabled", async () => {
     const onSave = mock(() => Promise.resolve());
-    const onPatchSave = mock(() => Promise.resolve());
     const onToast = mock(() => {});
     const tool = makeTool('{"theme":"dark"}');
 
     const { container, rerender } = render(
-      <ConfigPanel tool={tool} onSave={onSave} onPatchSave={onPatchSave} onToast={onToast} />,
+      <ConfigPanel tool={tool} onSave={onSave} onToast={onToast} />,
     );
 
     const editBtn = Array.from(container.querySelectorAll("button"))
       .find((b) => b.textContent === "编辑");
     await act(async () => { fireEvent.click(editBtn!); });
 
-    // 触发 banner（外部 reload 推变化）
     const newTool = makeTool('{"theme":"light"}');
     await act(async () => { rerender(
-      <ConfigPanel tool={newTool} onSave={onSave} onPatchSave={onPatchSave} onToast={onToast} />,
+      <ConfigPanel tool={newTool} onSave={onSave} onToast={onToast} />,
     ); });
 
-    // 「保留我的改动」按钮应 disabled（用户进 edit 后没动过 buf，buf === enterEditRef.current = "{...dark}")
     const keepBtn = Array.from(container.querySelectorAll("button"))
       .find((b) => b.textContent?.includes("保留我的改动")) as HTMLButtonElement | undefined;
     expect(keepBtn).toBeTruthy();
@@ -121,12 +108,11 @@ describe("ConfigPanel H1 fix (CHANGELOG_10 R_2·H1-followup)", () => {
 
   it("T3: scope.content 回退到 enterEditRef 基线时 banner 自动消失（else 对称清零）", async () => {
     const onSave = mock(() => Promise.resolve());
-    const onPatchSave = mock(() => Promise.resolve());
     const onToast = mock(() => {});
     const tool = makeTool('{"theme":"dark"}');
 
     const { container, rerender } = render(
-      <ConfigPanel tool={tool} onSave={onSave} onPatchSave={onPatchSave} onToast={onToast} />,
+      <ConfigPanel tool={tool} onSave={onSave} onToast={onToast} />,
     );
 
     const editBtn = Array.from(container.querySelectorAll("button"))
@@ -135,13 +121,13 @@ describe("ConfigPanel H1 fix (CHANGELOG_10 R_2·H1-followup)", () => {
 
     // 1) 外部改 → banner 出现
     await act(async () => { rerender(
-      <ConfigPanel tool={makeTool('{"theme":"light"}')} onSave={onSave} onPatchSave={onPatchSave} onToast={onToast} />,
+      <ConfigPanel tool={makeTool('{"theme":"light"}')} onSave={onSave} onToast={onToast} />,
     ); });
     expect(container.querySelector(".schema-conflict")).toBeTruthy();
 
-    // 2) 外部撤销回基线（如 git checkout）→ scope.content === enterEditRef.current → banner 消失
+    // 2) 外部撤销回基线 → banner 消失
     await act(async () => { rerender(
-      <ConfigPanel tool={makeTool('{"theme":"dark"}')} onSave={onSave} onPatchSave={onPatchSave} onToast={onToast} />,
+      <ConfigPanel tool={makeTool('{"theme":"dark"}')} onSave={onSave} onToast={onToast} />,
     ); });
     expect(container.querySelector(".schema-conflict")).toBeNull();
   });

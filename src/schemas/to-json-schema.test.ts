@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { fieldSchemaToJsonSchema, toolSchemaToJsonSchema } from "./to-json-schema.ts";
-import { CLAUDE_SETTINGS } from "./claude-settings.ts";
-import type { FieldSchema } from "./types.ts";
+import { DCH_STORE } from "./dch-store.ts";
 
 describe("fieldSchemaToJsonSchema", () => {
   it("boolean", () => {
@@ -60,20 +59,18 @@ describe("fieldSchemaToJsonSchema", () => {
     expect((bSchema.properties as Record<string, unknown>).c).toEqual({ type: "boolean" });
   });
 
-  it("kv-map → object + patternProperties + additionalProperties: valueSchema（REVIEW_4 R_2 R-H2 与上游 env 行为对齐）", () => {
-    // 上游 Claude Code env 是 `patternProperties + additionalProperties: { type: string }`，keyPattern 仅 hint
-    // UI 层 KVMapField 用 keyPattern 做 onBlur 红框校验；ajv 不严拒避免合法 lowercase env 标红
+  it("kv-map → object + patternProperties + additionalProperties: valueSchema", () => {
     const r = fieldSchemaToJsonSchema({
       type: "kv-map",
       keyPattern: "^[A-Z_][A-Z0-9_]*$",
       valueSchema: { type: "string" },
     });
     expect(r.type).toBe("object");
-    expect(r.additionalProperties).toEqual({ type: "string" });  // 接受任意 key
-    expect(r.patternProperties).toEqual({ "^[A-Z_][A-Z0-9_]*$": { type: "string" } });  // hint
+    expect(r.additionalProperties).toEqual({ type: "string" });
+    expect(r.patternProperties).toEqual({ "^[A-Z_][A-Z0-9_]*$": { type: "string" } });
   });
 
-  it("kv-map 无 keyPattern → additionalProperties: valueSchema（保 kv-map 全动态语义）", () => {
+  it("kv-map 无 keyPattern → additionalProperties: valueSchema", () => {
     const r = fieldSchemaToJsonSchema({
       type: "kv-map",
       valueSchema: { type: "string" },
@@ -94,29 +91,34 @@ describe("fieldSchemaToJsonSchema", () => {
   });
 });
 
-describe("toolSchemaToJsonSchema (CLAUDE_SETTINGS round-trip)", () => {
+describe("toolSchemaToJsonSchema (DCH_STORE round-trip)", () => {
   it("含 $schema + $id 顶层", () => {
-    const r = toolSchemaToJsonSchema(CLAUDE_SETTINGS);
+    const r = toolSchemaToJsonSchema(DCH_STORE);
     expect(r.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
-    expect(r.$id).toBe("claude-settings@1");
+    expect(r.$id).toBe("dch-store@1");
     expect(r.type).toBe("object");
   });
 
-  it("effortLevel enum 5 档（不丢 xhigh/max）", () => {
-    const r = toolSchemaToJsonSchema(CLAUDE_SETTINGS);
-    const effortLevel = (r.properties as Record<string, FieldSchema>).effortLevel as unknown as Record<string, unknown>;
-    expect(effortLevel.enum).toEqual(["low", "medium", "high", "xhigh", "max"]);
-  });
-
-  it("env keyPattern → patternProperties", () => {
-    const r = toolSchemaToJsonSchema(CLAUDE_SETTINGS);
-    const env = (r.properties as Record<string, FieldSchema>).env as unknown as Record<string, unknown>;
-    expect(env.patternProperties).toBeDefined();
-    expect(Object.keys(env.patternProperties as Record<string, unknown>)).toContain("^[A-Z_][A-Z0-9_]*$");
-  });
-
   it("additionalProperties: true 保未知 key", () => {
-    const r = toolSchemaToJsonSchema(CLAUDE_SETTINGS);
+    const r = toolSchemaToJsonSchema(DCH_STORE);
     expect(r.additionalProperties).toBe(true);
+  });
+
+  it("profiles 是 array of object", () => {
+    const r = toolSchemaToJsonSchema(DCH_STORE);
+    const props = r.properties as Record<string, Record<string, unknown>>;
+    expect(props.profiles?.type).toBe("array");
+    expect((props.profiles?.items as Record<string, unknown>)?.type).toBe("object");
+  });
+
+  it("preferences.hookTimeoutMs 整数 + min/max", () => {
+    const r = toolSchemaToJsonSchema(DCH_STORE);
+    const props = r.properties as Record<string, Record<string, unknown>>;
+    const prefs = props.preferences as Record<string, unknown>;
+    const prefsProps = prefs.properties as Record<string, Record<string, unknown>>;
+    const t = prefsProps.hookTimeoutMs;
+    expect(t?.type).toBe("integer");
+    expect(t?.minimum).toBe(1000);
+    expect(t?.maximum).toBe(600000);
   });
 });
