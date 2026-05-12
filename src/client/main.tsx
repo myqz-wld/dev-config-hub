@@ -23,18 +23,18 @@ class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { error: Error | null }
 > {
-  state = { error: null as Error | null };
+  override state = { error: null as Error | null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
+  override componentDidCatch(error: Error, info: React.ErrorInfo) {
     // 留 console 痕迹，dev / Console.app 可查
     console.error("[ErrorBoundary] App crashed:", error, info.componentStack);
   }
 
-  render() {
+  override render() {
     if (this.state.error) {
       const err = this.state.error;
       const msg = err.message || String(err);

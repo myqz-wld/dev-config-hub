@@ -1,5 +1,5 @@
 import { describe, expect, it, mock, afterEach } from "bun:test";
-import { render, cleanup, act, fireEvent } from "@testing-library/react";
+import { render, cleanup, act } from "@testing-library/react";
 import React from "react";
 
 // Mock bridge：第一次 loadAllConfigs reject，第二次 resolve（模拟 first load fail → focus retry success）
@@ -17,20 +17,16 @@ mock.module("./bridge.ts", () => ({
       scopes: [],
     }]);
   },
-  loadUiPrefs: () => Promise.resolve({ hiddenFields: {} }),
   saveFile: () => Promise.resolve(),
-}));
-
-// Mock applyCustomSchemas（避免读 ~/.dch/schemas/）
-mock.module("../schemas/registry.ts", () => ({
-  applyCustomSchemas: () => Promise.resolve({ applied: [] }),
-  detectScope: () => null,
-  getSchemaForScope: () => null,
+  dchProfile: {
+    list: () => Promise.resolve({ version: 1, profiles: [], active: { claude: null, codex: null }, preferences: {} }),
+    current: () => Promise.resolve({ claude: { id: null, symlinkTarget: null }, codex: { id: null, symlinkTarget: null } }),
+  },
 }));
 
 import { App } from "./App.tsx";
 
-describe("App.load() setError(null) (CHANGELOG_10 R_1·L1 fix - codex LOW)", () => {
+describe("App.load() setError(null) (CHANGELOG_10 R_1·L1 fix)", () => {
   afterEach(() => {
     loadCallCount = 0;
     cleanup();
@@ -40,7 +36,6 @@ describe("App.load() setError(null) (CHANGELOG_10 R_1·L1 fix - codex LOW)", () 
     const { container } = render(<App />);
 
     // 第一次 mount → load() reject → error 屏
-    // 等 promise microtask 跑完
     await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
     expect(container.querySelector(".error-text")?.textContent).toContain("simulated first load fail");
 
@@ -50,7 +45,7 @@ describe("App.load() setError(null) (CHANGELOG_10 R_1·L1 fix - codex LOW)", () 
       await new Promise((r) => setTimeout(r, 50));
     });
 
-    // **核心断言**：error 屏消失（setError(null) 生效）+ 主 UI 渲染（侧边栏 logo 出现）
+    // 核心断言：error 屏消失（setError(null) 生效）+ 主 UI 渲染
     expect(container.querySelector(".error-text")).toBeNull();
     expect(container.querySelector(".sidebar")).toBeTruthy();
     expect(container.querySelector(".logo-title")?.textContent).toBe("Dev Config Hub");

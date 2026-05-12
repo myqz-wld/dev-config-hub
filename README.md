@@ -25,23 +25,14 @@ Win 端真机 E2E 留待 CI 验证（参见 [REVIEW_1](reviews/REVIEW_1.md)）�
 
 ## 核心能力
 
-- **配置可视化**：按工具分组展示所有配置文件，附官方文档/Schema 描述
-- **Schema-driven 行内编辑**（Claude `settings.json` 起步，PR-E 后扩到 Codex/OpenCode）：基于工具官方 Schema 的字段级表单（toggle / radio / select / chip / kv-map / sensitive 等 11 个原子控件），写回走 `jsonc-parser` 字段级 patch — **注释 / 字段顺序 / 缩进 / 未知 key 全部保留**
-- **源文件查看 + 直接编辑保存**：CodeMirror 6 语法高亮 + 行号 + 折叠 + 搜索（Cmd+F）；保留对全文 textarea 编辑作为 schema 模式的兜底
+- **配置可视化**：按工具分组展示所有配置文件
+- **源文件查看 + 直接编辑保存**：CodeMirror 6 语法高亮 + 行号 + 折叠 + 搜索（Cmd+F）；编辑模式带外部修改 TOCTOU 检测
+- **Markdown 渲染**：`CLAUDE.md` 等 markdown 文件默认走 react-markdown + GFM + shiki 代码块
 - **自动检测工具版本**
 - **CLI + GUI 双入口**：`dch` 子命令完整覆盖功能；`dch gui` / `bun run dev` 启动桌面窗口
 - **Profile 快速切换**：维护多套 Claude / Codex 配置（如 `claude-pro` / `claude-api`、`codex-plus` / `codex-api`），一键原子切换 `~/.claude` / `~/.codex` symlink，全局生效
 - **切换前 / 后 Hook**：每个 profile 可定义 `preSwitch` / `postSwitch` shell 脚本，用于自动 kill 残留进程、起 VPN、健康探测、osascript 通知等。`preSwitch` 失败会中断切换
 - **shell wrapper 注入 env**：`dch profile env` + `~/.zshrc` 子 shell wrapper，让 profile.env 落到 claude / codex 进程本身（OAuth / API 走代理）
-
-## 配置描述来源
-
-描述文字均来自各工具的官方文档 / Schema，未做自行推测：
-
-- Claude Code: [claude-code-settings.json](https://json.schemastore.org/claude-code-settings.json)
-- Codex CLI: [config-reference](https://developers.openai.com/codex/config-reference)
-- OpenCode: [config docs](https://opencode.ai/docs/config/)
-- Shell：不做语法解析，直接展示原文
 
 ## 环境要求
 
@@ -80,11 +71,6 @@ bun run cli profile                              # 列出所有 profile
 bun run cli profile init claude                  # 把 ~/.claude 转成 symlink/junction 并建立默认 profile
 bun run cli profile add claude claude-api --dir ~/.claude-api --env ANTHROPIC_API_KEY=sk-...
 bun run cli profile use claude-api               # 原子切换 + 跑 pre/post hook
-
-# Schema 维护（PR-J）
-bun src/schemas/sync.ts                          # 列出所有已注册 schema 元信息
-bun src/schemas/sync.ts --check-self             # ajv 自洽校验所有本地 schema（CI 友好）
-bun src/schemas/sync.ts --fetch claude-settings  # 拉上游 schemastore + 顶层字段 diff
 ```
 
 首次 `bun run dev` 需要编译 Rust 依赖，约 2-3 分钟，后续启动秒开。
@@ -240,69 +226,6 @@ function claude {
 
 切换 profile 后**新跑**的 claude / codex 自动用新 profile 的 env，无需 reload shell。
 
-## 自定义 schema（本地 override）
-
-dch 内置 schema（`src/schemas/*.ts`）描述了 4 个工具配置文件的字段语义。当上游加了新字段、或 dch 内置 schema 描述错了 / 落后了，可以在 `~/.dch/schemas/<scopeKind>.json` 放**字段级 override** JSON，启动时与内置 schema 合并 —— 不用等 dch 主线发新版。
-
-**支持的 scopeKind**（与内置 5 个对应，文件名必须严格匹配）：
-
-| scopeKind | 对应配置文件 |
-|---|---|
-| `claude-settings` | `~/.claude/settings.json` |
-| `claude-mcp` | `~/.claude/.mcp.json` |
-| `codex-config` | `~/.codex/config.toml` |
-| `opencode-config` | `~/.config/opencode/opencode.json` |
-| `dch-store` | `~/.dch/profiles.json`（dch 自己的 profile 状态） |
-
-**最小示例 — 给某字段加描述**：
-
-```jsonc
-// ~/.dch/schemas/claude-settings.json
-{
-  "rootSchema": {
-    "properties": {
-      "alwaysThinkingEnabled": {
-        "type": "boolean",
-        "description": "（本地 override）我习惯总开着思考"
-      }
-    }
-  }
-}
-```
-
-**示例 — 加自定义字段**（schema 不识别的 key 默认走 unknown badge，加进 properties 后会被识别）：
-
-```jsonc
-// ~/.dch/schemas/claude-settings.json
-{
-  "rootSchema": {
-    "properties": {
-      "myCustomKey": {
-        "type": "string",
-        "description": "我自己的扩展字段（非上游官方）"
-      }
-    }
-  }
-}
-```
-
-**合并语义**：
-- 顶层 `description` / `$source` / `fetchedAt`：override 优先
-- `rootSchema.properties`：dict-level shallow merge（同 key 的 FieldSchema 整体替换；新 key 添加；未出现在 override 的 builtin key 保留）
-- `rootSchema.propertyOrder`：override 在前，builtin 剩余 key 追加在末尾
-- `additionalProperties` 强制 `true`（数据完整性铁律：用户 JSON 里有什么都不丢）
-- `$id` / `scopeKind` 写了会被忽略（运行时由内置 + 文件名决定）
-
-**错误隔离**：单文件 JSON parse / shape 不合法 → 启动时 `console.warn` + 跳过该文件，不阻塞 app；其他自定义 schema 仍正常加载。改完 override 文件需要**重启 app** 生效（不热重载）。
-
-## 字段隐藏
-
-root level 字段右侧 hover 出现「⋯」按钮 → 点开菜单 → 「隐藏此字段」即可隐藏。隐藏列表存在 `~/.dch/ui-prefs.json`，**仅 root level 字段**支持隐藏（嵌套字段如 `permissions.allow` 不支持）。
-
-schema 字段标了 `advanced: true` 的也默认隐藏。
-
-scope panel 顶部出现「▸ 显示隐藏字段（N）」toggle，点击后会临时显示**所有**隐藏字段（含手动 + advanced），方便编辑后再切回去。toggle 状态仅 session 级（关闭 app 后下次又默认隐藏）。
-
 ## 项目结构
 
 ```
@@ -312,17 +235,11 @@ scope panel 顶部出现「▸ 显示隐藏字段（N）」toggle，点击后会
 │   ├── cli.ts                # CLI 入口
 │   ├── cli-colors.ts         # ANSI 颜色常量（cli.ts + cli-profile.ts 共享）
 │   ├── cli-profile.ts        # `dch profile ...` 子命令实现，支持 --json
-│   ├── types.ts              # 共享类型
-│   ├── descriptions.ts       # 配置项描述（来自官方文档 / Schema；schema-driven 接入后逐步退役为 fallback）
-│   ├── schemas/              # Schema-driven 配置系统（PR-A..D）
-│   │   ├── types.ts          # FieldSchema 16 type / ToolSchema / ScopeKind / Diagnostic
-│   │   ├── helpers.ts        # buildFieldIndex / resolveFieldAtPath / normalizeEnum / pathToString
-│   │   ├── registry.ts       # detectScope / getSchemaForScope（filePath → ScopeKind 严格全等匹配）
-│   │   ├── claude-settings.ts # Claude Code settings.json schema（25+ 字段，每条 // source: 注释绑约束）
-│   │   ├── json-patcher.ts   # jsonc-parser 包装：字段级 modify + applyEdits + 注释/顺序保留
-│   │   ├── diff.ts           # object diff → JsonPatch[]（schema mode 字段级写回用）
-│   │   ├── sync.ts           # bun src/schemas/sync.ts 拉上游 + diff 报告（PR-J 完整化）
-│   │   └── index.ts
+│   ├── types.ts              # 共享类型（ConfigScope / ToolConfig）
+│   ├── schemas/              # 唯一保留：dch profiles.json 的 schema-aware 编辑器用
+│   │   ├── types.ts          # FieldSchema / ToolSchema 类型
+│   │   ├── dch-store.ts      # ~/.dch/profiles.json schema（ProfileStoreEditor 走 lint）
+│   │   └── to-json-schema.ts # FieldSchema → JSON Schema（codemirror-json-schema 用）
 │   ├── utils.ts              # 文件读取等工具
 │   ├── profiles/             # Profile 系统核心（Bun-only）
 │   │   ├── types.ts          # Profile / ProfileStore / HookScript / HookResult / ...
@@ -346,20 +263,23 @@ scope panel 顶部出现「▸ 显示隐藏字段（N）」toggle，点击后会
 │       ├── styles.css
 │       ├── dev-server.ts
 │       └── components/
-│           ├── ConfigPanel.tsx       # 配置主面板（schema / 列表 / 源文件 / 编辑 四模式）
+│           ├── ConfigPanel.tsx           # 配置主面板（view / edit / markdown render 三模式）
 │           ├── ProfilePanel.tsx
-│           ├── editor/               # CodeMirror 6 包装（PR-F）
-│           │   ├── CMEditor.tsx      # React 19 受控包装（自包，非 @uiw）
-│           │   ├── theme.ts          # one-dark + 项目颜色 token
-│           │   └── languages.ts      # ConfigScope.format → CM6 lang 扩展
-│           ├── fields/               # Schema-driven 字段控件库（PR-C，11 个原子控件）
-│           │   ├── BooleanField.tsx / NumberField.tsx / EnumField.tsx / StringField.tsx
-│           │   ├── PathField.tsx / ArrayField.tsx / ObjectField.tsx / KVMapField.tsx
-│           │   ├── SensitiveField.tsx / MarkdownField.tsx / CodeField.tsx / UnknownField.tsx
-│           │   ├── FieldRow.tsx      # 通用包装（label + control + desc + errors）
-│           │   └── index.tsx         # renderField 调度器
-│           └── schema-mode/          # Schema-driven scope body（PR-D）
-│               └── SchemaScopeBody.tsx  # 字段级 onChange → diffPatches → patchJson → onPatchSave
+│           ├── Select.tsx                # 自定义下拉框（替代原生 <select> 深色主题）
+│           ├── editor/                   # CodeMirror 6 包装
+│           │   ├── CMEditor.tsx          # React 19 受控包装（自包，非 @uiw）
+│           │   ├── theme.ts              # one-dark + 项目颜色 token
+│           │   ├── languages.ts          # ConfigScope.format → CM6 lang 扩展
+│           │   └── schema-lint.ts        # codemirror-json-schema 包装（仅 ProfileStoreEditor 用）
+│           ├── markdown/                 # react-markdown + shiki 代码块
+│           ├── panel-visibility.tsx
+│           └── profile/                  # ProfilePanel 拆出来的子组件
+│               ├── AddProfileModal.tsx
+│               ├── ProfileCard.tsx
+│               ├── ProfileStoreEditor.tsx  # ~/.dch/profiles.json 的 schema-aware modal
+│               ├── HookOutputModal.tsx
+│               ├── PreferencesEditor.tsx
+│               └── helpers.ts
 ├── src-tauri/                # Tauri 后端（Rust）
 │   ├── Cargo.toml
 │   ├── tauri.conf.json

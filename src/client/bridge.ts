@@ -1,14 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
-import { parse as parseToml } from "smol-toml";
-import type { ToolConfig, ConfigScope, ConfigEntry } from "../types.ts";
-import { CLAUDE_CODE_DESCRIPTIONS, CODEX_DESCRIPTIONS, OPENCODE_DESCRIPTIONS } from "../descriptions.ts";
+import type { ToolConfig, ConfigScope } from "../types.ts";
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   return invoke<T>(cmd, args);
-}
-
-function toEntries(parsed: Record<string, unknown>, descMap: Record<string, string>): ConfigEntry[] {
-  return Object.entries(parsed).map(([key, value]) => ({ key, value, type: typeof value, description: descMap[key] }));
 }
 
 async function readFile(path: string): Promise<{ exists: boolean; content: string }> {
@@ -16,10 +10,7 @@ async function readFile(path: string): Promise<{ exists: boolean; content: strin
   if (!exists) return { exists: false, content: "" };
   // PR-4/PR-6 (#M12)：file_exists + read_file 双 IPC 之间有 async gap；
   // 另一进程 / profile 切换可能在此期间删除该文件 → read_file Err。
-  // 旧版无 catch → 异常上抛 loadAllConfigs reject → App 「加载失败」整个 UI 挂。
-  // 改：失败时降级为「文件不存在」语义，让 UI 优雅退化。
-  // **PR-B 后**：PR-D 集成时切换到下面的 readFileWithMtime（单次 IPC + mtime 回报），
-  // 顺带消除 file_exists/read_file 双 IPC race；本函数保留为兼容入口。
+  // 失败时降级为「文件不存在」语义，让 UI 优雅退化。
   try {
     const content = await call<string>("read_file", { path });
     return { exists: true, content };
@@ -32,10 +23,9 @@ async function readFile(path: string): Promise<{ exists: boolean; content: strin
 /**
  * Tauri `read_file_with_mtime` 命令的回报。
  *
- * **字段契约必须与 `src-tauri/src/lib.rs` 的 `ReadFileWithMtimeResult` Rust struct 同步**
+ * 字段契约必须与 `src-tauri/src/lib.rs` 的 `ReadFileWithMtimeResult` Rust struct 同步
  * （REVIEW_3 R_1·C12）：Rust 端用 `#[serde(rename_all = "camelCase")]` 把 `mtime_us`
- * 序列化成 `mtimeUs`。改 Rust 端字段名时务必同步改这里，否则前端 `r.mtimeUs` 静默
- * undefined → PR-D loadedMtime 比对永远不命中 → 误报「文件已外部变更」。
+ * 序列化成 `mtimeUs`。改 Rust 端字段名时务必同步改这里。
  */
 export interface ReadFileWithMtimeResult {
   exists: boolean;
@@ -43,32 +33,15 @@ export interface ReadFileWithMtimeResult {
   /**
    * Unix epoch microseconds；不存在 / 拿不到 mtime 时 null。
    *
-   * 用 us 精度而非 ms（REVIEW_3 R_1·C7）：APFS 连续两次 fs::write 实测间隔
-   * ~335 µs（< 1 ms）→ ms 精度看不出差异 → TOCTOU 漏判。us 精度 + JS Number
-   * 2^53 上限到公元 ~285616 年，安全。
-   *
-   * **三态语义**（REVIEW_3 R_1·C17 + R_2 D2 补全）：
-   *   - `null` 三种合并来源（PR-D consumer 一律跳过 TOCTOU，是 fail-safe）：
-   *     1. 文件不存在 / 不是 regular file
-   *     2. metadata.modified() 失败（罕见 FS 不支持 mtime）
-   *     3. mtime 早于 UNIX_EPOCH（pre-1970 文件，APFS u64 ns 时间戳实质不可达，但
-   *        rsync --times / git checkout 老仓库 / `touch -t 196812310000` 可造）
-   *     上述三种 lib.rs 端各自 eprintln 留痕，可从 Console.app 区分（前端不区分）
-   *   - `number`：正常 mtime
-   *   PR-D consumer 禁止用 `if (!r.mtimeUs)`（false 分支会覆盖 0 / null 双语义），
-   *   必须用 `if (r.mtimeUs == null)` 显式判 null。
+   * us 精度（REVIEW_3 R_1·C7）：APFS 连续两次 fs::write 实测间隔 ~335 µs。
+   * 三态语义：null = 文件不存在 / metadata 失败 / pre-1970；number = 正常 mtime。
    */
   mtimeUs: number | null;
 }
 
 /**
- * 单次 IPC 拿 exists + content + mtime。
- *
- * 相比 readFile（file_exists + read_file 双 IPC），原子读取消除中间 race，
- * 且回报 mtime 给 PR-D 之后的 schema-aware 写回路径做 TOCTOU 比对。
- *
- * Rust 端 `read_file_with_mtime` 内部已 graceful degrade（不存在 / 不是 regular file /
- * 中途读失败 → exists=false），不会抛 IPC 异常。
+ * 单次 IPC 拿 exists + content + mtime。原子读取消除 file_exists/read_file 双 IPC race，
+ * 且回报 mtime 给 ConfigPanel edit 模式做 TOCTOU 比对。
  */
 export async function readFileWithMtime(path: string): Promise<ReadFileWithMtimeResult> {
   return call<ReadFileWithMtimeResult>("read_file_with_mtime", { path });
@@ -81,7 +54,7 @@ function expandHomePath(p: string, home: string): string {
 }
 
 // 把 `~/.x/` / `~/.x` / `/Users/apple/.x/` / `/Users/apple/.x//` 都规范成同一字符串，
-// 用于 dir 撞车校验。只展开 home + 折叠 `//` + 去尾 `/`，不解析 `..`（用户极少写）。
+// 用于 dir 撞车校验。只展开 home + 折叠 `//` + 去尾 `/`，不解析 `..`。
 export function normalizeProfileDir(p: string, home: string): string {
   if (!p) return "";
   let abs = expandHomePath(p, home);
@@ -96,7 +69,7 @@ export async function getHomeDir(): Promise<string> {
 /**
  * 读目录下文件列表（name + isFile）。
  *
- * **安全**：Rust 端 `read_dir` 拒绝非 HOME 路径（webview 不能列任意目录）。
+ * Rust 端 `read_dir` 拒绝非 HOME 路径（webview 不能列任意目录）。
  * 不存在的目录返回空数组（不当 error）。
  */
 export interface DirEntry {
@@ -105,43 +78,6 @@ export interface DirEntry {
 }
 export async function readDir(path: string): Promise<DirEntry[]> {
   return call<DirEntry[]>("read_dir", { path });
-}
-
-// ── ui-prefs（自定义 schema feature B 配套：用户隐藏字段列表持久化）──────
-//
-// 存储位置 ~/.dch/ui-prefs.json，仅 UI 写入；CLI 不读不写。
-// JSON parse 失败 → 返回默认空 prefs + console.warn，不阻塞 UI 启动。
-
-import type { ScopeKind } from "../schemas/registry.ts";
-
-export interface UiPrefs {
-  /** 用户主动隐藏的 root level 字段。key 为 ScopeKind，value 为字段 key 列表。 */
-  hiddenFields: Partial<Record<ScopeKind, string[]>>;
-}
-
-const DEFAULT_UI_PREFS: UiPrefs = { hiddenFields: {} };
-
-export async function loadUiPrefs(): Promise<UiPrefs> {
-  const home = await getHomeDir();
-  const r = await readFile(`${home}/.dch/ui-prefs.json`);
-  if (!r.exists) return { ...DEFAULT_UI_PREFS };
-  try {
-    const parsed = JSON.parse(r.content) as UiPrefs;
-    // shape guard：保证 hiddenFields 是 object（不是 array / null / 别的）
-    if (!parsed.hiddenFields || typeof parsed.hiddenFields !== "object" || Array.isArray(parsed.hiddenFields)) {
-      console.warn("[ui-prefs] hiddenFields 形状异常，使用默认值");
-      return { ...DEFAULT_UI_PREFS };
-    }
-    return parsed;
-  } catch (e) {
-    console.warn(`[ui-prefs] parse 失败，使用默认值:`, e);
-    return { ...DEFAULT_UI_PREFS };
-  }
-}
-
-export async function saveUiPrefs(prefs: UiPrefs): Promise<void> {
-  const home = await getHomeDir();
-  await saveFile(`${home}/.dch/ui-prefs.json`, JSON.stringify(prefs, null, 2) + "\n");
 }
 
 // 读 profile configDir 下的某个文件（如 settings.json / config.toml）。不存在返回空串。
@@ -163,16 +99,11 @@ async function version(cmd: string): Promise<string> {
   return call<string>("get_tool_version", { command: cmd });
 }
 
-async function readJsonScope(path: string, level: ConfigScope["level"], label: string, descMap: Record<string, string>): Promise<ConfigScope> {
+async function readScope(
+  path: string, level: ConfigScope["level"], label: string, format: ConfigScope["format"],
+): Promise<ConfigScope> {
   const { exists, content } = await readFile(path);
-  if (!exists) return { level, label, filePath: path, exists: false, format: "json", content: "", parsed: {}, categories: [] };
-  let parsed: Record<string, unknown> = {};
-  try { parsed = JSON.parse(content); } catch {
-    return { level, label, filePath: path, exists: true, format: "json", content, parsed: {}, categories: [] };
-  }
-  const items = toEntries(parsed, descMap);
-  return { level, label, filePath: path, exists: true, format: "json", content, parsed,
-    categories: items.length ? [{ name: "配置项", description: "", items }] : [] };
+  return { level, label, filePath: path, exists, format, content };
 }
 
 export async function loadAllConfigs(): Promise<ToolConfig[]> {
@@ -181,38 +112,20 @@ export async function loadAllConfigs(): Promise<ToolConfig[]> {
     version("zsh --version"), version("claude --version"), version("codex --version"), version("opencode --version"),
   ]);
 
-  const shellScopes: ConfigScope[] = [];
-  for (const [level, label, file] of [["global", "~/.zprofile", ".zprofile"], ["user", "~/.zshrc", ".zshrc"]] as const) {
-    const { exists, content } = await readFile(`${home}/${file}`);
-    shellScopes.push({ level, label, filePath: `${home}/${file}`, exists, format: "dotfile", content, parsed: {}, categories: [] });
-  }
-
-  const claudeScopes = await Promise.all([
-    readJsonScope(`${home}/.claude/settings.json`, "user", "~/.claude/settings.json", CLAUDE_CODE_DESCRIPTIONS),
-    readJsonScope(`${home}/.claude/settings.local.json`, "local", "~/.claude/settings.local.json", CLAUDE_CODE_DESCRIPTIONS),
-    (async () => {
-      const { exists, content } = await readFile(`${home}/.claude/CLAUDE.md`);
-      return { level: "user" as const, label: "~/.claude/CLAUDE.md", filePath: `${home}/.claude/CLAUDE.md`, exists, format: "markdown" as const, content, parsed: {}, categories: [] };
-    })(),
-    readJsonScope(`${home}/.claude/.mcp.json`, "user", "~/.claude/.mcp.json", {}),
+  const shellScopes: ConfigScope[] = await Promise.all([
+    readScope(`${home}/.zprofile`, "global", "~/.zprofile", "dotfile"),
+    readScope(`${home}/.zshrc`, "user", "~/.zshrc", "dotfile"),
   ]);
 
-  const codexPath = `${home}/.codex/config.toml`;
-  const codexFile = await readFile(codexPath);
-  let codexScope: ConfigScope;
-  if (codexFile.exists) {
-    try {
-      const parsed = parseToml(codexFile.content) as Record<string, unknown>;
-      codexScope = { level: "global", label: "~/.codex/config.toml", filePath: codexPath, exists: true, format: "toml",
-        content: codexFile.content, parsed, categories: [{ name: "配置项", description: "", items: toEntries(parsed, CODEX_DESCRIPTIONS) }] };
-    } catch {
-      codexScope = { level: "global", label: "~/.codex/config.toml", filePath: codexPath, exists: true, format: "toml", content: codexFile.content, parsed: {}, categories: [] };
-    }
-  } else {
-    codexScope = { level: "global", label: "~/.codex/config.toml", filePath: codexPath, exists: false, format: "toml", content: "", parsed: {}, categories: [] };
-  }
+  const claudeScopes = await Promise.all([
+    readScope(`${home}/.claude/settings.json`, "user", "~/.claude/settings.json", "json"),
+    readScope(`${home}/.claude/settings.local.json`, "local", "~/.claude/settings.local.json", "json"),
+    readScope(`${home}/.claude/CLAUDE.md`, "user", "~/.claude/CLAUDE.md", "markdown"),
+    readScope(`${home}/.claude/.mcp.json`, "user", "~/.claude/.mcp.json", "json"),
+  ]);
 
-  const ocScope = await readJsonScope(`${home}/.config/opencode/opencode.json`, "global", "~/.config/opencode/opencode.json", OPENCODE_DESCRIPTIONS);
+  const codexScope = await readScope(`${home}/.codex/config.toml`, "global", "~/.codex/config.toml", "toml");
+  const ocScope = await readScope(`${home}/.config/opencode/opencode.json`, "global", "~/.config/opencode/opencode.json", "json");
 
   return [
     { name: "Shell (Zsh)", version: shellV, icon: "terminal", description: "Zsh shell 环境配置", scopes: shellScopes },
@@ -238,23 +151,18 @@ async function runDch<T = unknown>(args: string[], timeoutMs?: number): Promise<
   // REVIEW_7 H2：按命令传 timeoutMs；Rust 端 spawn_with_timeout 兜底 1800s 上限。
   // 不传 = Rust 默认（30 分钟，覆盖最坏 hookTimeoutMs 600000ms × 2 + 余量）。
   const r = await call<DchCommandResult>("run_dch_command", { args: ["profile", ...args, "--json"], timeoutMs });
-  // code = -2 表示 Rust watchdog 超时杀的（区分 CLI 内部 exit 1）
   if (r.code === -2) {
     throw new Error(`命令超时被强制终止 (timeout=${timeoutMs ?? "default"}ms)。检查 hook 脚本是否阻塞`);
   }
   if (r.code !== 0) {
     let parsed: { error?: string } = {};
     try { parsed = JSON.parse(r.stdout) as { error?: string }; } catch {}
-    // PR-4 (#M1)：用 || 而非 ??。stderr.trim() 永远是 string（可能空串），?? 永远不命中
-    // 第三段 fallback；CLI fail 走 JSON_MODE err() 时 stderr 完全空 → UI toast 显示空字符串
     throw new Error(parsed.error || r.stderr.trim() || `exit ${r.code}`);
   }
   if (!r.stdout.trim()) return undefined as T;
   return JSON.parse(r.stdout) as T;
 }
 
-// REVIEW_7 H2：按命令分类的默认 timeout（UI 不传 hookTimeoutMs 时的兜底）。
-// 跑 hook 的命令（use / hook test）由 caller 显式传 hookTimeoutMs 算出。
 const TIMEOUT_FAST_MS = 10_000;   // 纯文件读写：list / current / show / add / remove / env / config
 const TIMEOUT_INIT_MS = 30_000;   // init：含 mv + ln 等 fs 操作
 
@@ -283,8 +191,6 @@ export const dchProfile = {
 
   remove: (id: string) => runDch<{ ok: true; removed: string }>(["remove", id, "--yes"], TIMEOUT_FAST_MS),
 
-  // REVIEW_7 H2：use 跑 pre + post 两个 hook，给 `2 × hookTimeoutMs + 5000ms`。
-  // caller（ProfilePanel）从 store.preferences.hookTimeoutMs 取真实值传进来。
   use: (id: string, hookTimeoutMs: number) =>
     runDch<SwitchResult>(["use", id], 2 * hookTimeoutMs + 5_000),
 
@@ -293,7 +199,6 @@ export const dchProfile = {
   init: (tool: ToolKind) =>
     runDch<{ ok: true; state: string; profileId: string; configDir: string }>(["init", tool], TIMEOUT_INIT_MS),
 
-  // testHook 跑单个 hook，给 hookTimeoutMs + 5000ms grace。
   testHook: (id: string, which: "pre" | "post", hookTimeoutMs: number) =>
     runDch<HookResult | null>(["hook", "test", id, which], hookTimeoutMs + 5_000),
 

@@ -5,7 +5,7 @@ import {
   writeProfileConfigFile, normalizeProfileDir, getHomeDir,
 } from "../bridge.ts";
 import { defaultProfileDir } from "../../profiles/defaults.ts";
-import { TOOLS, MAIN_CONFIG, generateMinimalConfig } from "./profile/helpers.ts";
+import { TOOLS, MAIN_CONFIG } from "./profile/helpers.ts";
 import { ProfileCard } from "./profile/ProfileCard.tsx";
 import { AddProfileModal } from "./profile/AddProfileModal.tsx";
 import { HookOutputModal } from "./profile/HookOutputModal.tsx";
@@ -192,14 +192,8 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
             // 把用户「清空 hook」的意图吞掉。
             const dir = form.dir || defaultProfileDir(form.tool, form.id);
             const main = MAIN_CONFIG[form.tool];
-            // textarea 优先；textarea 空且核心字段非空时，生成最小骨架
-            let content = form.configContent.trim();
-            if (!content) {
-              content = generateMinimalConfig(form.tool, {
-                model: form.cfgModel.trim(),
-                reasoning: form.cfgReasoning.trim(),
-              });
-            }
+            // 直接用 textarea 内容；空则不创建配置文件（用户可在 ConfigPanel 补）
+            const content = form.configContent.trim();
             // dir 撞车校验：拿 home 后 normalize 比较，避免 raw 字符串绕过（末尾 /、~/ vs 绝对路径、//）。
             // 不依赖 content 是否为空 — content 空也校验，避免 dch 系统里两条 profile 指向同一 configDir
             // 导致切换状态错乱。
