@@ -126,17 +126,18 @@ export async function listBackups(): Promise<BackupSummary[]> {
     names.filter((n) => n.endsWith(PINNED_SUFFIX)).map((n) => n.slice(0, -PINNED_SUFFIX.length)),
   );
 
-  const out: BackupSummary[] = [];
-  for (const name of packs) {
+  // 并发处理每个 pack：stat + tar -xzOf manifest 一起跑（N 个备份 N 次 tar，从串行 N×100ms
+  // → 并发 ~100ms 总和）。listBackups 是 UI 备份历史 modal 的 hot path，必须并发。
+  const results = await Promise.all(packs.map(async (name) => {
     const path = join(BACKUP_DIR, name);
     const s = await stat(path).catch(() => null);
-    if (!s) continue;
+    if (!s) return null;
     const isDefault = name === DEFAULT_FILENAME;
     const pinned = pinnedSet.has(name);
     const category: BackupSummary["category"] =
       isDefault ? "default" : pinned ? "pinned" : "history";
     const { manifest, manifestError } = await readManifestSummary(path);
-    out.push({
+    return {
       path,
       filename: name,
       category,
@@ -145,8 +146,10 @@ export async function listBackups(): Promise<BackupSummary[]> {
       pinned,
       manifest,
       manifestError,
-    });
-  }
+    } as BackupSummary;
+  }));
+
+  const out = results.filter((x): x is BackupSummary => x !== null);
   // 排序：default 永远第一；其后 pinned 按 mtime 倒序；history 按 mtime 倒序
   out.sort((a, b) => {
     const order = { default: 0, pinned: 1, history: 2 } as const;
