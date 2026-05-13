@@ -273,8 +273,20 @@ struct DchCommandResult {
 /// - `init` = `30s`（含 mv/ln 等 fs 操作）
 /// - `list/current/config/env/show/add/remove` = `10s`（纯文件读写）
 /// 缺省（未传）= `1800s`（30 分钟绝对上限，覆盖 `hookTimeoutMs` 上限 600000ms × 2 + 余量）。
+///
+/// **必须 async + spawn_blocking**（codex rescue 实证）：Tauri v2 非 async `#[tauri::command]`
+/// 在主线程跑（同 webview 渲染线程），`spawn_with_timeout` 内部 `try_wait` + `thread::sleep(50ms)`
+/// 循环阻塞主线程 → React 渲染主循环 + `setInterval` elapsed timer 全冻住 → 用户看到的是
+/// 「点击后 UI 假死直到 backup 完成才一次性渲染」。改 async + `tauri::async_runtime::spawn_blocking`
+/// 把阻塞工作扔到 worker pool，主线程立刻让出，webview 持续重绘。
 #[tauri::command]
-fn run_dch_command(args: Vec<String>, timeout_ms: Option<u64>) -> Result<DchCommandResult, String> {
+async fn run_dch_command(args: Vec<String>, timeout_ms: Option<u64>) -> Result<DchCommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || run_dch_command_blocking(args, timeout_ms))
+        .await
+        .map_err(|e| format!("run_dch_command worker failed: {}", e))?
+}
+
+fn run_dch_command_blocking(args: Vec<String>, timeout_ms: Option<u64>) -> Result<DchCommandResult, String> {
     let project_root = std::env::var("DCH_PROJECT_ROOT").ok().or_else(|| {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         std::path::Path::new(manifest_dir)
