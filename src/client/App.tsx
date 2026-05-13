@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import type { ToolConfig } from "../types.ts";
-import { loadAllConfigs, saveFile, dchProfile, type ProfileStore, type ToolKind } from "./bridge.ts";
+import {
+  loadAllVersions, loadAllFiles, saveFile, getHomeDir,
+  loadProfileDataDirect,
+  type ToolVersions, type ProfileStore, type ProfileActive,
+} from "./bridge.ts";
 import { ConfigPanel } from "./components/ConfigPanel.tsx";
 import { ProfilePanel } from "./components/ProfilePanel.tsx";
 import { PanelVisibilityProvider } from "./components/panel-visibility.tsx";
@@ -8,7 +12,6 @@ import { PanelVisibilityProvider } from "./components/panel-visibility.tsx";
 const ICONS: Record<string, string> = { terminal: ">_", claude: "C", codex: "X", opencode: "O" };
 
 type View = { kind: "tool"; index: number } | { kind: "profile" };
-type ProfileActive = Record<ToolKind, { id: string | null; symlinkTarget: string | null }>;
 
 export function App() {
   const [tools, setTools] = useState<ToolConfig[]>([]);
@@ -23,14 +26,18 @@ export function App() {
   // 旧 8s timer 会在第 8s 把 ok toast 也清掉（看起来 ok toast 提前消失）。
   const toastTimerRef = useRef<number | null>(null);
 
-  // CHANGELOG_13：profile 数据上提到 App.tsx 单点持有；ProfilePanel 改受控组件接 props。
-  // 旧设计 ProfilePanel 自管 store/active + 自挂 focus/visibility listener，与 App.tsx 同源
-  // 重复 → 外部切回 Tauri 窗口同时 fire focus + visibilitychange × 两组件 = 14 IPC 风暴。
+  // CHANGELOG_15：versions 缓存到首屏，focus reload 跳过 4 zsh spawn（每个 200-500ms）。
+  // 用户外部 brew upgrade 是罕见事件，需要刷新版本只能重启 app（trade-off 已记 plan）。
+  const versionsRef = useRef<ToolVersions | null>(null);
+
+  // CHANGELOG_15：profile 数据走 fs 直读 (loadProfileDataDirect)，替代旧的 dchProfile.list +
+  // current 双 bun spawn (~500ms × 2)。CRUD 写仍走 dch CLI（涉及锁 + hook 不能复刻），
+  // 但纯读 bypass 直接读 ~/.dch/profiles.json + readlink ~/.{tool} = 0 spawn。
   const loadProfileData = useCallback(async (silent = false) => {
     try {
-      const [s, a] = await Promise.all([dchProfile.list(), dchProfile.current()]);
-      setProfileStore(s);
-      setProfileActive(a);
+      const { store, active } = await loadProfileDataDirect();
+      setProfileStore(store);
+      setProfileActive(active);
     } catch (e) {
       if (silent) console.warn("loadProfileData silent fail:", e);
       else flash(`加载 profile 失败: ${e instanceof Error ? e.message : String(e)}`, false);
@@ -38,12 +45,17 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 完整 load：拉 versions（写 ref 缓存）+ 拉文件内容。首屏跑一次；focus reload 走 loadFilesOnly。
+  // 失败时 versionsRef 不写，下次 loadFilesOnly 见 null 会 fallback 回这条路径再试。
   const load = useCallback(async () => {
     try {
       // CHANGELOG_10 review fix R_1·L1 (codex LOW)：清零 error，否则首次 load 失败 setError 后
       // focus reload 即便成功也跑不掉「if (error) return <error screen>」hard-block，UI 永远卡 error 页。
       setError(null);
-      const configs = await loadAllConfigs();
+      const home = await getHomeDir();
+      const versions = await loadAllVersions();
+      versionsRef.current = versions;
+      const configs = await loadAllFiles(home, versions);
       setTools(configs);
     } catch (e) {
       setError(String(e));
@@ -52,9 +64,38 @@ export function App() {
     }
   }, []);
 
+  // CHANGELOG_15：focus reload 快路径——只刷文件内容，跳过 versions（4 zsh spawn 大头）。
+  // versionsRef 没缓存（首屏失败的极端情况）→ fallback 到完整 load。
+  const loadFilesOnly = useCallback(async () => {
+    if (!versionsRef.current) {
+      // 首屏 load 失败的恢复路径，用完整 load 再试一次（会重新 spawn 4 zsh，但只这一次）
+      await load();
+      return;
+    }
+    try {
+      setError(null);
+      const home = await getHomeDir();
+      const configs = await loadAllFiles(home, versionsRef.current);
+      setTools(configs);
+    } catch (e) {
+      console.warn("loadFilesOnly silent fail:", e);
+      // 不 setError —— focus reload 失败不应该把已渲染的 UI 推到 error 屏；下次 focus 再试
+    }
+  }, [load]);
+
+  // CHANGELOG_15：focus listener 与首屏 load 共享 reloadingRef 防 race（Plan agent Q5）：
+  // 首屏 load 还在跑时用户切走 + 切回 → onAppActive 触发 → versionsRef 还是 null →
+  // fallback 跑全量 load 第二份 = 8 zsh spawn × 2 比修复前还差。首屏 load 期间 set
+  // reloadingRef = true，onAppActive 直接 skip 这次。
+  const lastReloadAtRef = useRef(0);
+  const reloadingRef = useRef(false);
+
   // 首屏：configs + profile data 并发拿，进入主界面时 ProfilePanel 已有数据。
   useEffect(() => {
-    void Promise.all([load(), loadProfileData()]);
+    reloadingRef.current = true;
+    Promise.all([load(), loadProfileData()]).finally(() => {
+      reloadingRef.current = false;
+    });
   }, [load, loadProfileData]);
 
   // CHANGELOG_13：focus + visibilitychange 去重 + 同步刷 configs + profile。
@@ -63,17 +104,17 @@ export function App() {
   // reload trigger → 14 IPC 砸 × 2 = 主线程在 React commit 间频繁切，UI 慢。新设计：
   //   - 单点 listener（App.tsx 一处）
   //   - 100ms 窗口去重（focus + visibilitychange 同事件源算 1 次）
-  //   - reloading guard（前一轮 IPC 没完，新 trigger 不入队）
+  //   - reloading guard（前一轮 IPC 没完，新 trigger 不入队；首屏 load 期间也算）
   //   - 同时刷 configs + profile（用户可能在外部改 settings.json 也可能改 ~/.dch/profiles.json）
-  const lastReloadAtRef = useRef(0);
-  const reloadingRef = useRef(false);
+  //
+  // CHANGELOG_15：reload 路径换成 loadFilesOnly + loadProfileDataDirect，0 进程 spawn。
   useEffect(() => {
     const onAppActive = () => {
       if (reloadingRef.current) return;
       if (Date.now() - lastReloadAtRef.current < 100) return;
       lastReloadAtRef.current = Date.now();
       reloadingRef.current = true;
-      Promise.all([load(), loadProfileData(true)]).finally(() => {
+      Promise.all([loadFilesOnly(), loadProfileData(true)]).finally(() => {
         reloadingRef.current = false;
       });
     };
@@ -86,7 +127,7 @@ export function App() {
       window.removeEventListener("focus", onAppActive);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [load, loadProfileData]);
+  }, [loadFilesOnly, loadProfileData]);
 
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [view]);
 
@@ -102,7 +143,7 @@ export function App() {
   }, []);
 
   const onSave = async (path: string, content: string) => {
-    try { await saveFile(path, content); flash("保存成功", true); void load(); }
+    try { await saveFile(path, content); flash("保存成功", true); void loadFilesOnly(); }
     catch (e) {
       flash(String(e), false);
       // PR-4 (#H2)：rethrow 让 caller (ConfigPanel.Scope) 知道失败，否则

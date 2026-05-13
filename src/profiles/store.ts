@@ -1,22 +1,12 @@
 import { join, relative, sep, dirname } from "node:path";
 import { mkdir, open, unlink, readFile } from "node:fs/promises";
 import { HOME } from "../platform.ts";
-import type { ProfileStore, Preferences } from "./types.ts";
+import type { ProfileStore } from "./types.ts";
+import { EMPTY_STORE, applyStoreDefaults } from "./store-shape.ts";
 
 export { HOME };
 export const DCH_DIR = join(HOME, ".dch");
 export const STORE_PATH = join(DCH_DIR, "profiles.json");
-
-const DEFAULT_PREFERENCES: Preferences = {
-  hookTimeoutMs: 30_000,
-};
-
-const EMPTY_STORE: ProfileStore = {
-  version: 1,
-  profiles: [],
-  active: { claude: null, codex: null },
-  preferences: DEFAULT_PREFERENCES,
-};
 
 export function expandHome(p: string): string {
   if (p === "~") return HOME;
@@ -48,21 +38,15 @@ export async function loadStore(path: string = STORE_PATH): Promise<ProfileStore
   if (!(await file.exists())) {
     return structuredClone(EMPTY_STORE);
   }
-  let data: ProfileStore;
+  let raw: unknown;
   try {
-    data = (await file.json()) as ProfileStore;
+    raw = await file.json();
   } catch (e) {
     throw new Error(`无法解析 ${path}: ${e}`);
   }
-  const rawPrefs = (data.preferences ?? {}) as Partial<Preferences>;
-  return {
-    version: 1,
-    profiles: data.profiles ?? [],
-    active: { claude: null, codex: null, ...(data.active ?? {}) },
-    preferences: {
-      hookTimeoutMs: rawPrefs.hookTimeoutMs ?? DEFAULT_PREFERENCES.hookTimeoutMs,
-    },
-  };
+  // 默认补全走共享 store-shape.ts.applyStoreDefaults，前端 loadProfileDataDirect 也调
+  // 同一函数避免分叉（preferences 加新字段时两处忘改 → 行为分歧，难定位）。
+  return applyStoreDefaults(raw);
 }
 
 export async function saveStore(store: ProfileStore, path: string = STORE_PATH): Promise<void> {

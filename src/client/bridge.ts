@@ -1,23 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ToolConfig, ConfigScope } from "../types.ts";
+import { applyStoreDefaults, EMPTY_STORE } from "../profiles/store-shape.ts";
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   return invoke<T>(cmd, args);
-}
-
-async function readFile(path: string): Promise<{ exists: boolean; content: string }> {
-  const exists = await call<boolean>("file_exists", { path });
-  if (!exists) return { exists: false, content: "" };
-  // PR-4/PR-6 (#M12)：file_exists + read_file 双 IPC 之间有 async gap；
-  // 另一进程 / profile 切换可能在此期间删除该文件 → read_file Err。
-  // 失败时降级为「文件不存在」语义，让 UI 优雅退化。
-  try {
-    const content = await call<string>("read_file", { path });
-    return { exists: true, content };
-  } catch (e) {
-    console.warn(`readFile race: ${path} 在 file_exists 与 read_file 之间消失:`, e);
-    return { exists: false, content: "" };
-  }
 }
 
 /**
@@ -45,6 +31,20 @@ export interface ReadFileWithMtimeResult {
  */
 export async function readFileWithMtime(path: string): Promise<ReadFileWithMtimeResult> {
   return call<ReadFileWithMtimeResult>("read_file_with_mtime", { path });
+}
+
+/**
+ * 读 symlink target，单层不 deref（与 CLI src/profiles/symlink.ts:150 currentSymlinkTarget 行为对齐）。
+ * - 非 symlink / 不存在 / IO 错 → null
+ * - HOME 外路径 → Err（Rust 端拒，应是 caller bug）这里仍 catch 回 null 让 caller 路径平
+ */
+export async function readLink(path: string): Promise<string | null> {
+  try {
+    return await call<string | null>("read_link", { path });
+  } catch (e) {
+    console.warn(`readLink failed: ${path}:`, e);
+    return null;
+  }
 }
 
 function expandHomePath(p: string, home: string): string {
@@ -84,7 +84,7 @@ export async function readDir(path: string): Promise<DirEntry[]> {
 export async function readProfileConfigFile(configDir: string, filename: string): Promise<string> {
   const home = await getHomeDir();
   const dirAbs = expandHomePath(configDir, home);
-  const r = await readFile(`${dirAbs}/${filename}`);
+  const r = await readFileWithMtime(`${dirAbs}/${filename}`);
   return r.exists ? r.content : "";
 }
 
@@ -102,16 +102,43 @@ async function version(cmd: string): Promise<string> {
 async function readScope(
   path: string, level: ConfigScope["level"], label: string, format: ConfigScope["format"],
 ): Promise<ConfigScope> {
-  const { exists, content } = await readFile(path);
+  // 单次 IPC 拿 exists + content（不消费 mtime；ConfigPanel 当前展示模式不做 TOCTOU
+  // 比对，去掉双 IPC race + 减半 IPC 顺手收益）。
+  const { exists, content } = await readFileWithMtime(path);
   return { level, label, filePath: path, exists, format, content };
 }
 
-export async function loadAllConfigs(): Promise<ToolConfig[]> {
-  const home = await call<string>("get_home_dir");
-  const [shellV, claudeV, codexV, ocV] = await Promise.all([
-    version("zsh --version"), version("claude --version"), version("codex --version"), version("opencode --version"),
-  ]);
+export interface ToolVersions {
+  shell: string;
+  claude: string;
+  codex: string;
+  opencode: string;
+}
 
+/**
+ * 拉 4 个工具的版本号 (zsh / claude / codex / opencode)。
+ *
+ * **慢路径**：每个 version() spawn 一次登录式 zsh + source rc → tool --version，单个 200-500ms。
+ * 仅首屏跑一次，结果缓存到 App.tsx versionsRef；切回窗口（focus reload）跳过这步省 4 zsh spawn
+ * （CHANGELOG_15）。需要刷新版本只能重启 app。
+ */
+export async function loadAllVersions(): Promise<ToolVersions> {
+  const [shell, claude, codex, opencode] = await Promise.all([
+    version("zsh --version"),
+    version("claude --version"),
+    version("codex --version"),
+    version("opencode --version"),
+  ]);
+  return { shell, claude, codex, opencode };
+}
+
+/**
+ * 拉所有 scope 文件内容；接收预算好的 home + versions（避免 focus reload 重新 spawn shell）。
+ *
+ * **快路径**：8 个 readFileWithMtime 并发，每个纯 Rust fs metadata + read，几 ms 总计。
+ * 切回窗口走这一条 → 0 spawn 开销。
+ */
+export async function loadAllFiles(home: string, versions: ToolVersions): Promise<ToolConfig[]> {
   const shellScopes: ConfigScope[] = await Promise.all([
     readScope(`${home}/.zprofile`, "global", "~/.zprofile", "dotfile"),
     readScope(`${home}/.zshrc`, "user", "~/.zshrc", "dotfile"),
@@ -128,11 +155,20 @@ export async function loadAllConfigs(): Promise<ToolConfig[]> {
   const ocScope = await readScope(`${home}/.config/opencode/opencode.json`, "global", "~/.config/opencode/opencode.json", "json");
 
   return [
-    { name: "Shell (Zsh)", version: shellV, icon: "terminal", description: "Zsh shell 环境配置", scopes: shellScopes },
-    { name: "Claude Code", version: claudeV, icon: "claude", description: "Anthropic AI 编码助手", scopes: claudeScopes },
-    { name: "Codex CLI", version: codexV, icon: "codex", description: "OpenAI AI 编码助手", scopes: [codexScope] },
-    { name: "OpenCode", version: ocV, icon: "opencode", description: "开源 AI 编码助手", scopes: [ocScope] },
+    { name: "Shell (Zsh)", version: versions.shell, icon: "terminal", description: "Zsh shell 环境配置", scopes: shellScopes },
+    { name: "Claude Code", version: versions.claude, icon: "claude", description: "Anthropic AI 编码助手", scopes: claudeScopes },
+    { name: "Codex CLI", version: versions.codex, icon: "codex", description: "OpenAI AI 编码助手", scopes: [codexScope] },
+    { name: "OpenCode", version: versions.opencode, icon: "opencode", description: "开源 AI 编码助手", scopes: [ocScope] },
   ];
+}
+
+/**
+ * 完整加载（versions + files）。仅首屏 / 测试 mock 用；focus reload 走 loadAllFiles 单独。
+ */
+export async function loadAllConfigs(): Promise<ToolConfig[]> {
+  const home = await call<string>("get_home_dir");
+  const versions = await loadAllVersions();
+  return loadAllFiles(home, versions);
 }
 
 export async function saveFile(filePath: string, content: string): Promise<void> {
@@ -205,3 +241,79 @@ export const dchProfile = {
   config: (key: "hookTimeoutMs", value: number) =>
     runDch<{ ok: true }>(["config", key, String(value)], TIMEOUT_FAST_MS),
 };
+
+// ── Profile 直读 fs 路径（替代 dchProfile.{list,current} 双 bun spawn） ───────
+//
+// CHANGELOG_15：focus reload 时切回窗口卡顿根因之一是 list / current 各 spawn 一次
+// `bun src/cli.ts profile <cmd>` cold start ~500ms × 2。CLI 端这俩命令本质就是
+// 「读 ~/.dch/profiles.json + 4 次 readlink ~/.{tool}」，前端直读 fs 等价且零 spawn。
+//
+// 写操作（add/remove/use/init/config/testHook）仍走 dch CLI —— 涉及 store lock + hook
+// 不能复刻；这里只 bypass 纯读路径。
+
+export type ProfileActive = Record<ToolKind, { id: string | null; symlinkTarget: string | null }>;
+
+const TOOL_KINDS: ToolKind[] = ["claude", "codex"];
+
+/**
+ * 纯函数：把 raw 输入（store JSON 串 / 各 link target）拼成 { store, active }。
+ *
+ * 抽出来给单测直接调（不 mock invoke），避免 bun test mock.module 跨 file 污染
+ * （App.test.tsx / ConfigPanel.test.tsx mock `./bridge.ts` 让其他 file import 拿到 stub）。
+ *
+ * @param storeContent  null = profiles.json 不存在 → EMPTY_STORE；string = JSON.parse + applyStoreDefaults（坏 JSON throw）
+ * @param links         按 TOOL_KINDS 顺序传 link target；非 symlink → null
+ */
+export function buildProfileData(
+  storeContent: string | null,
+  links: Record<ToolKind, string | null>,
+): { store: ProfileStore; active: ProfileActive } {
+  let store: ProfileStore;
+  if (storeContent === null) {
+    store = structuredClone(EMPTY_STORE);
+  } else {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(storeContent);
+    } catch (e) {
+      throw new Error(`无法解析 profiles.json: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    store = applyStoreDefaults(raw);
+  }
+
+  const active = {} as ProfileActive;
+  for (const tool of TOOL_KINDS) {
+    active[tool] = {
+      id: store.active[tool] ?? null,
+      symlinkTarget: links[tool] ?? null,
+    };
+  }
+  return { store, active };
+}
+
+/**
+ * 直读 fs 拿 profile store + active state；与 dchProfile.list() + current() 的输出 shape 等价。
+ *
+ * - profiles.json 不存在：返 EMPTY_STORE shape（同 CLI loadStore 行为）
+ * - 坏 JSON：throw Error，让 caller silent catch（loadProfileData(silent=true) 的语义）
+ * - active.symlinkTarget：用 readLink 拿（非 symlink / 失败 → null，与 CLI currentSymlinkTarget 一致）
+ *
+ * Default 补全走 store-shape.applyStoreDefaults，与 CLI loadStore 同源（防分叉）。
+ */
+export async function loadProfileDataDirect(): Promise<{
+  store: ProfileStore;
+  active: ProfileActive;
+}> {
+  const home = await getHomeDir();
+  const storePath = `${home}/.dch/profiles.json`;
+  const r = await readFileWithMtime(storePath);
+  // 并发拿 link target；readLink 内部已 catch，所有失败回 null
+  const targets = await Promise.all(TOOL_KINDS.map((t) => readLink(`${home}/.${t}`)));
+
+  const links = {} as Record<ToolKind, string | null>;
+  for (let i = 0; i < TOOL_KINDS.length; i++) {
+    links[TOOL_KINDS[i]!] = targets[i] ?? null;
+  }
+
+  return buildProfileData(r.exists ? r.content : null, links);
+}
