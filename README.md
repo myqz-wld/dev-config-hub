@@ -268,6 +268,35 @@ dch profile restore <file> --prefix -from-mac
 - 单 profile 卡片：`📦 导出` 按钮（只导该 profile + 共享资源）
 - 还原 modal 显示来源元数据 / 撞名改名 / 共享资源 diff / 占位符待填清单
 
+### 跨机器迁移完整流程
+
+**老机器**：
+
+```bash
+dch profile backup
+# → ~/.dch/backups/dch-backup-<YYYYMMDD-HHMMSS>.dchpack
+# 用 AirDrop / scp / U 盘把 .dchpack 传到新机器
+```
+
+**新机器**（首次安装 dch + 还原）：
+
+```bash
+git clone <dev-config-hub repo> && cd dev-config-hub
+bunx tauri build --bundles app
+cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
+
+# 关键：先 init 让 ~/.claude / ~/.codex 变成 symlink + 建 default profile
+# 不 init 直接 use 会报「target 不存在，请先跑: dch profile init」
+dch profile init claude && dch profile init codex
+
+# 还原
+dch profile restore <pack> --dry-run    # 看冲突 / 占位符 / 共享 diff
+dch profile restore <pack>              # 真还原（不切 active）
+
+# 编辑提示的占位符文件填回真凭据，然后切换
+dch profile use <id>
+```
+
 ### 占位符填回（迁移到新机器后）
 
 还原后，凭据字段被替换为 `<<DCH_PLACEHOLDER:KEY_NAME>>`。CLI 输出会列所有占位符位置（精确到 `~/.<dir>/<file>:<field_name>` + 提示）。
