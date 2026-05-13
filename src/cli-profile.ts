@@ -9,6 +9,10 @@ import { collapseHome, expandHome, STORE_PATH } from "./profiles/store.ts";
 import { defaultProfileDir } from "./profiles/defaults.ts";
 import { defaultEditor } from "./platform.ts";
 import { c } from "./cli-colors.ts";
+import {
+  createBackup, parseBackup, applyBackup, cleanupParsed,
+  type Manifest, type ApplyBackupResult,
+} from "./profiles/backup.ts";
 
 const TOOLS: ToolKind[] = ["claude", "codex"];
 
@@ -205,28 +209,7 @@ async function cmdRemove(args: string[]) {
   const p = await getProfile(id);
   if (!flags.yes) {
     process.stdout.write(`${c.yellow}确认删除 profile ${c.bold}${id}${c.reset}${c.yellow}? configDir ${p.configDir} 不会被删除。[y/N] ${c.reset}`);
-    const line = await new Promise<string>((res) => {
-      let acc = "";
-      process.stdin.resume();
-      const onData = (d: Buffer) => {
-        acc += d.toString();
-        if (acc.includes("\n")) {
-          process.stdin.pause();
-          process.stdin.removeListener("data", onData);
-          process.stdin.removeListener("end", onEnd);
-          res(acc.trim());
-        }
-      };
-      // PR-6 (#M3)：监听 end 让 Ctrl+D（EOF 无换行）也能 resolve；
-      // 旧版只听 data，Ctrl+D 时 promise 永不 resolve → dch 进程 hang 必须 Ctrl+C
-      const onEnd = () => {
-        process.stdin.pause();
-        process.stdin.removeListener("data", onData);
-        res(acc.trim()); // EOF 视为空输入 → 走「已取消」路径
-      };
-      process.stdin.on("data", onData);
-      process.stdin.on("end", onEnd);
-    });
+    const line = await readStdinLine();
     if (line.toLowerCase() !== "y" && line.toLowerCase() !== "yes") {
       info("已取消");
       return;
@@ -235,6 +218,40 @@ async function cmdRemove(args: string[]) {
   await removeProfile(id);
   if (JSON_MODE) return jsonOut({ ok: true, removed: id });
   ok(`已移除 profile ${id}`);
+}
+
+/**
+ * stdin 单行读取 helper。Ctrl+D / EOF 视为空输入（caller 当"取消"）。
+ * data / end listener 都清干净，避免 keep-alive 阻塞 dispatcher 末尾的 process.exit(0)。
+ */
+async function readStdinLine(): Promise<string> {
+  return new Promise((resolve) => {
+    let acc = "";
+    process.stdin.resume();
+    const onData = (d: Buffer) => {
+      acc += d.toString();
+      if (acc.includes("\n")) {
+        process.stdin.pause();
+        process.stdin.removeListener("data", onData);
+        process.stdin.removeListener("end", onEnd);
+        resolve(acc.trim());
+      }
+    };
+    const onEnd = () => {
+      process.stdin.pause();
+      process.stdin.removeListener("data", onData);
+      resolve(acc.trim());
+    };
+    process.stdin.on("data", onData);
+    process.stdin.on("end", onEnd);
+  });
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)}GB`;
 }
 
 function fmtHookResult(r: HookResult): string {
@@ -358,6 +375,149 @@ async function cmdConfig(args: string[]) {
   ok(`已设置 ${key} = ${value}`);
 }
 
+async function cmdBackup(args: string[]) {
+  const { flags } = parseFlags(args);
+  const noPlaceholder = flags["no-placeholder"] === true;
+  const includeShared = flags["no-shared"] !== true;
+  const yes = flags.yes === true;
+  const profileIds = typeof flags.profiles === "string"
+    ? flags.profiles.split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined;
+  const outFile = typeof flags.out === "string" ? flags.out : undefined;
+
+  // --no-placeholder 二次确认（JSON_MODE 下必须 --yes，避免脚本误用泄露明文凭据）
+  if (noPlaceholder && !yes) {
+    if (JSON_MODE) {
+      err("--no-placeholder 在 --json 模式下必须配 --yes（避免脚本误用泄露明文凭据）");
+    }
+    process.stdout.write(`${c.yellow}⚠ --no-placeholder：备份将含明文 token / API key${c.reset}\n`);
+    process.stdout.write(`${c.yellow}  请确认你只在加密渠道（gpg / age / 本地）使用此包。继续? [y/N] ${c.reset}`);
+    const line = await readStdinLine();
+    if (line.toLowerCase() !== "y" && line.toLowerCase() !== "yes") {
+      info("已取消");
+      return;
+    }
+  }
+
+  const result = await createBackup({ outFile, profileIds, includeShared, noPlaceholder });
+
+  if (JSON_MODE) return jsonOut({ ok: true, ...result });
+  ok(`已写入 ${result.outFile} (${formatBytes(result.bytes)})`);
+  info(`包含 ${result.manifest.profiles.length} 个 profile: ${result.manifest.profiles.map((p) => p.id).join(", ")}`);
+  if (result.manifest.shared.dch_scripts.length || result.manifest.shared.agents_paths.length) {
+    info(`共享资源: ${result.manifest.shared.dch_scripts.length} 个 hook 脚本, ${result.manifest.shared.agents_paths.length} 个 agent 文件`);
+  }
+  if (result.manifest.placeholders.length > 0) {
+    process.stdout.write(`${c.yellow}⚠ 已脱敏 ${result.manifest.placeholders.length} 处凭据:${c.reset}\n`);
+    for (const ph of result.manifest.placeholders) {
+      process.stdout.write(`  - ${ph.packPath} :: ${ph.fieldName}\n`);
+    }
+  }
+  if (noPlaceholder) {
+    process.stdout.write(`${c.red}⚠ --no-placeholder 模式：包内含明文凭据，请只通过加密渠道分享${c.reset}\n`);
+  }
+  info(`还原方式: dch profile restore ${result.outFile}`);
+}
+
+async function cmdRestore(args: string[]) {
+  const { positional, flags } = parseFlags(args);
+  const [packFile] = positional;
+  if (!packFile) {
+    err("用法: dch profile restore <pack> [--prefix <p>] [--rename OLD=NEW,...] [--dry-run] [--yes]");
+  }
+
+  const dryRun = flags["dry-run"] === true;
+  const prefix = typeof flags.prefix === "string" ? flags.prefix : undefined;
+  const renameMap: Record<string, string> = {};
+  if (typeof flags.rename === "string") {
+    for (const pair of flags.rename.split(",")) {
+      const trimmed = pair.trim();
+      if (!trimmed) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq < 0) err(`--rename 格式 OLD=NEW (收到 ${trimmed})`);
+      const k = trimmed.slice(0, eq).trim();
+      const v = trimmed.slice(eq + 1).trim();
+      if (!k || !v) err(`--rename 格式 OLD=NEW (收到 ${trimmed})`);
+      renameMap[k] = v;
+    }
+  }
+
+  const parsed = await parseBackup(packFile);
+  try {
+    const dryPlan = await applyBackup({ parsed, prefix, renameMap, dryRun: true });
+
+    if (dryRun) {
+      if (JSON_MODE) return jsonOut({ ok: true, dryRun: true, manifest: parsed.manifest, plan: dryPlan });
+      printRestorePreview(parsed.manifest, dryPlan);
+      return;
+    }
+
+    const result = await applyBackup({ parsed, prefix, renameMap });
+    if (JSON_MODE) return jsonOut({ ok: result.errors.length === 0, manifest: parsed.manifest, ...result });
+
+    if (result.errors.length > 0) {
+      for (const e of result.errors) process.stdout.write(`${c.red}✗ ${e}${c.reset}\n`);
+    }
+    ok(`已还原 ${result.appliedProfiles.length} 个 profile`);
+    for (const ap of result.appliedProfiles) {
+      const tag = ap.conflict === "none" ? "" : ` ${c.gray}[${ap.conflict}]${c.reset}`;
+      info(`  ${ap.originalId} → ${c.bold}${ap.finalId}${c.reset} (${ap.configDir})${tag}`);
+    }
+    if (result.sharedActions.length > 0) {
+      info(`共享资源 ${result.sharedActions.length} 项:`);
+      for (const sa of result.sharedActions) {
+        info(`  ${sa.category} ${sa.relPath} → ${sa.action}`);
+      }
+    }
+    if (result.placeholders.length > 0) {
+      process.stdout.write(`${c.yellow}待填占位符 ${result.placeholders.length} 处:${c.reset}\n`);
+      for (const ph of result.placeholders) {
+        process.stdout.write(`  ${ph.hostPath ?? ph.packPath} :: ${ph.fieldName} — ${ph.hint}\n`);
+      }
+      info(`填完后跑: dch profile use <id>`);
+    }
+  } finally {
+    await cleanupParsed(parsed);
+  }
+}
+
+function printRestorePreview(manifest: Manifest, plan: ApplyBackupResult): void {
+  console.log(`${c.bold}${c.blue}DRY-RUN — 不会修改文件${c.reset}\n`);
+  console.log(`${c.bold}来源：${c.reset}${manifest.source_user}@${manifest.source_host} · ${manifest.created_at}`);
+  console.log(`${c.bold}DCH 版本：${c.reset}${manifest.dch_version}`);
+  if (manifest.options.no_placeholder) {
+    console.log(`${c.red}⚠ 包内含明文凭据 (--no-placeholder 模式)${c.reset}`);
+  }
+  console.log();
+
+  console.log(`${c.bold}待还原 profile (${plan.appliedProfiles.length}):${c.reset}`);
+  for (const ap of plan.appliedProfiles) {
+    const tag = ap.conflict === "none"
+      ? `${c.gray}无冲突 ✓${c.reset}`
+      : `${c.yellow}${ap.conflict}${c.reset}`;
+    console.log(`  ${ap.originalId} → ${c.bold}${ap.finalId}${c.reset} (${ap.configDir}) ${tag}`);
+  }
+
+  if (plan.sharedActions.length > 0) {
+    console.log(`\n${c.bold}共享资源:${c.reset}`);
+    for (const sa of plan.sharedActions) {
+      console.log(`  ${sa.category} ${sa.relPath} → ${sa.action}`);
+    }
+  }
+
+  if (plan.placeholders.length > 0) {
+    console.log(`\n${c.bold}${c.yellow}待填占位符 (${plan.placeholders.length}):${c.reset}`);
+    for (const ph of plan.placeholders) {
+      console.log(`  ${ph.hostPath ?? ph.packPath} :: ${ph.fieldName} — ${ph.hint}`);
+    }
+  }
+
+  if (plan.errors.length > 0) {
+    console.log(`\n${c.bold}${c.red}错误 (${plan.errors.length}):${c.reset}`);
+    for (const e of plan.errors) console.log(`  ${e}`);
+  }
+}
+
 function help() {
   console.log(`${c.bold}${c.blue}dch profile${c.reset} - Profile 快速切换
 
@@ -373,6 +533,10 @@ ${c.bold}子命令:${c.reset}
   ${c.cyan}init${c.reset}    <claude|codex>        把 ~/.claude / ~/.codex 转成 symlink，建立 default profile
   ${c.cyan}hook test${c.reset} <id> <pre|post>     单独运行 hook 测试
   ${c.cyan}config${c.reset}  hookTimeoutMs <ms>    设置 hook 超时
+  ${c.cyan}backup${c.reset}                        备份所有 profile + 共享资源到 .dchpack
+                                  [--out <file>] [--profiles <id1,id2>] [--no-shared] [--no-placeholder] [--yes]
+  ${c.cyan}restore${c.reset} <pack>                还原 .dchpack（自动加 -restored-<TS> 后缀避免撞名）
+                                  [--prefix <p>] [--rename OLD=NEW,...] [--dry-run] [--yes]
 
 ${c.bold}env 变量 (hook 内可用):${c.reset}
   DCH_PROFILE_ID, DCH_PROFILE_TOOL, DCH_PROFILE_CONFIG_DIR
@@ -412,6 +576,8 @@ export async function runProfileCommand(args: string[]): Promise<void> {
   else if (sub === "init") await cmdInit(rest);
   else if (sub === "hook") await cmdHook(rest);
   else if (sub === "config") await cmdConfig(rest);
+  else if (sub === "backup") await cmdBackup(rest);
+  else if (sub === "restore") await cmdRestore(rest);
   else if (sub === "--help" || sub === "-h" || sub === "help") help();
   else err(`未知子命令: ${sub}\n跑 dch profile --help 查看用法`);
 

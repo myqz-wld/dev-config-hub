@@ -33,6 +33,7 @@ Win 端真机 E2E 留待 CI 验证（参见 [REVIEW_1](reviews/REVIEW_1.md)）�
 - **Profile 快速切换**：维护多套 Claude / Codex 配置（如 `claude-pro` / `claude-api`、`codex-plus` / `codex-api`），一键原子切换 `~/.claude` / `~/.codex` symlink，全局生效
 - **切换前 / 后 Hook**：每个 profile 可定义 `preSwitch` / `postSwitch` shell 脚本，用于自动 kill 残留进程、起 VPN、健康探测、osascript 通知等。`preSwitch` 失败会中断切换
 - **shell wrapper 注入 env**：`dch profile env` + `~/.zshrc` 子 shell wrapper，让 profile.env 落到 claude / codex 进程本身（OAuth / API 走代理）
+- **备份与还原（.dchpack）**：所有 profile + 共享资源（hook 脚本 + `~/.agents/`）打成单文件，跨机器迁移 / 本地灾备 / 分享 profile 给同事。**默认脱敏 token / API key 为占位符**安全分享；CLI + UI 双入口
 
 ## 环境要求
 
@@ -103,6 +104,12 @@ dch profile env <claude|codex>               # 输出 active profile.env 为 she
 dch profile init <claude|codex>              # 把 ~/.claude / ~/.codex 转成 symlink，建立 default profile
 dch profile hook test <id> <pre|post>        # 单独运行 hook 测试
 dch profile config hookTimeoutMs <ms>        # 设置 hook 超时
+dch profile backup [opts]                    # 备份所有 profile + 共享资源到 .dchpack
+                                             # [--out <file>] [--profiles <id1,id2>] [--no-shared]
+                                             # [--no-placeholder] [--yes]
+dch profile restore <pack> [opts]            # 还原 .dchpack（自动加 -restored-<TS> 后缀避免撞名）
+                                             # [--prefix <p>] [--rename OLD=NEW,...]
+                                             # [--dry-run] [--yes]
 ```
 
 ## Profile 系统
@@ -226,6 +233,74 @@ function claude {
 
 切换 profile 后**新跑**的 claude / codex 自动用新 profile 的 env，无需 reload shell。
 
+## 备份与还原（.dchpack）
+
+把所有 profile + 共享资源（`~/.dch/scripts/` hook 脚本 + `~/.agents/` 全局 agent/skill）打成单文件 `.dchpack`，用于跨机器迁移 / 本地灾备 / 分享 profile 给同事。**默认脱敏 token / API key 为占位符**，安全分享。
+
+### 命令
+
+```bash
+# 备份所有 profile + 共享资源 → ~/.dch/backups/dch-backup-<YYYYMMDD-HHMMSS>.dchpack
+dch profile backup
+
+# 备份子集
+dch profile backup --profiles claude-pro,codex-pro --out /tmp/share.dchpack
+
+# 不脱敏（保留原始 token / API key，强制二次确认）
+dch profile backup --no-placeholder
+
+# 还原（自动加 -restored-<TS> 后缀避免撞名；不切 active）
+dch profile restore ~/.dch/backups/dch-backup-20260513-143025.dchpack
+
+# dry-run 看冲突 / 占位符清单 / 共享资源 diff
+dch profile restore <file> --dry-run
+
+# 改名指定 profile（避免默认后缀太长）
+dch profile restore <file> --rename claude-pro=claude-pro-v2,codex-pro=codex-pro-v2
+
+# 全局后缀
+dch profile restore <file> --prefix -from-mac
+```
+
+### UX
+
+- ProfilePanel 顶部按钮：`📦 导出备份` / `📥 导入备份`
+- 单 profile 卡片：`📦 导出` 按钮（只导该 profile + 共享资源）
+- 还原 modal 显示来源元数据 / 撞名改名 / 共享资源 diff / 占位符待填清单
+
+### 占位符填回（迁移到新机器后）
+
+还原后，凭据字段被替换为 `<<DCH_PLACEHOLDER:KEY_NAME>>`。CLI 输出会列所有占位符位置（精确到 `~/.<dir>/<file>:<field_name>` + 提示）。
+
+```
+待填占位符 3 处:
+  ~/.claude-pro-restored-20260513-143025/.mcp.json :: INTERN_TOKEN — Gitlab OAuth Token
+  ~/.codex-default-restored-20260513-143025/config.toml :: experimental_bearer_token — Codex bearer token
+  ~/.codex-default-restored-20260513-143025/auth.json :: AUTH — Codex OAuth payload (~/.codex/auth.json)
+```
+
+手动编辑这些文件填回真实值（用 `dch edit` 或 ConfigPanel），然后跑 `dch profile use <id>` 切换。
+
+### 包含 / 排除规则
+
+- **包含**（configDir 相对路径）：
+  - 顶层：`CLAUDE.md` / `AGENTS.md` / `settings.json` / `settings.local.json` / `.mcp.json` / `auth.json` / `config.toml` / `credentials.json` / `version.json` / `hilo-skill-market.json`
+  - 目录递归：`templates/**` / `SOPs/**` / `plans/*.md` / `providers/**` / `agents/**` / `commands/**` / `skills/**` / `plugins/{installed_plugins.json,known_marketplaces.json,blocklist.json,cache/**,local/**,marketplaces/**}` / `.claude-plugin/**` / `projects/*/memory/**`
+- **排除**：`*.jsonl` 会话历史 / `*.sqlite` 数据库 / `*.log` / `*.lock` / `debug/` / `file-history/` / `session-env/` / `sessions/` / `paste-cache/` / `.cache/` / `cache/` / `backups/` / `statsig/` / `shell_snapshots/`
+- **共享资源**：`~/.dch/scripts/*` + `~/.agents/**`（默认带，`--no-shared` 关）
+
+完整规则见 `src/profiles/backup-rules.ts`。
+
+### 加密迁移（含真凭据）
+
+`--no-placeholder` 模式保留原始 token，需自己加密外层：
+
+```bash
+dch profile backup --no-placeholder
+gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
+# 传输 .gpg → 新机器 gpg --decrypt → dch profile restore（无占位符 → 立即可用）
+```
+
 ## 项目结构
 
 ```
@@ -249,7 +324,10 @@ function claude {
 │   │   ├── hooks.test.ts     # bun test 单元测试（含 Win/POSIX 分流）
 │   │   ├── symlink.ts        # 符号链接切换（macOS/Linux symlink + Win junction）
 │   │   ├── symlink.test.ts   # getSymlinkType / normalizeSymlinkTarget 跨平台测试
-│   │   └── manager.ts        # CRUD + switch 调度（共用核心）
+│   │   ├── manager.ts        # CRUD + switch 调度（共用核心）
+│   │   ├── backup.ts         # createBackup / parseBackup / applyBackup（.dchpack 归档 + 还原）
+│   │   ├── backup-rules.ts   # INCLUDE / EXCLUDE glob + 敏感字段判断
+│   │   └── redact.ts         # JSON / TOML / 整文件级凭据脱敏
 │   ├── readers/              # 各工具的配置读取器（平台分流：Win 路径/PowerShell）
 │   │   ├── shell.ts          # POSIX zsh/bash / Win PowerShell $PROFILE
 │   │   ├── claude-code.ts
@@ -277,6 +355,8 @@ function claude {
 │               ├── AddProfileModal.tsx
 │               ├── ProfileCard.tsx
 │               ├── ProfileStoreEditor.tsx  # ~/.dch/profiles.json 的 schema-aware modal
+│               ├── ExportBackupModal.tsx   # 导出 .dchpack（profile 多选 + 共享开关 + 占位符开关）
+│               ├── RestoreBackupModal.tsx  # 导入 .dchpack（preview + 改名 + 占位符跳转）
 │               ├── HookOutputModal.tsx
 │               ├── PreferencesEditor.tsx
 │               └── helpers.ts

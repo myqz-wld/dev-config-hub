@@ -128,7 +128,7 @@ DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 
 - 一般代码文件**含注释 / 空行不超过 500 行**。超过后下一次改动必须先拆分 / 重构再加新逻辑（按职责拆 / pure 逻辑 vs IO 分层 / 一个 component 一个文件）
 - **例外**：测试文件、单份 changelog / review 可放宽到 ≤ 800 行；超 800 也要考虑按主题拆
-- 现存超标已知（不重构不让新加）：`ProfilePanel.tsx` 已拆；`bridge.ts` 接近上限待观察
+- 现存超标已知（不重构不让新加）：`ProfilePanel.tsx` 已拆；`bridge.ts` 接近上限待观察；`cli-profile.ts` 588 行（CHANGELOG_16 加 backup/restore 后超 500，下次拆 cli-backup.ts 需先抽 cli-shared.ts 共享 JSON_MODE / jsonOut / err 等 helper）
 - 新文件创建时 first commit 就要保持 ≤ 500，宁可一开始就拆，也不要先怼到一份再后期拆
 
 ---

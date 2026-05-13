@@ -201,12 +201,30 @@ async function runDch<T = unknown>(args: string[], timeoutMs?: number): Promise<
 
 const TIMEOUT_FAST_MS = 10_000;   // 纯文件读写：list / current / show / add / remove / env / config
 const TIMEOUT_INIT_MS = 30_000;   // init：含 mv + ln 等 fs 操作
+const TIMEOUT_BACKUP_MS = 5 * 60_000;  // backup / restore：含 7000+ 文件 walk + tar gzip / untar + 占位符替换
 
 import type {
   Profile, ProfileStore, SwitchResult, ToolKind, HookResult,
 } from "../profiles/types.ts";
+import type {
+  Manifest, AppliedProfile, SharedAction, PlaceholderEntry, ApplyBackupResult,
+} from "../profiles/backup.ts";
 
 export type { Profile, ProfileStore, SwitchResult, ToolKind, HookResult };
+export type { Manifest, AppliedProfile, SharedAction, PlaceholderEntry, ApplyBackupResult };
+
+export interface BackupOpts {
+  outFile?: string;
+  profileIds?: string[];
+  noShared?: boolean;
+  noPlaceholder?: boolean;
+  yes?: boolean;
+}
+
+export interface RestoreApplyOpts {
+  prefix?: string;
+  renameMap?: Record<string, string>;
+}
 
 export const dchProfile = {
   list: () => runDch<ProfileStore>(["list"], TIMEOUT_FAST_MS),
@@ -240,6 +258,49 @@ export const dchProfile = {
 
   config: (key: "hookTimeoutMs", value: number) =>
     runDch<{ ok: true }>(["config", key, String(value)], TIMEOUT_FAST_MS),
+
+  /**
+   * 备份 profile + 共享资源到 .dchpack。
+   * - noShared: 不打 ~/.dch/scripts/ + ~/.agents/（默认带）
+   * - noPlaceholder: 保留原始 token / API key（强制 yes，避免脚本误用泄露）
+   */
+  backup: (opts: BackupOpts = {}) => {
+    const args: string[] = ["backup"];
+    if (opts.outFile) args.push("--out", opts.outFile);
+    if (opts.profileIds && opts.profileIds.length > 0) args.push("--profiles", opts.profileIds.join(","));
+    if (opts.noShared) args.push("--no-shared");
+    if (opts.noPlaceholder) args.push("--no-placeholder");
+    if (opts.yes || opts.noPlaceholder) args.push("--yes");
+    return runDch<{ ok: true; outFile: string; bytes: number; manifest: Manifest }>(args, TIMEOUT_BACKUP_MS);
+  },
+
+  /**
+   * dry-run 还原：只解析 .dchpack 拿 manifest + 算冲突 plan，不动 fs。
+   * UI 用这个数据渲染冲突 / 改名 / 占位符清单 modal。
+   */
+  restorePreview: (packFile: string) =>
+    runDch<{ ok: true; dryRun: true; manifest: Manifest; plan: ApplyBackupResult }>(
+      ["restore", packFile, "--dry-run"], TIMEOUT_BACKUP_MS),
+
+  /**
+   * 真还原：写 configDir + addProfile + 处理共享资源。
+   * UI 在用户点「确认还原」后调，传 renameMap 把改过名的传回。
+   */
+  restoreApply: (packFile: string, opts: RestoreApplyOpts = {}) => {
+    const args: string[] = ["restore", packFile, "--yes"];
+    if (opts.prefix) args.push("--prefix", opts.prefix);
+    if (opts.renameMap && Object.keys(opts.renameMap).length > 0) {
+      args.push("--rename", Object.entries(opts.renameMap).map(([k, v]) => `${k}=${v}`).join(","));
+    }
+    return runDch<{
+      ok: boolean;
+      manifest: Manifest;
+      appliedProfiles: AppliedProfile[];
+      sharedActions: SharedAction[];
+      placeholders: PlaceholderEntry[];
+      errors: string[];
+    }>(args, TIMEOUT_BACKUP_MS);
+  },
 };
 
 // ── Profile 直读 fs 路径（替代 dchProfile.{list,current} 双 bun spawn） ───────

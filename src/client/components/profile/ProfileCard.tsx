@@ -3,7 +3,7 @@ import type { Profile } from "../../bridge.ts";
 import { hookToString, maskValue } from "./helpers.ts";
 
 export function ProfileCard({
-  profile, isActive, busy, onUse, onDelete, onTestHook,
+  profile, isActive, busy, onUse, onDelete, onTestHook, onExport,
 }: {
   profile: Profile;
   isActive: boolean;
@@ -11,6 +11,7 @@ export function ProfileCard({
   onUse: (id: string) => void;
   onDelete: (id: string) => void;
   onTestHook: (id: string, which: "pre" | "post") => void;
+  onExport?: (id: string) => void;
 }) {
   const envCount = Object.keys(profile.env ?? {}).length;
   const hasPreHook = !!profile.hooks?.preSwitch;
@@ -83,6 +84,11 @@ export function ProfileCard({
         {hasPostHook && (
           <button className="btn-sm" disabled={busy} onClick={() => onTestHook(profile.id, "post")}>
             test post
+          </button>
+        )}
+        {onExport && (
+          <button className="btn-sm" disabled={busy} onClick={() => onExport(profile.id)} title="只导出此 profile + 共享资源">
+            📦 导出
           </button>
         )}
         <div className="profile-card-actions-spacer" />
