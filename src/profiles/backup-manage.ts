@@ -1,0 +1,228 @@
+/**
+ * 备份**管理**：列表 / 删除 / 置顶。
+ *
+ * 数据模型：
+ * - 默认位（category: "default"）：~/.dch/backups/latest.dchpack（每次 dch profile backup 覆盖）
+ * - 置顶（category: "pinned"）：任何带 sidecar `<file>.pinned`（空文件存在 = 置顶）
+ * - 历史（category: "history"）：~/.dch/backups/dch-backup-<TS>.dchpack（dch profile backup --keep 创建）
+ *
+ * 「置顶 latest」语义：复制 latest.dchpack → dch-backup-<TS>.dchpack + 加 .pinned sidecar，
+ * 原 latest.dchpack 仍在（继续会被下次 backup 覆盖）。这样置顶后用户珍藏的版本不会丢，
+ * latest 仍然代表"最新一次 backup"。
+ *
+ * Manifest 摘要：每个 .dchpack 跑 tar -xzOf path ./manifest.json 拿统计（profile / 占位符 /
+ * 来源主机 / 时间），N 个备份 = N 次 tar exec ≈ 50-100ms / 个，列表场景可接受。
+ *
+ * Sidecar `.pinned` 设计：内容空（不存任何字段）；存在 = pinned，不存在 = 不置顶。简单粗暴
+ * 跨进程一致，无需 .index.json 中央索引（避免并发写状态分裂）。
+ */
+
+import { readdir, mkdir, rm, copyFile, stat, writeFile } from "node:fs/promises";
+import { join, dirname, basename, isAbsolute } from "node:path";
+import { DCH_DIR, expandHome } from "./store.ts";
+
+export const BACKUP_DIR = join(DCH_DIR, "backups");
+export const DEFAULT_FILENAME = "latest.dchpack";
+export const DEFAULT_PATH = join(BACKUP_DIR, DEFAULT_FILENAME);
+
+const PINNED_SUFFIX = ".pinned";
+
+export interface BackupManifestSummary {
+  formatVersion: number;
+  createdAt: string;
+  sourceUser: string;
+  sourceHost: string;
+  dchVersion: string;
+  profileCount: number;
+  profileIds: string[];
+  placeholderCount: number;
+  noPlaceholder: boolean;
+  includeShared: boolean;
+}
+
+export interface BackupSummary {
+  /** 绝对路径 */
+  path: string;
+  filename: string;
+  category: "default" | "pinned" | "history";
+  mtimeMs: number;
+  bytes: number;
+  pinned: boolean;
+  /** manifest 关键统计；若 .dchpack 损坏 / 老格式 → null + manifestError */
+  manifest: BackupManifestSummary | null;
+  manifestError?: string;
+}
+
+async function fileExists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readManifestSummary(packPath: string): Promise<{
+  manifest: BackupManifestSummary | null;
+  manifestError?: string;
+}> {
+  // 用 ./manifest.json 路径（备份 tar 内部都是 ./prefix）。BSD tar / GNU tar 都接受 ./ 前缀。
+  const proc = Bun.spawn(["tar", "-xzOf", packPath, "./manifest.json"], {
+    stdout: "pipe", stderr: "pipe",
+  });
+  const [stdoutText, stderrText] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  const code = await proc.exited;
+  if (code !== 0) {
+    return { manifest: null, manifestError: stderrText.trim() || `tar exit ${code}` };
+  }
+  try {
+    const m = JSON.parse(stdoutText) as Record<string, unknown>;
+    const profiles = (m.profiles ?? []) as Array<{ id: string }>;
+    const placeholders = (m.placeholders ?? []) as unknown[];
+    const options = (m.options ?? {}) as { no_placeholder?: boolean; include_shared?: boolean };
+    return {
+      manifest: {
+        formatVersion: (m.format_version as number) ?? 0,
+        createdAt: (m.created_at as string) ?? "",
+        sourceUser: (m.source_user as string) ?? "",
+        sourceHost: (m.source_host as string) ?? "",
+        dchVersion: (m.dch_version as string) ?? "",
+        profileCount: profiles.length,
+        profileIds: profiles.map((p) => p.id),
+        placeholderCount: placeholders.length,
+        noPlaceholder: options.no_placeholder ?? false,
+        includeShared: options.include_shared ?? true,
+      },
+    };
+  } catch (e) {
+    return { manifest: null, manifestError: `JSON parse: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
+/**
+ * 解析 caller 给的 path：支持 basename（默认相对 BACKUP_DIR）/ ~/ 形态 / 绝对路径。
+ * 这是 CLI / UI 都用的通用 helper —— 用户在 CLI 写 `backup-rm latest.dchpack` 应等价于
+ * 写绝对路径。
+ */
+export function resolveBackupPath(p: string): string {
+  if (!p) throw new Error("路径不能为空");
+  let abs = expandHome(p);
+  if (!isAbsolute(abs) && !abs.includes("/")) {
+    abs = join(BACKUP_DIR, abs);
+  } else if (!isAbsolute(abs)) {
+    abs = join(process.cwd(), abs);
+  }
+  return abs;
+}
+
+export async function listBackups(): Promise<BackupSummary[]> {
+  if (!(await fileExists(BACKUP_DIR))) return [];
+  const names = await readdir(BACKUP_DIR);
+  const packs = names.filter((n) => n.endsWith(".dchpack"));
+  const pinnedSet = new Set(
+    names.filter((n) => n.endsWith(PINNED_SUFFIX)).map((n) => n.slice(0, -PINNED_SUFFIX.length)),
+  );
+
+  const out: BackupSummary[] = [];
+  for (const name of packs) {
+    const path = join(BACKUP_DIR, name);
+    const s = await stat(path).catch(() => null);
+    if (!s) continue;
+    const isDefault = name === DEFAULT_FILENAME;
+    const pinned = pinnedSet.has(name);
+    const category: BackupSummary["category"] =
+      isDefault ? "default" : pinned ? "pinned" : "history";
+    const { manifest, manifestError } = await readManifestSummary(path);
+    out.push({
+      path,
+      filename: name,
+      category,
+      mtimeMs: s.mtimeMs,
+      bytes: s.size,
+      pinned,
+      manifest,
+      manifestError,
+    });
+  }
+  // 排序：default 永远第一；其后 pinned 按 mtime 倒序；history 按 mtime 倒序
+  out.sort((a, b) => {
+    const order = { default: 0, pinned: 1, history: 2 } as const;
+    if (order[a.category] !== order[b.category]) return order[a.category] - order[b.category];
+    return b.mtimeMs - a.mtimeMs;
+  });
+  return out;
+}
+
+/** 删除 .dchpack + 同名 .pinned sidecar（若存在）。allow 删默认位（回到无默认位状态）。 */
+export async function deleteBackup(path: string): Promise<void> {
+  const abs = resolveBackupPath(path);
+  if (!(await fileExists(abs))) {
+    throw new Error(`备份不存在: ${abs}`);
+  }
+  await rm(abs, { force: true });
+  await rm(`${abs}${PINNED_SUFFIX}`, { force: true });
+}
+
+export interface PinBackupResult {
+  /** 实际写入 .pinned sidecar 的路径（pin=latest 时是新复制的时间戳路径，非 latest 自身） */
+  pinnedPath: string;
+  /** 是否触发了"复制 latest → 时间戳文件"的派生 */
+  copiedFromLatest: boolean;
+}
+
+function tsForFilename(d: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    d.getFullYear().toString() +
+    pad(d.getMonth() + 1) +
+    pad(d.getDate()) +
+    "-" +
+    pad(d.getHours()) +
+    pad(d.getMinutes()) +
+    pad(d.getSeconds())
+  );
+}
+
+/**
+ * 置顶 / 取消置顶。
+ *
+ * - pin=true + 默认位（latest.dchpack）：复制到 dch-backup-<TS>.dchpack + 加 sidecar，
+ *   原 latest.dchpack 不动（仍是默认位会被下次 backup 覆盖）。返回 pinnedPath = 复制后的新路径
+ * - pin=true + 非默认位：原地 touch sidecar
+ * - pin=false：rm sidecar（如果传的是 latest.dchpack，没有 sidecar 可删—— pin=false 操作
+ *   对默认位没有意义，silently no-op）
+ */
+export async function pinBackup(path: string, pin: boolean): Promise<PinBackupResult> {
+  const abs = resolveBackupPath(path);
+  if (!(await fileExists(abs))) {
+    throw new Error(`备份不存在: ${abs}`);
+  }
+  const isDefault = basename(abs) === DEFAULT_FILENAME;
+
+  if (!pin) {
+    // 取消置顶：删 sidecar（若存在）
+    await rm(`${abs}${PINNED_SUFFIX}`, { force: true });
+    return { pinnedPath: abs, copiedFromLatest: false };
+  }
+
+  if (isDefault) {
+    // 置顶默认位：复制到带时间戳的副本 + 加 sidecar
+    await mkdir(dirname(abs), { recursive: true });
+    let target = join(BACKUP_DIR, `dch-backup-${tsForFilename()}.dchpack`);
+    let tries = 0;
+    while (await fileExists(target)) {
+      tries++;
+      target = join(BACKUP_DIR, `dch-backup-${tsForFilename()}-${tries}.dchpack`);
+    }
+    await copyFile(abs, target);
+    await writeFile(`${target}${PINNED_SUFFIX}`, "");
+    return { pinnedPath: target, copiedFromLatest: true };
+  }
+
+  // 置顶非默认位：原地 touch sidecar
+  await writeFile(`${abs}${PINNED_SUFFIX}`, "");
+  return { pinnedPath: abs, copiedFromLatest: false };
+}

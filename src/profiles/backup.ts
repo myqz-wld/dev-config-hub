@@ -85,6 +85,12 @@ export interface CreateBackupOptions {
   profileIds?: string[];
   includeShared?: boolean;
   noPlaceholder?: boolean;
+  /**
+   * 不带 outFile + keep=false（默认）→ 写默认位 ~/.dch/backups/latest.dchpack（覆盖）。
+   * 不带 outFile + keep=true → 写带时间戳的历史文件 ~/.dch/backups/dch-backup-<TS>.dchpack。
+   * 显式传 outFile → 一律以 outFile 为准（CLI / UI 显式覆盖）。
+   */
+  keep?: boolean;
 }
 
 export interface CreateBackupResult {
@@ -218,7 +224,11 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
 
   if (wanted.length === 0) throw new Error("没有可备份的 profile（store 为空或 --profiles 过滤无匹配）");
 
-  const outFile = opts.outFile ?? join(DCH_DIR, "backups", `dch-backup-${tsForFilename()}.dchpack`);
+  // 默认位 vs 历史：见 CreateBackupOptions.keep 注释。outFile 显式传 → 直接用。
+  const outFile = opts.outFile
+    ?? (opts.keep
+      ? join(DCH_DIR, "backups", `dch-backup-${tsForFilename()}.dchpack`)
+      : join(DCH_DIR, "backups", "latest.dchpack"));
   await mkdir(dirname(outFile), { recursive: true });
 
   const tmpDir = await mkdtemp(join(tmpdir(), "dch-backup-"));
