@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { dchProfile, type Profile, type Manifest } from "../../bridge.ts";
+import { backupCache } from "../../backup-cache.ts";
 
 /**
  * 导出备份 modal：选 profile / 共享开关 / 明文凭据开关 → 备份。
@@ -8,7 +9,8 @@ import { dchProfile, type Profile, type Manifest } from "../../bridge.ts";
  * - 默认全选所有 profile
  * - 默认带共享资源（hook 脚本 + ~/.agents）
  * - 明文凭据默认关，开启时显示红色警告
- * - 备份完成显示路径 + 占位符数量；用户可关 modal
+ * - 备份过程中显示 spinner + 阶段提示 + 已耗时 + 预期时间（让用户知道「不是卡死」）
+ * - 备份完成后 backupCache.clear()，让「📚 备份历史」拿到最新数据
  */
 export function ExportBackupModal({
   profiles, presetProfileIds, presetKeep, onClose, onToast,
@@ -28,7 +30,29 @@ export function ExportBackupModal({
   const [confirmRaw, setConfirmRaw] = useState(false);
   const [keep, setKeep] = useState(!!presetKeep);
   const [busy, setBusy] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const [result, setResult] = useState<{ outFile: string; bytes: number; manifest: Manifest } | null>(null);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 备份开始后启动 elapsed 计时器，每 100ms 更新一次（让用户看到时间在走）
+  useEffect(() => {
+    if (busy) {
+      const startedAt = Date.now();
+      setElapsedMs(0);
+      elapsedTimerRef.current = setInterval(() => {
+        setElapsedMs(Date.now() - startedAt);
+      }, 100);
+    } else if (elapsedTimerRef.current) {
+      clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
+    }
+    return () => {
+      if (elapsedTimerRef.current) {
+        clearInterval(elapsedTimerRef.current);
+        elapsedTimerRef.current = null;
+      }
+    };
+  }, [busy]);
 
   const toggle = (id: string) => {
     const next = new Set(selected);
@@ -55,6 +79,7 @@ export function ExportBackupModal({
         yes: true,
       });
       setResult(r);
+      backupCache.clear(); // 让「📚 备份历史」拿到最新（latest.dchpack 或新历史副本）
       onToast(`已写入 ${r.outFile}`, true);
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
@@ -71,7 +96,13 @@ export function ExportBackupModal({
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
-          {result ? (
+          {busy ? (
+            <BackupProgress
+              elapsedMs={elapsedMs}
+              profileCount={selected.size}
+              keep={keep}
+            />
+          ) : result ? (
             <div className="form-row form-row-block">
               <p className="form-hint">✓ 备份完成（{formatBytes(result.bytes)}）</p>
               <pre className="raw">{result.outFile}</pre>
@@ -172,7 +203,7 @@ export function ExportBackupModal({
         </div>
         <div className="modal-foot">
           <button className="btn ghost" onClick={onClose} disabled={busy}>
-            {result ? "关闭" : "取消"}
+            {result ? "关闭" : busy ? "备份中…" : "取消"}
           </button>
           {!result && (
             <button
@@ -180,10 +211,50 @@ export function ExportBackupModal({
               onClick={onStart}
               disabled={busy || selected.size === 0 || (noPlaceholder && !confirmRaw)}
             >
-              {busy ? "备份中…" : "开始备份"}
+              {busy
+                ? <><span className="spinner-inline" /> 备份中… {(elapsedMs / 1000).toFixed(1)}s</>
+                : "开始备份"}
             </button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 备份进行中的进度区。后端 createBackup 是一次性 IPC 不分阶段上报，前端按 elapsedMs 估算
+ * 文字阶段（粗粒度但有反馈）。让用户知道「不是卡死，正在做事 + 还要多久」。
+ *
+ * 阶段时间粗估（4 profile 80MB 配置 → gzip -1 ~2-3s 总计；单 profile ~1s）：
+ *   0-300ms: 扫描 profile 与共享资源
+ *   300ms-3s: 脱敏凭据 + 写临时目录
+ *   3s+: 压缩归档（gzip -1）
+ */
+function BackupProgress({ elapsedMs, profileCount, keep }: {
+  elapsedMs: number;
+  profileCount: number;
+  keep: boolean;
+}) {
+  const stage =
+    elapsedMs < 300 ? "扫描 profile 与共享资源…" :
+    elapsedMs < 3000 ? "脱敏凭据 + 写临时目录…" :
+    "压缩归档（gzip -1）…";
+  const eta = profileCount === 1 ? "约 1-3 秒" : profileCount <= 2 ? "约 2-5 秒" : "约 3-15 秒";
+  const target = keep ? "历史副本 dch-backup-<TS>.dchpack" : "默认位 latest.dchpack";
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center",
+      gap: 16, padding: "32px 16px",
+    }}>
+      <div className="spinner" />
+      <div style={{ fontSize: 16, fontWeight: 500 }}>{stage}</div>
+      <div style={{ fontSize: 13, opacity: 0.7, textAlign: "center", lineHeight: 1.6 }}>
+        正在备份 {profileCount} 个 profile + 共享资源到{target}<br />
+        预计{eta} · 已耗时 <code>{(elapsedMs / 1000).toFixed(1)}s</code>
+      </div>
+      <div style={{ fontSize: 12, opacity: 0.5, textAlign: "center" }}>
+        请稍候，不要关闭窗口
       </div>
     </div>
   );

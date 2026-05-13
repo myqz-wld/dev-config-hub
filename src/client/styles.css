@@ -119,6 +119,7 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .center { display: flex; align-items: center; justify-content: center; height: 100vh; gap: 12px; color: var(--fg2); font-size: 14px; }
 .error-text { color: var(--red); }
 .spinner { width: 20px; height: 20px; border: 2px solid var(--bg4); border-top-color: var(--blue); border-radius: 50%; animation: spin .7s linear infinite; }
+.spinner-inline { display: inline-block; width: 11px; height: 11px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 6px; opacity: 0.85; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 ::-webkit-scrollbar { width: 6px; }

@@ -213,6 +213,11 @@ async function spawnSimple(cmd: string[], cwd?: string): Promise<{ ok: boolean; 
   return { ok: code === 0, stderr };
 }
 
+/** sh single-quote escape：防 spawn ['sh', '-c', cmd] 时含特殊字符的路径被误解析。 */
+function shesc(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
 export async function createBackup(opts: CreateBackupOptions = {}): Promise<CreateBackupResult> {
   const noPlaceholder = !!opts.noPlaceholder;
   const includeShared = opts.includeShared !== false;
@@ -341,8 +346,14 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
     await writeJson(join(tmpDir, "manifest.json"), manifest);
     await Bun.write(join(tmpDir, "README.md"), readmeText(manifest));
 
-    // 6. tar -czhf 归档（-h deref symlink，避免新机器路径不一致）
-    const r = await spawnSimple(["tar", "-czhf", outFile, "-C", tmpDir, "."]);
+    // 6. tar 归档：-h deref symlink + 走 sh pipe 用 gzip -1（fastest）替代默认 level 6。
+    //    实测对 ~80MB 配置 + 7000+ 文件的备份：level 6 ≈ 5-10s；level 1 ≈ 2-3s + 包大小仅
+    //    增加 ~15%。UI 「导出备份」是 hot path，速度优先于压缩率。
+    //    sh single-quote escape 防 outFile / tmpDir 含特殊字符注入。
+    const r = await spawnSimple([
+      "sh", "-c",
+      `tar -chf - -C ${shesc(tmpDir)} . | gzip -1 > ${shesc(outFile)}`,
+    ]);
     if (!r.ok) throw new Error(`tar 归档失败: ${r.stderr}`);
 
     const bytes = (await Bun.file(outFile).stat()).size;

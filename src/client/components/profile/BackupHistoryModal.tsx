@@ -2,13 +2,20 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   dchProfile, type BackupSummary,
 } from "../../bridge.ts";
+import { backupCache } from "../../backup-cache.ts";
 
 /**
  * 备份历史 Modal：列三组（默认位 / 置顶 / 历史），每组每行支持「还原 / 置顶 / 删除」。
  *
+ * Cache 行为：
+ * - mount 时若 backupCache 有数据 → 立即显示（即时打开，零延迟）+ 后台 silent refresh 拿最新
+ * - 无 cache → 显示 spinner + "读取中…" + 阻塞 UI 等首次 fetch
+ * - 任何写操作（pin / rm）→ backupCache.clear() + 重 fetch 同步
+ * - 用户点「🔄 刷新」按钮 → 强制 fetch 不走 cache
+ *
  * 数据流：
- * 1. mount 时调 dchProfile.backups() 拿列表 + 分组
- * 2. 任何写操作（pin / rm）后重新拉一次列表（保持显示一致）
+ * 1. mount 时调 dchProfile.backups() 拿列表 + 分组（or cache）
+ * 2. 任何写操作（pin / rm）后 clear cache + 重新拉一次列表
  * 3. 点「还原此备份」→ 调 onRestoreFile(path) 给上层 ProfilePanel，关 modal + 打开
  *    RestoreBackupModal 预填 packPath
  *
@@ -22,25 +29,38 @@ export function BackupHistoryModal({
   /** 用户点「还原此备份」时调；上层关 modal + 打开 RestoreBackupModal 预填 packPath */
   onRestoreFile: (packPath: string) => void;
 }) {
-  const [items, setItems] = useState<BackupSummary[] | null>(null);
-  const [backupDir, setBackupDir] = useState<string>("");
+  // 初始 state 直接吃 cache，让 modal 立即显示历史（避免每次开 modal 都看 spinner）
+  const cached = backupCache.get();
+  const [items, setItems] = useState<BackupSummary[] | null>(cached?.items ?? null);
+  const [backupDir, setBackupDir] = useState<string>(cached?.backupDir ?? "");
+  // initialLoad: 完全没 cache 时 = true（阻塞渲染显示 spinner）；cache hit 时 = false（已显示 stale，后台 silent refresh）
+  const [initialLoad, setInitialLoad] = useState(!cached);
+  const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
 
-  const reload = useCallback(async () => {
-    setBusy(true);
+  const reload = useCallback(async (silent = false) => {
+    if (silent) setRefreshing(true);
+    else setBusy(true);
     try {
       const r = await dchProfile.backups();
       setItems(r.items);
       setBackupDir(r.backupDir);
+      backupCache.set(r.items, r.backupDir);
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
     } finally {
       setBusy(false);
+      setRefreshing(false);
+      setInitialLoad(false);
     }
   }, [onToast]);
 
-  useEffect(() => { void reload(); }, [reload]);
+  // Mount 时：cache hit → 后台 silent refresh；cache miss → 阻塞 fetch
+  useEffect(() => {
+    void reload(!!cached);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onPin = async (path: string, pin: boolean) => {
     setBusy(true);
@@ -54,6 +74,7 @@ export function BackupHistoryModal({
           : `已取消置顶`,
         true,
       );
+      backupCache.clear();
       await reload();
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
@@ -68,6 +89,7 @@ export function BackupHistoryModal({
       await dchProfile.backupRm(path);
       onToast(`已删除`, true);
       setConfirmDel(null);
+      backupCache.clear();
       await reload();
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
@@ -88,7 +110,7 @@ export function BackupHistoryModal({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>📚 备份历史</h2>
+          <h2>📚 备份历史 {refreshing && <span style={{ fontSize: "0.7em", opacity: 0.7, marginLeft: 8 }}>同步中…</span>}</h2>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
@@ -96,17 +118,21 @@ export function BackupHistoryModal({
             目录：<code>{backupDir || "~/.dch/backups/"}</code>
             <button
               className="btn-sm"
-              onClick={() => void reload()}
-              disabled={busy}
+              onClick={() => { backupCache.clear(); void reload(); }}
+              disabled={busy || initialLoad}
               style={{ marginLeft: 12 }}
             >
-              {busy ? "刷新中…" : "🔄 刷新"}
+              {busy || refreshing ? "刷新中…" : "🔄 刷新"}
             </button>
           </p>
 
-          {!items ? (
-            <div className="empty">读取中…</div>
-          ) : items.length === 0 ? (
+          {initialLoad ? (
+            <div className="empty" style={{ padding: 32, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+              <div className="spinner" />
+              <span>读取备份列表中…</span>
+              <span style={{ fontSize: "0.85em", opacity: 0.7 }}>每个备份需解析 manifest 摘要 (~50-100ms)</span>
+            </div>
+          ) : !items || items.length === 0 ? (
             <div className="empty">
               无备份。点 <code>📦 导出备份</code> 创建第一个。
             </div>

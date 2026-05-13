@@ -114,3 +114,40 @@ $ dch profile backup-rm dch-backup-20260513-171753.dchpack --yes
 - 不做 .pinned sidecar 含元数据（pin 时间 / pin 原因），如有需求未来加 `<file>.pinned.json`
 - 不做备份内容增量 / dedupe（每次都全量打包）
 - 不做 BackupHistoryModal 的"导出此 profile 子集"按钮，导出走现有 ExportBackupModal
+
+## 性能跟进（hotfix）
+
+用户首次实际使用时反馈：「📚 备份历史」打开有卡顿、「📦 导出备份」卡很久会让人以为卡死。原因 + 修复：
+
+### 1. 备份列表 N 个 tar exec 串行 → 并发
+
+`backup-manage.ts:listBackups` 原本 for 循环 N 次 `tar -xzOf` 提 manifest 摘要，串行 ≈ N×100ms。改用 `Promise.all` 并发，4 个备份 **400ms → 170ms**（含 cli cold start 500ms）。N 越大优势越明显。
+
+### 2. createBackup tar 改 gzip -1（fastest）
+
+原 `tar -czhf` 默认 gzip level 6，4 profile 86MB 备份 ≈ 5-10s。改 `tar -chf - | gzip -1 > out` shell pipe，level 1 fastest 模式：**4.6s 全量**。包大小 83MB → 86.4MB（+4%，比预期 +15% 还小）。备份是 hot path，速度优先压缩率。
+
+### 3. 备份历史 modal cache + silent refresh
+
+新增 `src/client/backup-cache.ts` 模块级单例。BackupHistoryModal mount 时：
+- 有 cache → 立即显示历史（零延迟）+ 后台 silent refresh 同步最新（标题旁 "同步中…" 灰字提示）
+- 无 cache → 阻塞等首次 fetch + 显示居中 spinner + "读取中… 每个备份需解析 manifest 摘要 (~50-100ms)" 解释延迟来源
+
+写操作（pin / rm / 完成 backup）后 `backupCache.clear()` 失效缓存，下次打开 / 当前 reload 拿真实 fs 数据。
+
+### 4. ExportBackupModal 备份中进度区
+
+之前 busy=true 时只有按钮文字变 "备份中…"，用户以为卡死。现在 modal-body 在 busy 期间整体替换为：
+- 居中大号 spinner
+- 当前阶段文字（按 elapsedMs 估算：扫描 → 脱敏 → 压缩归档）
+- 已耗时 `<elapsed>s` 实时滚动（每 100ms 更新）
+- 预期时间（按 profile 数：1 个 1-3s / 2 个 2-5s / ≥3 个 3-15s）
+- 「请稍候，不要关闭窗口」灰字提示
+- 按钮变 `<spinner-inline> 备份中… <elapsed>s`
+
+完成后 `backupCache.clear()` 让 BackupHistoryModal 拿到新备份。
+
+### 5. styles.css
+
+- 复用现有 `.spinner` (20px 大号居中) 给 modal-body loading 用
+- 新增 `.spinner-inline` (11px 行内嵌入) 给按钮内 spinner 用
