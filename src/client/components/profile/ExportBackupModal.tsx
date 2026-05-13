@@ -11,7 +11,7 @@ import { dchProfile, type Profile, type Manifest } from "../../bridge.ts";
  * - 备份完成显示路径 + 占位符数量；用户可关 modal
  */
 export function ExportBackupModal({
-  profiles, presetProfileIds, onClose, onToast,
+  profiles, presetProfileIds, presetKeep, onClose, onToast,
 }: {
   profiles: Profile[];
   /** 单 profile 卡片打开时只预选该 profile；不传 = 全选 */
