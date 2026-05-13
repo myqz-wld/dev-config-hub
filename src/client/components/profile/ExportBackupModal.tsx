@@ -16,6 +16,8 @@ export function ExportBackupModal({
   profiles: Profile[];
   /** 单 profile 卡片打开时只预选该 profile；不传 = 全选 */
   presetProfileIds?: string[];
+  /** 默认 keep 状态（来自调用上下文，如「备份历史 → 备份」可预设 keep=true） */
+  presetKeep?: boolean;
   onClose: () => void;
   onToast: (msg: string, ok: boolean) => void;
 }) {
@@ -24,6 +26,7 @@ export function ExportBackupModal({
   const [includeShared, setIncludeShared] = useState(true);
   const [noPlaceholder, setNoPlaceholder] = useState(false);
   const [confirmRaw, setConfirmRaw] = useState(false);
+  const [keep, setKeep] = useState(!!presetKeep);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ outFile: string; bytes: number; manifest: Manifest } | null>(null);
 
@@ -48,6 +51,7 @@ export function ExportBackupModal({
         profileIds: Array.from(selected),
         noShared: !includeShared,
         noPlaceholder,
+        keep,
         yes: true,
       });
       setResult(r);
@@ -72,8 +76,8 @@ export function ExportBackupModal({
               <p className="form-hint">✓ 备份完成（{formatBytes(result.bytes)}）</p>
               <pre className="raw">{result.outFile}</pre>
               <p className="form-hint">
-                包含 {result.manifest.profiles.length} 个 profile，
-                {result.manifest.placeholders.length} 处脱敏。
+                {keep ? "已保留为历史副本" : "已覆盖默认位 latest.dchpack"} · 包含 {result.manifest.profiles.length} 个 profile，{result.manifest.placeholders.length} 处脱敏。
+                <br />
                 还原方式：CLI 跑 <code>dch profile restore &lt;path&gt;</code>，或 ProfilePanel → 📥 导入备份。
               </p>
             </div>
@@ -107,6 +111,23 @@ export function ExportBackupModal({
                     disabled={busy}
                   />
                   <span>~/.dch/scripts/* + ~/.agents/**（hook 引用必需）</span>
+                </label>
+              </div>
+
+              <div className="form-row">
+                <label>保留为历史</label>
+                <label style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={keep}
+                    onChange={(e) => setKeep(e.target.checked)}
+                    disabled={busy}
+                  />
+                  <span>
+                    {keep
+                      ? <>勾选后 → <code>dch-backup-&lt;TS&gt;.dchpack</code>（不会被下次 backup 覆盖）</>
+                      : <>不勾 → 覆盖默认位 <code>latest.dchpack</code>（下次 backup 也覆盖）</>}
+                  </span>
                 </label>
               </div>
 

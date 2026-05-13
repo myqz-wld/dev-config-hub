@@ -13,6 +13,7 @@ import { PreferencesEditor } from "./profile/PreferencesEditor.tsx";
 import { ProfileStoreEditor } from "./profile/ProfileStoreEditor.tsx";
 import { ExportBackupModal } from "./profile/ExportBackupModal.tsx";
 import { RestoreBackupModal } from "./profile/RestoreBackupModal.tsx";
+import { BackupHistoryModal } from "./profile/BackupHistoryModal.tsx";
 
 /**
  * CHANGELOG_13：ProfilePanel 改受控组件。
@@ -42,7 +43,9 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
   const [showStoreEditor, setShowStoreEditor] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showRestore, setShowRestore] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [exportPresetIds, setExportPresetIds] = useState<string[] | undefined>(undefined);
+  const [restorePresetPath, setRestorePresetPath] = useState<string | undefined>(undefined);
   const [hookOutput, setHookOutput] = useState<{ id: string; which: string; result: HookResult | null } | null>(null);
 
   // store/active 在 App.tsx 的首屏 loadProfileData 失败时可能 null；panel 常驻必须永远 mount
@@ -134,10 +137,13 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
           </button>
         ))}
         <div className="profile-tabs-spacer" />
-        <button className="btn-sm" onClick={() => { setExportPresetIds(undefined); setShowExport(true); }} title="备份所有 profile + 共享资源到 .dchpack">
+        <button className="btn-sm" onClick={() => { setExportPresetIds(undefined); setShowExport(true); }} title="备份所有 profile + 共享资源到 .dchpack（默认覆盖 latest.dchpack）">
           📦 导出备份
         </button>
-        <button className="btn-sm" onClick={() => setShowRestore(true)} title="从 .dchpack 还原（按新 profile 加入，不动现有 active）">
+        <button className="btn-sm" onClick={() => setShowHistory(true)} title="备份历史：默认位 / 置顶 / 历史 三组管理">
+          📚 备份历史
+        </button>
+        <button className="btn-sm" onClick={() => { setRestorePresetPath(undefined); setShowRestore(true); }} title="从 .dchpack 还原（按新 profile 加入，不动现有 active）">
           📥 导入备份
         </button>
         {/* PR-I 新入口：编辑 profiles.json */}
@@ -274,9 +280,22 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
       {showRestore && (
         <RestoreBackupModal
           profiles={store.profiles}
-          onClose={() => setShowRestore(false)}
+          presetPackPath={restorePresetPath}
+          onClose={() => { setShowRestore(false); setRestorePresetPath(undefined); }}
           onToast={onToast}
           onReloadProfile={onReloadProfile}
+        />
+      )}
+
+      {showHistory && (
+        <BackupHistoryModal
+          onClose={() => setShowHistory(false)}
+          onToast={onToast}
+          onRestoreFile={(path) => {
+            setShowHistory(false);
+            setRestorePresetPath(path);
+            setShowRestore(true);
+          }}
         />
       )}
     </div>

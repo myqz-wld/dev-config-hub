@@ -10,97 +10,17 @@ import { defaultProfileDir } from "./profiles/defaults.ts";
 import { defaultEditor } from "./platform.ts";
 import { c } from "./cli-colors.ts";
 import {
-  createBackup, parseBackup, applyBackup, cleanupParsed,
-  type Manifest, type ApplyBackupResult,
-} from "./profiles/backup.ts";
+  setJsonMode, isJsonMode, flushStdout, jsonOut, writeOut, err, ok, info,
+  parseFlags, readStdinLine,
+} from "./cli-shared.ts";
+import {
+  cmdBackup, cmdRestore, cmdBackups, cmdBackupRm, cmdBackupPin,
+} from "./cli-backup.ts";
+
+// 兼容旧 import 路径（src/profiles/manager.test.ts 等导入 parseFlags / VALUE_FLAGS / readStdinLine）
+export { parseFlags, VALUE_FLAGS } from "./cli-shared.ts";
 
 const TOOLS: ToolKind[] = ["claude", "codex"];
-
-let JSON_MODE = false;
-
-// REVIEW_7 H1（双方实证）：Bun 在 stdout=pipe 场景下（Tauri Rust `command.output()` 调 CLI 的真实场景）
-// 单次 `process.stdout.write(big)` + 立即 `process.exit(0)` 在 ≥ 65537 byte 时**必被截断到 65536 byte**
-// （macOS pipe buffer 上限）。`SwitchResult.hooks[].stdout/stderr` 跑大输出 hook（npm install / 大 curl）
-// 时完全可能超 64KB → UI `JSON.parse(r.stdout)` 抛 SyntaxError → 用户看到「切换失败：Unexpected end
-// of JSON input」比卡死还难诊断。
-//
-// 实测：`process.stdout.end(cb)` 与 `'drain' event` 都不能保证 flush；**只有 `write(data, callback)`
-// 的 callback 形式生效**。所有 stdout 输出统一走该模式。
-function flushStdout(): Promise<void> {
-  return new Promise((resolve) => {
-    // 写零字节强制让 Bun 把已 buffered 的字节真正 flush 到 pipe；callback 触发即代表 OS 已收
-    process.stdout.write("", () => resolve());
-  });
-}
-
-async function jsonOut(data: unknown): Promise<void> {
-  await new Promise<void>((resolve) => {
-    process.stdout.write(JSON.stringify(data) + "\n", () => resolve());
-  });
-}
-
-// 给 cmdEnv 这种「多行 export 直接走 process.stdout.write」的非 JSON 路径用：
-// 同样有 65536 截断风险（codex MED-A1：cmdEnv 大 env 场景下也会被 process.exit 截断）。
-async function writeOut(s: string): Promise<void> {
-  await new Promise<void>((resolve) => {
-    process.stdout.write(s, () => resolve());
-  });
-}
-
-function err(msg: string): never {
-  if (JSON_MODE) {
-    // 同样要 await flush 后再 exit；但 err() 类型契约是 never（不 return），用 setImmediate 起一个微小
-    // 异步窗口让 callback 触发后再 exit(1)，throw 兜类型让 TS 满意（callback 触发前 throw 同步抛出）。
-    process.stdout.write(JSON.stringify({ error: msg }) + "\n", () => process.exit(1));
-    // throw 让函数满足 never（callback 是异步的，throw 先于 callback 触发）
-    throw new Error(msg);
-  }
-  console.error(`${c.red}${msg}${c.reset}`);
-  process.exit(1);
-}
-
-function ok(msg: string) {
-  if (JSON_MODE) return;
-  console.log(`${c.green}✓${c.reset} ${msg}`);
-}
-
-function info(msg: string) {
-  if (JSON_MODE) return;
-  console.log(`${c.gray}${msg}${c.reset}`);
-}
-
-// 已知带值的 flag。next arg 一律当 value 收下，不再用 startsWith("--") 误判，
-// 否则用户传 --pre-hook '--foo' 这类 hook 字面值会被吞。
-export const VALUE_FLAGS = new Set(["dir", "desc", "from", "pre-hook", "post-hook"]);
-
-// export 给单测（CHANGELOG_5 反复修过这块没 spec 易再退化，REVIEW_2 PR-1 补回归保护）。
-// 注意：内部 `--env BADFORMAT`（缺 `=`）会调 err() 触发 process.exit(1)；单测捕获该路径。
-export function parseFlags(argv: string[]): { positional: string[]; flags: Record<string, string | true>; envPairs: [string, string][] } {
-  const positional: string[] = [];
-  const flags: Record<string, string | true> = {};
-  const envPairs: [string, string][] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
-    if (a === "--env" && argv[i + 1]) {
-      const kv = argv[++i]!;
-      const eq = kv.indexOf("=");
-      if (eq < 0) err(`--env 需要 KEY=VALUE 形式: ${kv}`);
-      envPairs.push([kv.slice(0, eq), kv.slice(eq + 1)]);
-    } else if (a.startsWith("--")) {
-      const key = a.slice(2);
-      const next = argv[i + 1];
-      if (next !== undefined && (VALUE_FLAGS.has(key) || !next.startsWith("--"))) {
-        flags[key] = next;
-        i++;
-      } else {
-        flags[key] = true;
-      }
-    } else {
-      positional.push(a);
-    }
-  }
-  return { positional, flags, envPairs };
-}
 
 function fmtToolBadge(tool: ToolKind): string {
   return tool === "claude" ? `${c.magenta}claude${c.reset}` : `${c.cyan}codex${c.reset}`;
@@ -125,7 +45,7 @@ function fmtProfileLine(p: Profile, isActive: boolean): string {
 
 async function cmdList() {
   const store = await listProfiles();
-  if (JSON_MODE) return jsonOut(store);
+  if (isJsonMode()) return jsonOut(store);
   console.log(`${c.bold}${c.blue}Dev Config Hub - Profiles${c.reset}`);
   console.log(`${c.gray}${STORE_PATH}${c.reset}`);
   console.log();
@@ -147,7 +67,7 @@ async function cmdList() {
 
 async function cmdShow(id: string) {
   const p = await getProfile(id);
-  if (JSON_MODE) return jsonOut(p);
+  if (isJsonMode()) return jsonOut(p);
   console.log(JSON.stringify(p, null, 2));
 }
 
@@ -191,7 +111,7 @@ async function cmdAdd(args: string[]) {
   };
 
   await addProfile(profile);
-  if (JSON_MODE) return jsonOut({ ok: true, profile });
+  if (isJsonMode()) return jsonOut({ ok: true, profile });
   ok(`已添加 profile ${c.bold}${id}${c.reset} → ${profile.configDir}`);
   info(`提示: dch profile use ${id} 切换；dch profile edit ${id} 改细节`);
 }
@@ -216,42 +136,8 @@ async function cmdRemove(args: string[]) {
     }
   }
   await removeProfile(id);
-  if (JSON_MODE) return jsonOut({ ok: true, removed: id });
+  if (isJsonMode()) return jsonOut({ ok: true, removed: id });
   ok(`已移除 profile ${id}`);
-}
-
-/**
- * stdin 单行读取 helper。Ctrl+D / EOF 视为空输入（caller 当"取消"）。
- * data / end listener 都清干净，避免 keep-alive 阻塞 dispatcher 末尾的 process.exit(0)。
- */
-async function readStdinLine(): Promise<string> {
-  return new Promise((resolve) => {
-    let acc = "";
-    process.stdin.resume();
-    const onData = (d: Buffer) => {
-      acc += d.toString();
-      if (acc.includes("\n")) {
-        process.stdin.pause();
-        process.stdin.removeListener("data", onData);
-        process.stdin.removeListener("end", onEnd);
-        resolve(acc.trim());
-      }
-    };
-    const onEnd = () => {
-      process.stdin.pause();
-      process.stdin.removeListener("data", onData);
-      resolve(acc.trim());
-    };
-    process.stdin.on("data", onData);
-    process.stdin.on("end", onEnd);
-  });
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)}GB`;
 }
 
 function fmtHookResult(r: HookResult): string {
@@ -270,7 +156,7 @@ async function cmdUse(args: string[]) {
   if (!id) err("用法: dch profile use <id>");
 
   const result = await useProfile(id);
-  if (JSON_MODE) return jsonOut(result);
+  if (isJsonMode()) return jsonOut(result);
   for (const h of result.hooks) console.log(fmtHookResult(h));
 
   if (!result.ok) {
@@ -290,7 +176,7 @@ async function cmdCurrent(args: string[]) {
     if (!TOOLS.includes(tool)) err(`tool 必须是 claude 或 codex (收到 ${tool})`);
     result[tool] = await getActive(tool);
   }
-  if (JSON_MODE) return jsonOut(result);
+  if (isJsonMode()) return jsonOut(result);
   for (const [tool, a] of Object.entries(result)) {
     const link = a.symlinkTarget ? collapseHome(a.symlinkTarget) : `${c.gray}(非 symlink)${c.reset}`;
     const id = a.id ?? `${c.gray}<未设置>${c.reset}`;
@@ -312,12 +198,12 @@ async function cmdEnv(args: string[]) {
   const store = await listProfiles();
   const activeId = store.active[tool] ?? null;
   if (!activeId) {
-    if (JSON_MODE) return jsonOut({ tool, active: null, env: {} });
+    if (isJsonMode()) return jsonOut({ tool, active: null, env: {} });
     return; // wrapper 静默 fall-through
   }
   const profile = store.profiles.find((p) => p.id === activeId);
   const env = profile?.env ?? {};
-  if (JSON_MODE) return jsonOut({ tool, active: activeId, env });
+  if (isJsonMode()) return jsonOut({ tool, active: activeId, env });
   for (const [k, v] of Object.entries(env)) {
     if (!ENV_KEY_RE.test(k)) continue; // 拒绝非法 key，防止 shell 注入
     // REVIEW_7 H1（codex MED-A1）：cmdEnv 大 env（多条 + 大 value）+ 上层 wrapper eval 时也会被
@@ -333,7 +219,7 @@ async function cmdInit(args: string[]) {
   if (!TOOLS.includes(toolRaw as ToolKind)) err(`tool 必须是 claude 或 codex`);
   const tool = toolRaw as ToolKind;
   const r = await initTool(tool);
-  if (JSON_MODE) return jsonOut({ ok: true, ...r });
+  if (isJsonMode()) return jsonOut({ ok: true, ...r });
   ok(`init ${tool}: ${r.state}, default profile = ${c.bold}${r.profileId}${c.reset} → ${r.configDir}`);
   info(`现在 ${TOOL_PATHS[tool]} 是 symlink，可以用 dch profile use 切换。`);
 }
@@ -344,7 +230,7 @@ async function cmdHook(args: string[]) {
     err("用法: dch profile hook test <id> <pre|post>");
   }
   const r = await testHook(id, which as "pre" | "post");
-  if (JSON_MODE) return jsonOut(r);
+  if (isJsonMode()) return jsonOut(r);
   if (!r) {
     info(`profile ${id} 未配置 ${which}Switch hook`);
     return;
@@ -371,151 +257,8 @@ async function cmdConfig(args: string[]) {
   } else {
     err(`未知配置项: ${key}（仅支持 hookTimeoutMs）`);
   }
-  if (JSON_MODE) return jsonOut({ ok: true, key, value });
+  if (isJsonMode()) return jsonOut({ ok: true, key, value });
   ok(`已设置 ${key} = ${value}`);
-}
-
-async function cmdBackup(args: string[]) {
-  const { flags } = parseFlags(args);
-  const noPlaceholder = flags["no-placeholder"] === true;
-  const includeShared = flags["no-shared"] !== true;
-  const yes = flags.yes === true;
-  const profileIds = typeof flags.profiles === "string"
-    ? flags.profiles.split(",").map((s) => s.trim()).filter(Boolean)
-    : undefined;
-  const outFile = typeof flags.out === "string" ? flags.out : undefined;
-
-  // --no-placeholder 二次确认（JSON_MODE 下必须 --yes，避免脚本误用泄露明文凭据）
-  if (noPlaceholder && !yes) {
-    if (JSON_MODE) {
-      err("--no-placeholder 在 --json 模式下必须配 --yes（避免脚本误用泄露明文凭据）");
-    }
-    process.stdout.write(`${c.yellow}⚠ --no-placeholder：备份将含明文 token / API key${c.reset}\n`);
-    process.stdout.write(`${c.yellow}  请确认你只在加密渠道（gpg / age / 本地）使用此包。继续? [y/N] ${c.reset}`);
-    const line = await readStdinLine();
-    if (line.toLowerCase() !== "y" && line.toLowerCase() !== "yes") {
-      info("已取消");
-      return;
-    }
-  }
-
-  const result = await createBackup({ outFile, profileIds, includeShared, noPlaceholder });
-
-  if (JSON_MODE) return jsonOut({ ok: true, ...result });
-  ok(`已写入 ${result.outFile} (${formatBytes(result.bytes)})`);
-  info(`包含 ${result.manifest.profiles.length} 个 profile: ${result.manifest.profiles.map((p) => p.id).join(", ")}`);
-  if (result.manifest.shared.dch_scripts.length || result.manifest.shared.agents_paths.length) {
-    info(`共享资源: ${result.manifest.shared.dch_scripts.length} 个 hook 脚本, ${result.manifest.shared.agents_paths.length} 个 agent 文件`);
-  }
-  if (result.manifest.placeholders.length > 0) {
-    process.stdout.write(`${c.yellow}⚠ 已脱敏 ${result.manifest.placeholders.length} 处凭据:${c.reset}\n`);
-    for (const ph of result.manifest.placeholders) {
-      process.stdout.write(`  - ${ph.packPath} :: ${ph.fieldName}\n`);
-    }
-  }
-  if (noPlaceholder) {
-    process.stdout.write(`${c.red}⚠ --no-placeholder 模式：包内含明文凭据，请只通过加密渠道分享${c.reset}\n`);
-  }
-  info(`还原方式: dch profile restore ${result.outFile}`);
-}
-
-async function cmdRestore(args: string[]) {
-  const { positional, flags } = parseFlags(args);
-  const [packFile] = positional;
-  if (!packFile) {
-    err("用法: dch profile restore <pack> [--prefix <p>] [--rename OLD=NEW,...] [--dry-run] [--yes]");
-  }
-
-  const dryRun = flags["dry-run"] === true;
-  const prefix = typeof flags.prefix === "string" ? flags.prefix : undefined;
-  const renameMap: Record<string, string> = {};
-  if (typeof flags.rename === "string") {
-    for (const pair of flags.rename.split(",")) {
-      const trimmed = pair.trim();
-      if (!trimmed) continue;
-      const eq = trimmed.indexOf("=");
-      if (eq < 0) err(`--rename 格式 OLD=NEW (收到 ${trimmed})`);
-      const k = trimmed.slice(0, eq).trim();
-      const v = trimmed.slice(eq + 1).trim();
-      if (!k || !v) err(`--rename 格式 OLD=NEW (收到 ${trimmed})`);
-      renameMap[k] = v;
-    }
-  }
-
-  const parsed = await parseBackup(packFile);
-  try {
-    const dryPlan = await applyBackup({ parsed, prefix, renameMap, dryRun: true });
-
-    if (dryRun) {
-      if (JSON_MODE) return jsonOut({ ok: true, dryRun: true, manifest: parsed.manifest, plan: dryPlan });
-      printRestorePreview(parsed.manifest, dryPlan);
-      return;
-    }
-
-    const result = await applyBackup({ parsed, prefix, renameMap });
-    if (JSON_MODE) return jsonOut({ ok: result.errors.length === 0, manifest: parsed.manifest, ...result });
-
-    if (result.errors.length > 0) {
-      for (const e of result.errors) process.stdout.write(`${c.red}✗ ${e}${c.reset}\n`);
-    }
-    ok(`已还原 ${result.appliedProfiles.length} 个 profile`);
-    for (const ap of result.appliedProfiles) {
-      const tag = ap.conflict === "none" ? "" : ` ${c.gray}[${ap.conflict}]${c.reset}`;
-      info(`  ${ap.originalId} → ${c.bold}${ap.finalId}${c.reset} (${ap.configDir})${tag}`);
-    }
-    if (result.sharedActions.length > 0) {
-      info(`共享资源 ${result.sharedActions.length} 项:`);
-      for (const sa of result.sharedActions) {
-        info(`  ${sa.category} ${sa.relPath} → ${sa.action}`);
-      }
-    }
-    if (result.placeholders.length > 0) {
-      process.stdout.write(`${c.yellow}待填占位符 ${result.placeholders.length} 处:${c.reset}\n`);
-      for (const ph of result.placeholders) {
-        process.stdout.write(`  ${ph.hostPath ?? ph.packPath} :: ${ph.fieldName} — ${ph.hint}\n`);
-      }
-      info(`填完后跑: dch profile use <id>`);
-    }
-  } finally {
-    await cleanupParsed(parsed);
-  }
-}
-
-function printRestorePreview(manifest: Manifest, plan: ApplyBackupResult): void {
-  console.log(`${c.bold}${c.blue}DRY-RUN — 不会修改文件${c.reset}\n`);
-  console.log(`${c.bold}来源：${c.reset}${manifest.source_user}@${manifest.source_host} · ${manifest.created_at}`);
-  console.log(`${c.bold}DCH 版本：${c.reset}${manifest.dch_version}`);
-  if (manifest.options.no_placeholder) {
-    console.log(`${c.red}⚠ 包内含明文凭据 (--no-placeholder 模式)${c.reset}`);
-  }
-  console.log();
-
-  console.log(`${c.bold}待还原 profile (${plan.appliedProfiles.length}):${c.reset}`);
-  for (const ap of plan.appliedProfiles) {
-    const tag = ap.conflict === "none"
-      ? `${c.gray}无冲突 ✓${c.reset}`
-      : `${c.yellow}${ap.conflict}${c.reset}`;
-    console.log(`  ${ap.originalId} → ${c.bold}${ap.finalId}${c.reset} (${ap.configDir}) ${tag}`);
-  }
-
-  if (plan.sharedActions.length > 0) {
-    console.log(`\n${c.bold}共享资源:${c.reset}`);
-    for (const sa of plan.sharedActions) {
-      console.log(`  ${sa.category} ${sa.relPath} → ${sa.action}`);
-    }
-  }
-
-  if (plan.placeholders.length > 0) {
-    console.log(`\n${c.bold}${c.yellow}待填占位符 (${plan.placeholders.length}):${c.reset}`);
-    for (const ph of plan.placeholders) {
-      console.log(`  ${ph.hostPath ?? ph.packPath} :: ${ph.fieldName} — ${ph.hint}`);
-    }
-  }
-
-  if (plan.errors.length > 0) {
-    console.log(`\n${c.bold}${c.red}错误 (${plan.errors.length}):${c.reset}`);
-    for (const e of plan.errors) console.log(`  ${e}`);
-  }
 }
 
 function help() {
@@ -533,10 +276,17 @@ ${c.bold}子命令:${c.reset}
   ${c.cyan}init${c.reset}    <claude|codex>        把 ~/.claude / ~/.codex 转成 symlink，建立 default profile
   ${c.cyan}hook test${c.reset} <id> <pre|post>     单独运行 hook 测试
   ${c.cyan}config${c.reset}  hookTimeoutMs <ms>    设置 hook 超时
+
+${c.bold}备份 / 还原:${c.reset}
   ${c.cyan}backup${c.reset}                        备份所有 profile + 共享资源到 .dchpack
+                                  默认覆盖 ~/.dch/backups/latest.dchpack（默认位）
+                                  [--keep] 保留为 dch-backup-<TS>.dchpack 历史副本
                                   [--out <file>] [--profiles <id1,id2>] [--no-shared] [--no-placeholder] [--yes]
   ${c.cyan}restore${c.reset} <pack>                还原 .dchpack（自动加 -restored-<TS> 后缀避免撞名）
                                   [--prefix <p>] [--rename OLD=NEW,...] [--dry-run] [--yes]
+  ${c.cyan}backups${c.reset}                       列出所有 .dchpack（默认位 / 置顶 / 历史 三组）
+  ${c.cyan}backup-rm${c.reset} <file>              删除指定备份（basename 或绝对路径）[--yes]
+  ${c.cyan}backup-pin${c.reset} <file>             置顶备份不被覆盖（默认位 → 复制副本 + 置顶；其他 → 原地置顶）[--unpin]
 
 ${c.bold}env 变量 (hook 内可用):${c.reset}
   DCH_PROFILE_ID, DCH_PROFILE_TOOL, DCH_PROFILE_CONFIG_DIR
@@ -546,7 +296,7 @@ ${c.bold}env 变量 (hook 内可用):${c.reset}
 
 export async function runProfileCommand(args: string[]): Promise<void> {
   if (args.includes("--json")) {
-    JSON_MODE = true;
+    setJsonMode(true);
     args = args.filter((a) => a !== "--json");
   }
   const [sub, ...rest] = args;
@@ -565,7 +315,7 @@ export async function runProfileCommand(args: string[]): Promise<void> {
 
   // 路由：所有非 edit 子命令统一 await，让 cmd 内部 await（loadStore/saveStore/runHook/jsonOut/...）
   // 全 settle 才到末尾兜底强退。jsonOut 已改 async + write callback，process.exit 不会截断 stdout
-  // （详 REVIEW_7 H1 + 本文件顶部 flushStdout/jsonOut 注释）。
+  // （详 REVIEW_7 H1 + cli-shared.ts 顶部 flushStdout/jsonOut 注释）。
   if (!sub || sub === "list") await cmdList();
   else if (sub === "show") rest[0] ? await cmdShow(rest[0]) : err("用法: dch profile show <id>");
   else if (sub === "add") await cmdAdd(rest);
@@ -578,6 +328,9 @@ export async function runProfileCommand(args: string[]): Promise<void> {
   else if (sub === "config") await cmdConfig(rest);
   else if (sub === "backup") await cmdBackup(rest);
   else if (sub === "restore") await cmdRestore(rest);
+  else if (sub === "backups") await cmdBackups(rest);
+  else if (sub === "backup-rm") await cmdBackupRm(rest);
+  else if (sub === "backup-pin") await cmdBackupPin(rest);
   else if (sub === "--help" || sub === "-h" || sub === "help") help();
   else err(`未知子命令: ${sub}\n跑 dch profile --help 查看用法`);
 

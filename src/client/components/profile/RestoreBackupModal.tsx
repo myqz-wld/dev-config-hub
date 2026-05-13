@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   dchProfile, type Profile, type Manifest, type AppliedProfile,
   type ApplyBackupResult, type SharedAction, type PlaceholderEntry,
@@ -7,7 +7,7 @@ import {
 
 /**
  * 导入备份 modal：3 步流程
- * 1. 输入 .dchpack 路径 → 读取预览
+ * 1. 输入 .dchpack 路径 → 读取预览（presetPackPath 时自动触发）
  * 2. 看冲突 / 改名（每个 profile 的 finalId 用户可覆盖）→ 确认还原
  * 3. 看还原报告 + 占位符清单（点击跳转编辑）→ 关闭
  *
@@ -15,16 +15,18 @@ import {
  * 用户可在 input 改 finalId；UI 端做基础格式校验（^[a-zA-Z0-9_-]+$）+ 撞名实时提示。
  */
 export function RestoreBackupModal({
-  profiles, onClose, onToast, onReloadProfile, onRevealPlaceholder,
+  profiles, presetPackPath, onClose, onToast, onReloadProfile, onRevealPlaceholder,
 }: {
   profiles: Profile[];
+  /** 预填 packPath（来自 BackupHistoryModal 还原跳转），mount 后自动 preview */
+  presetPackPath?: string;
   onClose: () => void;
   onToast: (msg: string, ok: boolean) => void;
   onReloadProfile: (silent?: boolean) => Promise<void>;
   /** 跳转到 profile + configFile 的编辑器；configFile 是相对 configDir 的路径 */
   onRevealPlaceholder?: (profileId: string, configFile: string) => void;
 }) {
-  const [packPath, setPackPath] = useState("");
+  const [packPath, setPackPath] = useState(presetPackPath ?? "");
   const [preview, setPreview] = useState<{ manifest: Manifest; plan: ApplyBackupResult } | null>(null);
   const [renameMap, setRenameMap] = useState<Record<string, string>>({});
   const [result, setResult] = useState<ApplyBackupResult | null>(null);
@@ -51,6 +53,17 @@ export function RestoreBackupModal({
       setBusy(false);
     }
   };
+
+  // mount 时若有 presetPackPath，自动触发 preview（来自 BackupHistoryModal 还原跳转）
+  // 用 ref 防 React 19 StrictMode 双 mount 重复 preview。
+  const autoPreviewedRef = useRef(false);
+  useEffect(() => {
+    if (presetPackPath && !autoPreviewedRef.current) {
+      autoPreviewedRef.current = true;
+      void onPreview();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const updateName = (originalId: string, newId: string) => {
     setRenameMap((m) => ({ ...m, [originalId]: newId }));

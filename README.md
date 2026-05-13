@@ -105,11 +105,16 @@ dch profile init <claude|codex>              # 把 ~/.claude / ~/.codex 转成 s
 dch profile hook test <id> <pre|post>        # 单独运行 hook 测试
 dch profile config hookTimeoutMs <ms>        # 设置 hook 超时
 dch profile backup [opts]                    # 备份所有 profile + 共享资源到 .dchpack
+                                             # 默认覆盖 ~/.dch/backups/latest.dchpack（默认位）
+                                             # [--keep] 保留为 dch-backup-<TS>.dchpack 历史副本
                                              # [--out <file>] [--profiles <id1,id2>] [--no-shared]
                                              # [--no-placeholder] [--yes]
 dch profile restore <pack> [opts]            # 还原 .dchpack（自动加 -restored-<TS> 后缀避免撞名）
                                              # [--prefix <p>] [--rename OLD=NEW,...]
                                              # [--dry-run] [--yes]
+dch profile backups                          # 列出所有 .dchpack（默认位 / 置顶 / 历史 三组）
+dch profile backup-rm <file> [--yes]         # 删除指定备份（basename 或绝对路径，同名 .pinned 一并删）
+dch profile backup-pin <file> [--unpin]      # 置顶（默认位 → 复制副本 + 置顶；其他 → 原地置顶）
 ```
 
 ## Profile 系统
@@ -237,11 +242,27 @@ function claude {
 
 把所有 profile + 共享资源（`~/.dch/scripts/` hook 脚本 + `~/.agents/` 全局 agent/skill）打成单文件 `.dchpack`，用于跨机器迁移 / 本地灾备 / 分享 profile 给同事。**默认脱敏 token / API key 为占位符**，安全分享。
 
+### 三层备份模型
+
+`~/.dch/backups/` 下的备份按用途分三组：
+
+| 类别 | 文件名模式 | 行为 | 用途 |
+|---|---|---|---|
+| **📌 默认位** | `latest.dchpack`（固定） | 每次 `dch profile backup` 覆盖 | 最新一次备份；类比 git working tree 的"当前快照" |
+| **⭐ 置顶** | 任意 + 同名 `.pinned` sidecar | 不会被覆盖 | 重要里程碑保留，永久留存直到手动删 |
+| **📜 历史** | `dch-backup-<YYYYMMDD-HHMMSS>.dchpack` | `--keep` 创建，无 sidecar | 显式快照，按时间累积 |
+
+「置顶默认位」语义：复制 `latest.dchpack` → `dch-backup-<TS>.dchpack` + 加 `.pinned` sidecar。原 `latest.dchpack` 仍是默认位，下次 backup 继续覆盖；置顶副本永久保留。
+
 ### 命令
 
 ```bash
-# 备份所有 profile + 共享资源 → ~/.dch/backups/dch-backup-<YYYYMMDD-HHMMSS>.dchpack
+# 备份所有 profile + 共享资源 → ~/.dch/backups/latest.dchpack（覆盖默认位）
 dch profile backup
+
+# 保留为历史副本（不覆盖默认位）
+dch profile backup --keep
+# → ~/.dch/backups/dch-backup-<YYYYMMDD-HHMMSS>.dchpack
 
 # 备份子集
 dch profile backup --profiles claude-pro,codex-pro --out /tmp/share.dchpack
@@ -250,22 +271,35 @@ dch profile backup --profiles claude-pro,codex-pro --out /tmp/share.dchpack
 dch profile backup --no-placeholder
 
 # 还原（自动加 -restored-<TS> 后缀避免撞名；不切 active）
-dch profile restore ~/.dch/backups/dch-backup-20260513-143025.dchpack
+dch profile restore ~/.dch/backups/latest.dchpack
 
 # dry-run 看冲突 / 占位符清单 / 共享资源 diff
 dch profile restore <file> --dry-run
 
-# 改名指定 profile（避免默认后缀太长）
+# 改名指定 profile
 dch profile restore <file> --rename claude-pro=claude-pro-v2,codex-pro=codex-pro-v2
 
 # 全局后缀
 dch profile restore <file> --prefix -from-mac
+
+# 列出所有备份（按 default / pinned / history 三组分组）
+dch profile backups
+
+# 置顶 / 取消置顶
+dch profile backup-pin latest.dchpack       # 默认位 → 复制副本 + 置顶
+dch profile backup-pin dch-backup-XXX.dchpack
+dch profile backup-pin <file> --unpin       # 取消置顶
+
+# 删除指定备份（同名 .pinned sidecar 一并删）
+dch profile backup-rm dch-backup-XXX.dchpack [--yes]
 ```
 
 ### UX
 
-- ProfilePanel 顶部按钮：`📦 导出备份` / `📥 导入备份`
+- ProfilePanel 顶部按钮：`📦 导出备份` / `📚 备份历史` / `📥 导入备份`
 - 单 profile 卡片：`📦 导出` 按钮（只导该 profile + 共享资源）
+- 导出 modal 含「保留为历史」开关（默认 false = 覆盖 latest.dchpack；勾选 = 写时间戳历史副本）
+- 备份历史 modal 三区显示（默认位 / 置顶 / 历史），每行：filename / 时间 / 大小 / profile 数 / 占位符数 / 来源主机；行操作：还原 / 置顶 / 删除
 - 还原 modal 显示来源元数据 / 撞名改名 / 共享资源 diff / 占位符待填清单
 
 ### 跨机器迁移完整流程
@@ -339,6 +373,8 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │   ├── cli.ts                # CLI 入口
 │   ├── cli-colors.ts         # ANSI 颜色常量（cli.ts + cli-profile.ts 共享）
 │   ├── cli-profile.ts        # `dch profile ...` 子命令实现，支持 --json
+│   ├── cli-shared.ts         # cli-profile / cli-backup 共享 helper（JSON_MODE / parseFlags / readStdinLine 等）
+│   ├── cli-backup.ts         # `dch profile backup / restore / backups / backup-rm / backup-pin` 实现
 │   ├── types.ts              # 共享类型（ConfigScope / ToolConfig）
 │   ├── schemas/              # 唯一保留：dch profiles.json 的 schema-aware 编辑器用
 │   │   ├── types.ts          # FieldSchema / ToolSchema 类型
@@ -354,7 +390,9 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │   │   ├── symlink.ts        # 符号链接切换（macOS/Linux symlink + Win junction）
 │   │   ├── symlink.test.ts   # getSymlinkType / normalizeSymlinkTarget 跨平台测试
 │   │   ├── manager.ts        # CRUD + switch 调度（共用核心）
-│   │   ├── backup.ts         # createBackup / parseBackup / applyBackup（.dchpack 归档 + 还原）
+│   │   ├── backup.ts         # createBackup + 共享 helper（.dchpack 归档）
+│   │   ├── backup-restore.ts # parseBackup / applyBackup / cleanupParsed（.dchpack 还原）
+│   │   ├── backup-manage.ts  # listBackups / deleteBackup / pinBackup（默认位 + 置顶 + 历史 三层管理）
 │   │   ├── backup-rules.ts   # INCLUDE / EXCLUDE glob + 敏感字段判断
 │   │   └── redact.ts         # JSON / TOML / 整文件级凭据脱敏
 │   ├── readers/              # 各工具的配置读取器（平台分流：Win 路径/PowerShell）
@@ -384,8 +422,9 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │               ├── AddProfileModal.tsx
 │               ├── ProfileCard.tsx
 │               ├── ProfileStoreEditor.tsx  # ~/.dch/profiles.json 的 schema-aware modal
-│               ├── ExportBackupModal.tsx   # 导出 .dchpack（profile 多选 + 共享开关 + 占位符开关）
+│               ├── ExportBackupModal.tsx   # 导出 .dchpack（profile 多选 + 共享开关 + keep / 占位符开关）
 │               ├── RestoreBackupModal.tsx  # 导入 .dchpack（preview + 改名 + 占位符跳转）
+│               ├── BackupHistoryModal.tsx  # 备份历史（默认位 / 置顶 / 历史 三组 + 还原 / 置顶 / 删除）
 │               ├── HookOutputModal.tsx
 │               ├── PreferencesEditor.tsx
 │               └── helpers.ts
