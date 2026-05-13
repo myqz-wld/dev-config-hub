@@ -11,6 +11,8 @@ import { AddProfileModal } from "./profile/AddProfileModal.tsx";
 import { HookOutputModal } from "./profile/HookOutputModal.tsx";
 import { PreferencesEditor } from "./profile/PreferencesEditor.tsx";
 import { ProfileStoreEditor } from "./profile/ProfileStoreEditor.tsx";
+import { ExportBackupModal } from "./profile/ExportBackupModal.tsx";
+import { RestoreBackupModal } from "./profile/RestoreBackupModal.tsx";
 
 /**
  * CHANGELOG_13：ProfilePanel 改受控组件。
@@ -38,6 +40,9 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
   const [busy, setBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [showStoreEditor, setShowStoreEditor] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [showRestore, setShowRestore] = useState(false);
+  const [exportPresetIds, setExportPresetIds] = useState<string[] | undefined>(undefined);
   const [hookOutput, setHookOutput] = useState<{ id: string; which: string; result: HookResult | null } | null>(null);
 
   // store/active 在 App.tsx 的首屏 loadProfileData 失败时可能 null；panel 常驻必须永远 mount
@@ -129,6 +134,12 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
           </button>
         ))}
         <div className="profile-tabs-spacer" />
+        <button className="btn-sm" onClick={() => { setExportPresetIds(undefined); setShowExport(true); }} title="备份所有 profile + 共享资源到 .dchpack">
+          📦 导出备份
+        </button>
+        <button className="btn-sm" onClick={() => setShowRestore(true)} title="从 .dchpack 还原（按新 profile 加入，不动现有 active）">
+          📥 导入备份
+        </button>
         {/* PR-I 新入口：编辑 profiles.json */}
         <button className="btn-sm" onClick={() => setShowStoreEditor(true)} title="编辑 ~/.dch/profiles.json (schema-aware)">
           编辑 store
@@ -169,6 +180,7 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
               onUse={onUse}
               onDelete={(id) => handle(() => dchProfile.remove(id), `已删除 ${id}`)}
               onTestHook={onTestHook}
+              onExport={(id) => { setExportPresetIds([id]); setShowExport(true); }}
             />
           ))
         )}
@@ -247,6 +259,24 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
           onClose={() => setShowStoreEditor(false)}
           onSaved={() => onReloadProfile()}
           onToast={onToast}
+        />
+      )}
+
+      {showExport && (
+        <ExportBackupModal
+          profiles={store.profiles}
+          presetProfileIds={exportPresetIds}
+          onClose={() => { setShowExport(false); setExportPresetIds(undefined); }}
+          onToast={onToast}
+        />
+      )}
+
+      {showRestore && (
+        <RestoreBackupModal
+          profiles={store.profiles}
+          onClose={() => setShowRestore(false)}
+          onToast={onToast}
+          onReloadProfile={onReloadProfile}
         />
       )}
     </div>
