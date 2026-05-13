@@ -399,6 +399,56 @@ fn read_dir(path: String) -> Result<Vec<DirEntryView>, String> {
     Ok(out)
 }
 
+/// 读 symlink 的目标。仅允许 HOME 下路径（与 read_dir 同源 defensive，防 webview
+/// 被滥用探测系统 symlink 结构）。
+///
+/// **行为对齐 CLI** (`src/profiles/symlink.ts:150 currentSymlinkTarget`)：
+/// - 单层 `read_link`，不 deref 链式 symlink；与 CLI `readlink(target)` 一致
+/// - 相对 link → 解析为绝对（参照 `symlink.ts:154` join(dirname(target), t)）
+/// - 不是 symlink / 不存在 / IO 错 → `Ok(None)`，与 CLI `pathState() != "symlink"` 一致
+///
+/// **为什么所有失败都吞成 Ok(None)**：前端 `loadProfileDataDirect` 用 `Promise.all`
+/// 并发拿 `~/.claude` `~/.codex` 两个 link target；若 IO 错 reject，整组 fail →
+/// UI 进「读 profile 失败」 toast，体感比 CLI 路径退化（CLI 直接回 null + UI 显示
+/// "(非 symlink)"）。把所有错合并成 None 让前端 fallback 平滑。
+///
+/// **HOME boundary** 保留 Err，因为这是程序 bug（前端不该传 HOME 外路径），
+/// 应该让前端开发者立刻看到错误而非静默退化。
+#[tauri::command]
+fn read_link(path: String) -> Result<Option<String>, String> {
+    let home = get_home_dir();
+    if home.is_empty() {
+        return Err("HOME 未设置".to_string());
+    }
+    read_link_inner(&path, &home)
+}
+
+/// pure helper：接收 home 不读 env，方便单测在并发 cargo test 下不被 env 改污染。
+fn read_link_inner(path: &str, home: &str) -> Result<Option<String>, String> {
+    let p = std::path::Path::new(path);
+    let home_p = std::path::Path::new(home);
+    if !(p == home_p || p.starts_with(home_p)) {
+        return Err(format!("拒绝读非 HOME 路径: {}", path));
+    }
+    let meta = match fs::symlink_metadata(p) {
+        Ok(m) => m,
+        Err(_) => return Ok(None),
+    };
+    if !meta.file_type().is_symlink() {
+        return Ok(None);
+    }
+    let t = match fs::read_link(p) {
+        Ok(t) => t,
+        Err(_) => return Ok(None),
+    };
+    let abs = if t.is_absolute() {
+        t
+    } else {
+        p.parent().map(|d| d.join(&t)).unwrap_or(t)
+    };
+    Ok(Some(abs.to_string_lossy().into_owned()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -408,6 +458,7 @@ pub fn run() {
             read_file,
             read_file_with_mtime,
             read_dir,
+            read_link,
             file_exists,
             save_file,
             get_tool_version,
@@ -416,4 +467,92 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// CHANGELOG_15: read_link_inner 测试。直接传 home 不 set env，
+    /// 避免 cargo test 默认多线程下 HOME 被并发改污染（先 set 后被覆盖 → starts_with 失败）。
+    /// Win 不跑（应用 macOS-only）。
+    #[cfg(unix)]
+    #[test]
+    fn read_link_returns_target_for_symlink() {
+        let tmp = std::env::temp_dir().join(format!("dch-rl-test-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let target = tmp.join("real");
+        std::fs::write(&target, "hi").unwrap();
+        let link = tmp.join("alias");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let r = read_link_inner(&link.to_string_lossy(), &tmp.to_string_lossy()).unwrap();
+        assert_eq!(r.as_deref(), Some(target.to_string_lossy().as_ref()));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_link_returns_none_for_non_symlink() {
+        let tmp = std::env::temp_dir().join(format!("dch-rl-test2-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let plain = tmp.join("plain");
+        std::fs::write(&plain, "hi").unwrap();
+
+        let r = read_link_inner(&plain.to_string_lossy(), &tmp.to_string_lossy()).unwrap();
+        assert_eq!(r, None);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_link_returns_none_for_missing_path() {
+        let tmp = std::env::temp_dir().join(format!("dch-rl-test3-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let r = read_link_inner(
+            &tmp.join("nonexistent").to_string_lossy(),
+            &tmp.to_string_lossy(),
+        )
+        .unwrap();
+        assert_eq!(r, None);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_link_rejects_path_outside_home() {
+        let tmp = std::env::temp_dir().join(format!("dch-rl-test4-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // HOME 设到子目录 → /etc/passwd 必然在外
+        let r = read_link_inner("/etc/passwd", &tmp.to_string_lossy());
+        assert!(r.is_err(), "应拒绝 HOME 外路径");
+        assert!(r.unwrap_err().contains("拒绝"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_link_relative_target_resolved_to_absolute() {
+        let tmp = std::env::temp_dir().join(format!("dch-rl-test5-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let target = tmp.join("real");
+        std::fs::write(&target, "hi").unwrap();
+        let link = tmp.join("alias");
+        let _ = std::fs::remove_file(&link);
+        // 相对 link target = "real"（同目录）
+        std::os::unix::fs::symlink("real", &link).unwrap();
+
+        let r = read_link_inner(&link.to_string_lossy(), &tmp.to_string_lossy()).unwrap();
+        // 应被 join(parent, "real") 解析成绝对
+        assert_eq!(r.as_deref(), Some(target.to_string_lossy().as_ref()));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }
