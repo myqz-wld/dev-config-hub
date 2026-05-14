@@ -132,8 +132,9 @@ function SecretEntryRow({
           style={{
             flex: 1,
             opacity: skipped ? 0.5 : 1,
-            borderColor: empty ? "var(--red)" : undefined,
-            // password 字段禁止浏览器 / Tauri webview 自填密码管理（虽然不太可能触发）
+            // 不显示 empty 红边：99 entries 全空时整屏全红视觉污染。footer 主按钮 disabled +
+            // 灰色「待填」hint 已经表达「未填」状态，不需要红边二次强化（红色是「错误」语义，
+            // 但「未填」是「待操作」语义，应该用中性灰）。
           }}
         />
         <button
@@ -157,19 +158,14 @@ function SecretEntryRow({
       </div>
 
       {empty && (
-        <p className="form-hint" style={{ color: "var(--red)", marginTop: 4 }}>
-          请填值或勾选「跳过」
+        <p className="form-hint" style={{ color: "var(--fg2)", marginTop: 4 }}>
+          ⏳ 待填（或勾选「跳过」保留占位符）
         </p>
       )}
 
-      <details
-        style={{ marginTop: 4 }}
-        open={false}
-        onToggle={(e) => setShowAllLocations((e.target as HTMLDetailsElement).open)}
-      >
-        <summary className="form-hint">
+      <details style={{ marginTop: 4 }}>
+        <summary className="form-hint" style={{ cursor: "pointer" }}>
           出现位置（{entry.locations.length}）
-          {hasMore && !showAllLocations && <span> · 默认显示前 3 个</span>}
         </summary>
         {previewLocations.map((loc, i) => (
           <p key={i} className="form-hint" style={{ marginLeft: 16, marginTop: 2, fontFamily: "ui-monospace, monospace", fontSize: 11 }}>
@@ -177,9 +173,24 @@ function SecretEntryRow({
             <span style={{ color: "var(--fg3)" }}> · {loc.fieldPath}</span>
           </p>
         ))}
-        {hasMore && !showAllLocations && (
-          <p className="form-hint" style={{ marginLeft: 16, color: "var(--fg3)" }}>
-            …还有 {entry.locations.length - 3} 处（点上面 ▶ 展开全部）
+        {hasMore && (
+          <p style={{ marginLeft: 16, marginTop: 4 }}>
+            <button
+              type="button"
+              onClick={() => setShowAllLocations((v) => !v)}
+              style={{
+                fontSize: 11,
+                background: "none",
+                border: "none",
+                color: "var(--blue)",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              {showAllLocations
+                ? "收起 ▲"
+                : `+${entry.locations.length - 3} 处，点击展开全部 ▼`}
+            </button>
           </p>
         )}
       </details>
