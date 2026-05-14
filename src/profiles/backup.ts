@@ -17,14 +17,12 @@ import { join, dirname, basename } from "node:path";
 import { tmpdir, hostname, userInfo } from "node:os";
 import type { ToolKind, ProfileHooks, Profile } from "./types.ts";
 import { loadStore, expandHome, collapseHome, HOME, DCH_DIR } from "./store.ts";
-import { shouldIncludePath, isSensitiveFile } from "./backup-rules.ts";
+import { shouldIncludePath } from "./backup-rules.ts";
 import {
   redactByFilename,
   redactProfileEnv,
   type PlaceholderHit,
-} from "./redact.ts";
-
-export const FORMAT_VERSION = 1 as const;
+} from "./redact.ts";export const FORMAT_VERSION = 1 as const;
 const PLACEHOLDER_HINTS: Record<string, string> = {
   INTERN_TOKEN: "Gitlab OAuth Token",
   ANTHROPIC_API_KEY: "Anthropic API Key (sk-ant-...)",
@@ -123,9 +121,18 @@ async function readDchVersion(): Promise<string> {
 }
 
 /**
- * 递归遍历目录，yield 每个文件的相对 path + 绝对 path。
- * 不跟 symlink 走（symlink 单独由 tar -h deref 时处理；这里 readdir 默认就跟 symlink）。
- * 目录不存在 / 读权限挂掉 → 静默跳过。
+ * 递归遍历目录，yield 每个真文件的相对 path + 绝对 path。
+ *
+ * REVIEW_8 H2 / Group D1：**严禁跟 symlink 走**（dir 也好 file 也好）。
+ * 旧实现用 `e.isSymbolicLink() && isDirSafe(abs)` 走 stat 判断 symlink 目标类型，stat
+ * follows symlink → 用户在 configDir 放 `bad → /etc` 这种 dir symlink 会让 backup 把
+ * /etc 整个递归打包；symlink file 也会被 yield 后让 tar -ch deref 写入恶意目标内容。
+ *
+ * Dirent.isSymbolicLink() 用 lstat 语义判断「entry 本身是否 symlink」（与 target 类型无关）—
+ * 直接 continue 跳过 symlink 即可，不需要再 lstat。
+ *
+ * 副作用：用户在 configDir 用 symlink 链接外部模板（罕见）会被忽略；建议改用复制。
+ * 可接受 trade-off — backup 安全 > 边缘 symlink 用例。
  */
 async function* walkFiles(
   rootAbs: string,
@@ -138,22 +145,17 @@ async function* walkFiles(
     return;
   }
   for (const e of entries) {
+    if (e.isSymbolicLink()) {
+      // H2：dir / file symlink 一律跳过，杜绝跨 configDir 边界的 fs walk
+      continue;
+    }
     const abs = join(rootAbs, e.name);
     const rel = relBase ? `${relBase}/${e.name}` : e.name;
-    if (e.isDirectory() || (e.isSymbolicLink() && (await isDirSafe(abs)))) {
+    if (e.isDirectory()) {
       yield* walkFiles(abs, rel);
-    } else if (e.isFile() || e.isSymbolicLink()) {
+    } else if (e.isFile()) {
       yield { relPath: rel, absPath: abs };
     }
-  }
-}
-
-async function isDirSafe(p: string): Promise<boolean> {
-  try {
-    const s = await stat(p);
-    return s.isDirectory();
-  } catch {
-    return false;
   }
 }
 
@@ -176,11 +178,10 @@ async function copyOrRedactFile(
   const file = Bun.file(src);
   const bytes = await file.bytes();
 
-  const wantsRedact =
-    !opts.noPlaceholder &&
-    (filename.endsWith(".json") || filename.endsWith(".toml") || isSensitiveFile(filename));
-
-  if (!wantsRedact) {
+  // REVIEW_8 M2 / Group D5：所有文件都尝试 redact（走 redactByFilename 的内部分发：
+  // .json / .toml / sensitive 走 parse-based；其余 fall-through 到 redactPlainTextContent
+  // 走 regex 替换）。binary 文件靠 utf-8 fatal decode try-catch 兜底（解码失败 → 原 bytes）。
+  if (opts.noPlaceholder) {
     await Bun.write(dst, bytes);
     return [];
   }
@@ -350,11 +351,37 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
     //    实测对 ~80MB 配置 + 7000+ 文件的备份：level 6 ≈ 5-10s；level 1 ≈ 2-3s + 包大小仅
     //    增加 ~15%。UI 「导出备份」是 hot path，速度优先于压缩率。
     //    sh single-quote escape 防 outFile / tmpDir 含特殊字符注入。
-    const r = await spawnSimple([
+    //
+    // REVIEW_8 H4 / Group D2：原子写。旧实现 `... > $outFile` 直写默认位
+    // ~/.dch/backups/latest.dchpack，进程被杀 / OOM / 磁盘满 / Cmd-Q 中断会留半文件，
+    // 下次 restore 走 tar -xzf 直接报「unexpected EOF」+ 用户失去最近 backup。
+    // 三步原子：写 tmp → tar -tzf 验证 archive 完整 → mv tmp → outFile。
+    // mv 同 fs 内 rename(2) 原子，半写时 outFile 仍指向上次成功的 latest.dchpack。
+    // 注：H2 落地后 walkFiles 已过滤 symlink，tar -h 仅作为防御性 no-op 保留。
+    const tmpOut = `${outFile}.dch-tmp-${process.pid}`;
+    const tarRes = await spawnSimple([
       "sh", "-c",
-      `tar -chf - -C ${shesc(tmpDir)} . | gzip -1 > ${shesc(outFile)}`,
+      `tar -chf - -C ${shesc(tmpDir)} . | gzip -1 > ${shesc(tmpOut)}`,
     ]);
-    if (!r.ok) throw new Error(`tar 归档失败: ${r.stderr}`);
+    if (!tarRes.ok) {
+      try { await rm(tmpOut, { force: true }); } catch {}
+      throw new Error(`tar 归档失败: ${tarRes.stderr}`);
+    }
+    // 验证 tmp 可被 tar 解析（catch tar pipe 失败但 stderr 没 fail / gzip 半写 等罕见 race）
+    const verifyRes = await spawnSimple([
+      "sh", "-c",
+      `tar -tzf ${shesc(tmpOut)} > /dev/null`,
+    ]);
+    if (!verifyRes.ok) {
+      try { await rm(tmpOut, { force: true }); } catch {}
+      throw new Error(`tar 验证失败（写出的 archive 不完整）: ${verifyRes.stderr}`);
+    }
+    // 原子 rename — 同 fs（都在 ~/.dch/backups/）下 mv = rename(2) 原子
+    const mvRes = await spawnSimple(["mv", tmpOut, outFile]);
+    if (!mvRes.ok) {
+      try { await rm(tmpOut, { force: true }); } catch {}
+      throw new Error(`rename 失败: ${mvRes.stderr}`);
+    }
 
     const bytes = (await Bun.file(outFile).stat()).size;
     return { outFile, bytes, manifest };
@@ -401,7 +428,7 @@ dch profile restore <this-file>.dchpack
 // 让阅读者一眼看出这不是稳定 public API（外部 caller 应该走 createBackup / parseBackup /
 // applyBackup 等）。
 
-export { tsForFilename, walkFiles, fileExists, isDirSafe, spawnSimple };
+export { tsForFilename, walkFiles, fileExists, spawnSimple };
 
 // ─── re-export 还原侧 API，外部 import 不变 ──────────────────────────────
 // cli-profile.ts / bridge.ts 仍可 `import { parseBackup, applyBackup, ApplyBackupResult }
