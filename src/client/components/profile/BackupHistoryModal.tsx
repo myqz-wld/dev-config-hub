@@ -64,7 +64,14 @@ export function BackupHistoryModal({
     } catch (e) {
       // 旧请求的 error 也应静默丢弃（用户已发更新请求）
       if (reloadIdRef.current !== myId) return;
-      onToast(e instanceof Error ? e.message : String(e), false);
+      // **REVIEW_9 D-MED-2 / D-claude M3**: silent reload 失败仅 console.warn 不 toast
+      // (silent reload 是后台同步,toast 暴露给关闭后的 modal 让用户困惑;非 silent 是用户
+      // 显式刷新 / pin / rm 后的 reload,toast 让用户看到失败原因)。
+      if (silent) {
+        console.warn("BackupHistoryModal silent reload failed:", e);
+      } else {
+        onToast(e instanceof Error ? e.message : String(e), false);
+      }
     } finally {
       // 旧请求不重置 spinner（最后一次 reload 还在跑，不要把 refreshing 误清成 false）
       if (reloadIdRef.current === myId) {
@@ -136,12 +143,23 @@ export function BackupHistoryModal({
     onRestoreFile(path);
   }, [onClose, onRestoreFile]);
 
+  /**
+   * **REVIEW_9 D-MED-1 / D-codex M2 + D-claude M1 双方独立**: backdrop / X 在 in-flight 时
+   * 应拒绝关闭。R1 D-HIGH-2 fix 只覆盖 RestoreBackupModal,本 modal 同款 vulnerable —
+   * pin/rm/reload 中点 backdrop 让 modal unmount,IPC 仍 in-flight setState on unmounted。
+   * busy 中拒所有关闭路径(refreshing 不阻挡,silent reload 用户应能关 modal)。
+   */
+  const attemptClose = () => {
+    if (busy) return;
+    onClose();
+  };
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={attemptClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h2>📚 备份历史 {refreshing && <span style={{ fontSize: "0.7em", opacity: 0.7, marginLeft: 8 }}>同步中…</span>}</h2>
-          <button className="modal-close" onClick={onClose}>×</button>
+          <button className="modal-close" onClick={attemptClose}>×</button>
         </div>
         <div className="modal-body">
           <p className="form-hint">
@@ -172,7 +190,7 @@ export function BackupHistoryModal({
                 title="📌 默认位（每次 backup 覆盖）"
                 hint="这是 dch profile backup 默认写入的位置。每次 backup 都会覆盖，最新一次的内容。"
                 items={groups!.default}
-                busy={busy}
+                busy={busy || refreshing}
                 confirmDel={confirmDel}
                 setConfirmDel={setConfirmDel}
                 onRestore={onRestoreCloseAndOpen}
@@ -183,7 +201,7 @@ export function BackupHistoryModal({
                 title="⭐ 置顶（不会被覆盖）"
                 hint="置顶的备份不会被下次 backup 覆盖，永久保留直到手动删除。"
                 items={groups!.pinned}
-                busy={busy}
+                busy={busy || refreshing}
                 confirmDel={confirmDel}
                 setConfirmDel={setConfirmDel}
                 onRestore={onRestoreCloseAndOpen}
@@ -194,7 +212,7 @@ export function BackupHistoryModal({
                 title="📜 历史（--keep 创建）"
                 hint="勾选「保留为历史」的备份。可以「置顶」永久保留，或删除清理空间。"
                 items={groups!.history}
-                busy={busy}
+                busy={busy || refreshing}
                 confirmDel={confirmDel}
                 setConfirmDel={setConfirmDel}
                 onRestore={onRestoreCloseAndOpen}
@@ -205,7 +223,7 @@ export function BackupHistoryModal({
           )}
         </div>
         <div className="modal-foot">
-          <button className="btn primary" onClick={onClose}>关闭</button>
+          <button className="btn primary" onClick={attemptClose}>关闭</button>
         </div>
       </div>
     </div>

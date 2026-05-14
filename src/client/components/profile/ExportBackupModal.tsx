@@ -65,10 +65,30 @@ export function ExportBackupModal({
     };
   }, [busy]);
 
+  /**
+   * **REVIEW_9 D-MED-1 / D-codex M2 + D-claude M1 双方独立**: backdrop / X 在 in-flight 时
+   * 应拒绝关闭。R1 D-HIGH-2 fix 只覆盖 RestoreBackupModal,本 modal 同款 vulnerable —
+   * 备份过程中点 backdrop / × 触发 onClose 让 React unmount 而 IPC 仍 in-flight,setState
+   * on unmounted warn / state 紊乱。同款 attemptClose:busy 中直接 no-op(进度区已显示
+   * spinner + 阶段提示让用户知道不能关)。
+   */
+  const attemptClose = () => {
+    if (busy) return;
+    onClose();
+  };
+
+  /**
+   * **REVIEW_9 D-INFO-1 / D-claude I2**: functional setSelected 替代闭包捕获。旧实现直接用
+   * `selected` 闭包,React batched render 之间用旧 selected 让连续点击丢中间状态(虽然
+   * onChange 不会触发 batched 但仍是反模式 + future risk)。functional update 让 React 总
+   * 拿最新 prev state。
+   */
   const toggle = (id: string) => {
-    const next = new Set(selected);
-    next.has(id) ? next.delete(id) : next.add(id);
-    setSelected(next);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
   };
 
   const onStart = async () => {
@@ -100,11 +120,11 @@ export function ExportBackupModal({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={attemptClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h2>📦 导出备份</h2>
-          <button className="modal-close" onClick={onClose}>×</button>
+          <button className="modal-close" onClick={attemptClose}>×</button>
         </div>
         <div className="modal-body">
           {busy ? (
@@ -220,7 +240,7 @@ export function ExportBackupModal({
           )}
         </div>
         <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={busy}>
+          <button className="btn ghost" onClick={attemptClose} disabled={busy}>
             {result ? "关闭" : busy ? "备份中…" : "取消"}
           </button>
           {!result && (
