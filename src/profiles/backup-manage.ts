@@ -159,9 +159,31 @@ export async function listBackups(): Promise<BackupSummary[]> {
   return out;
 }
 
-/** 删除 .dchpack + 同名 .pinned sidecar（若存在）。allow 删默认位（回到无默认位状态）。 */
-export async function deleteBackup(path: string): Promise<void> {
+/**
+ * 删除 .dchpack + 同名 .pinned sidecar(若存在)。allow 删默认位(回到无默认位状态)。
+ *
+ * **REVIEW_9 B-codex M2**: 加 `.dchpack` 后缀必检 + BACKUP_DIR 边界默认 enforce。旧实现
+ * `resolveBackupPath` 允许绝对路径原样返回 + 无 suffix check → CLI/bridge 误传任意绝对路径
+ * 就 `rm(abs)`(凭据 / LaunchAgents / 任意用户文件)。`.dchpack` 后缀 + BACKUP_DIR 边界双道
+ * 保险阻挡。
+ *
+ * `allowOutsideBackupDir: true` opt-out 给单元测试用(test 在 mkdtemp 出来的临时目录建 fake
+ * .dchpack,无法在真 ~/.dch/backups 下做)。production callers(CLI cmdBackupRm / bridge.backupRm)
+ * **不**传此 opt,默认走严格模式。
+ */
+export async function deleteBackup(
+  path: string,
+  opts?: { allowOutsideBackupDir?: boolean },
+): Promise<void> {
   const abs = resolveBackupPath(path);
+  if (!abs.endsWith(".dchpack")) {
+    throw new Error(`拒绝删除非 .dchpack 文件: ${abs}(suffix check 防御误删任意路径)`);
+  }
+  if (!opts?.allowOutsideBackupDir) {
+    if (abs !== BACKUP_DIR && !abs.startsWith(BACKUP_DIR + "/")) {
+      throw new Error(`拒绝删除 BACKUP_DIR 外的文件: ${abs}(BACKUP_DIR 边界 check)`);
+    }
+  }
   if (!(await fileExists(abs))) {
     throw new Error(`备份不存在: ${abs}`);
   }

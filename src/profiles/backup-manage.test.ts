@@ -90,6 +90,11 @@ describe("resolveBackupPath", () => {
 });
 
 describe("deleteBackup（绝对路径）", () => {
+  // **REVIEW_9 B-codex M2**: 默认 deleteBackup enforce BACKUP_DIR 边界 + .dchpack 后缀。
+  // 单元测试在 mkdtemp tmpDir 下创 fake .dchpack(非真 BACKUP_DIR),传 opt-out 让 test 通过;
+  // production caller (cli-backup cmdBackupRm / bridge.backupRm) **不**传此 opt 走默认严格。
+  const TEST_OPTS = { allowOutsideBackupDir: true };
+
   it("删 .dchpack + 同名 .pinned sidecar", async () => {
     const pack = join(tmpDir, "test.dchpack");
     await writeFakeDchpack(pack);
@@ -97,7 +102,7 @@ describe("deleteBackup（绝对路径）", () => {
     expect(await fileExists(pack)).toBe(true);
     expect(await fileExists(`${pack}.pinned`)).toBe(true);
 
-    await deleteBackup(pack);
+    await deleteBackup(pack, TEST_OPTS);
 
     expect(await fileExists(pack)).toBe(false);
     expect(await fileExists(`${pack}.pinned`)).toBe(false);
@@ -106,12 +111,27 @@ describe("deleteBackup（绝对路径）", () => {
   it("无 sidecar 时也能正常删 .dchpack", async () => {
     const pack = join(tmpDir, "test-no-sidecar.dchpack");
     await writeFakeDchpack(pack);
-    await deleteBackup(pack);
+    await deleteBackup(pack, TEST_OPTS);
     expect(await fileExists(pack)).toBe(false);
   });
 
   it("不存在 → 抛错", async () => {
-    await expect(deleteBackup(join(tmpDir, "non-exist.dchpack"))).rejects.toThrow("备份不存在");
+    await expect(deleteBackup(join(tmpDir, "non-exist.dchpack"), TEST_OPTS)).rejects.toThrow("备份不存在");
+  });
+
+  // **REVIEW_9 B-codex M2**: 加固测试
+  it("拒非 .dchpack 后缀(防 webview 误传任意路径)", async () => {
+    const evil = join(tmpDir, "creds.txt");
+    await writeFile(evil, "secret");
+    await expect(deleteBackup(evil, TEST_OPTS)).rejects.toThrow(/拒绝删除非 .dchpack/);
+    expect(await fileExists(evil)).toBe(true); // 原文件未动
+  });
+
+  it("默认 enforce BACKUP_DIR 边界(不传 opt-out)→ 拒 BACKUP_DIR 外路径", async () => {
+    const outside = join(tmpDir, "test.dchpack");
+    await writeFakeDchpack(outside);
+    await expect(deleteBackup(outside)).rejects.toThrow(/BACKUP_DIR 外的文件/);
+    expect(await fileExists(outside)).toBe(true);
   });
 });
 

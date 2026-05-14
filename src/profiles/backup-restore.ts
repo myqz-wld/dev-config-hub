@@ -242,6 +242,26 @@ function normalizePath(p: string): string {
 
 export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackupResult> {
   const { manifest, tmpDir } = opts.parsed;
+  // **REVIEW_9 B-codex M3**: lightweight schema validation。旧实现仅校验 format_version,
+  // 后续直接 `manifest.profiles` / `manifest.shared.dch_scripts` 解引用 — 坏包(profiles 缺
+  // 字段 / shared 不是 object / placeholders 非数组)从结构化 errors[] 退化成 TypeError,JSON
+  // 协议只剩 `{error}` dry-run 拿不到 plan。加最小字段 + 类型 check 防 undefined access。
+  if (!Array.isArray(manifest.profiles)) {
+    throw new Error("manifest.profiles 必须是数组");
+  }
+  if (!manifest.shared || typeof manifest.shared !== "object") {
+    throw new Error("manifest.shared 必须是 object");
+  }
+  if (!Array.isArray(manifest.shared.dch_scripts)) {
+    throw new Error("manifest.shared.dch_scripts 必须是数组");
+  }
+  if (!Array.isArray(manifest.shared.agents_paths)) {
+    throw new Error("manifest.shared.agents_paths 必须是数组");
+  }
+  if (!Array.isArray(manifest.placeholders)) {
+    throw new Error("manifest.placeholders 必须是数组");
+  }
+
   const dryRun = !!opts.dryRun;
   const renameMap = opts.renameMap ?? {};
   const prefix = opts.prefix;
@@ -362,40 +382,48 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
     // 用户原有目录**（包括 copyDirRecursive 没动到的用户原文件 — copyFile 只覆盖同名 file）。
     // 修：mkdir 之前先 stat 看是否已存在（含非空），存在则记 dirPreExisted=true；addProfile 失败
     // 时**不**rm，改 errors.push 显式告知 caller 手动检查。
+    //
+    // **REVIEW_9 B-HIGH-4 / B-claude H4**: 把 mkdir + copyDirRecursive + 读 meta + addProfile
+    // 整段进同一 try/catch。旧实现仅 addProfile 进 try,前面 3 个裸 await(mkdir / copyDirRecursive
+    // / `Bun.file(metaPath).json()`)半路抛错(ENOSPC / EACCES / 损坏 meta JSON 等)→ stranded
+    // files 留 finalDirAbs / 后续 profiles 全部不还原 / shared assets 整段不执行。新实现 catch
+    // 内复用 dirPreExisted 同款 rollback 逻辑(已存在跳过 rm,新建则 rm),让单个 profile 失败
+    // 不阻塞主流程,errors.push + continue 让 shared assets 阶段仍能跑。
     const srcConfigDir = join(tmpDir, "profiles", mp.id, "configDir");
     const dirPreExisted = await fileExists(finalDirAbs);
-    await mkdir(finalDirAbs, { recursive: true });
-    await copyDirRecursive(srcConfigDir, finalDirAbs);
-    const metaPath = join(tmpDir, "profiles", mp.id, "_meta.json");
-    let meta: Profile;
-    if (await fileExists(metaPath)) {
-      meta = await Bun.file(metaPath).json() as Profile;
-    } else {
-      meta = {
-        id: finalId, tool: mp.tool, configDir: collapseHome(finalDirAbs),
-        description: mp.description, hooks: mp.hooks,
-      };
-    }
-    const newProfile: Profile = {
-      ...meta,
-      id: finalId,
-      configDir: collapseHome(finalDirAbs),
-      isDefault: false,
-    };
+    let appliedSuccessfully = false;
     try {
+      await mkdir(finalDirAbs, { recursive: true });
+      await copyDirRecursive(srcConfigDir, finalDirAbs);
+      const metaPath = join(tmpDir, "profiles", mp.id, "_meta.json");
+      let meta: Profile;
+      if (await fileExists(metaPath)) {
+        meta = await Bun.file(metaPath).json() as Profile;
+      } else {
+        meta = {
+          id: finalId, tool: mp.tool, configDir: collapseHome(finalDirAbs),
+          description: mp.description, hooks: mp.hooks,
+        };
+      }
+      const newProfile: Profile = {
+        ...meta,
+        id: finalId,
+        configDir: collapseHome(finalDirAbs),
+        isDefault: false,
+      };
       await addProfile(newProfile);
+      appliedSuccessfully = true;
     } catch (e) {
-      errors.push(`addProfile(${finalId}) 失败: ${e instanceof Error ? e.message : String(e)}`);
-      // REVIEW_8 R2 R2-9 / R3 G1：dirPreExisted=true 时**不**rm（避免 --allow-original-path 撞已有
-      // 非备份目录误删用户数据）。改用 errors.push 显式告知 caller 手动检查。
+      const stage = appliedSuccessfully ? "post-add" : "pre/in-add";
+      errors.push(`profile ${mp.id} 还原失败 (${stage}): ${e instanceof Error ? e.message : String(e)}`);
+      // dirPreExisted=true 时**不**rm（避免 --allow-original-path 撞已有非备份目录误删用户数据）。
       if (dirPreExisted) {
         errors.push(
           `目录 ${finalDirAbs} 在 restore 之前已存在用户文件，跳过 rollback rm 避免误删；` +
           `如需清理 restore 写入的副本请手动检查。`,
         );
       } else {
-        // REVIEW_8 M1 / Group D4：addProfile 失败时回滚刚刚 mkdir 创建的 configDir，避免留 stranded
-        // files 让用户下次 restore 同 id 撞 EEXIST。dirPreExisted=false 时 rm 安全。
+        // dirPreExisted=false 时 rm 安全(只会清掉本次 restore 自己 mkdir + copyDirRecursive 写的)
         try {
           await rm(finalDirAbs, { recursive: true, force: true });
         } catch (rollbackErr) {
@@ -404,6 +432,7 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
           );
         }
       }
+      // continue 让主循环跑下一个 profile + shared assets 阶段仍能执行(B-HIGH-4 关键修复点)
     }
   }
 
@@ -438,6 +467,16 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
       const action = await applySharedFile(src, safeDst, opts.sharedConflict, dryRun);
       sharedActions.push({ category: "agents", relPath: rel, hostPath: safeDst, action });
     }
+  }
+
+  // **REVIEW_9 B-MED-1 / B-claude M1**: 还原 ui-prefs.json。backup.ts:276 写 `tmpDir/dch/ui-prefs.json`,
+  // 但 restore 旧实现完全不读 → 跨机器 restore 静默丢失全部 UI 偏好(列宽 / 排序 / 主题等)。
+  // 用 backup-then-overwrite 策略与 shared assets 一致;dryRun 仅产 SharedAction 不写 fs。
+  const uiPrefsTmpPath = join(tmpDir, "dch", "ui-prefs.json");
+  if (await fileExists(uiPrefsTmpPath)) {
+    const uiPrefsHostPath = join(DCH_DIR, "ui-prefs.json");
+    const action = await applySharedFile(uiPrefsTmpPath, uiPrefsHostPath, opts.sharedConflict, dryRun);
+    sharedActions.push({ category: "dch_script", relPath: "ui-prefs.json", hostPath: uiPrefsHostPath, action });
   }
 
   return { appliedProfiles: applied, sharedActions, placeholders, errors };
