@@ -10,6 +10,7 @@
  * listBackups / deleteBackup / pinBackup 走 backup-manage.ts。
  */
 
+import { rmSync } from "node:fs";
 import { c } from "./cli-colors.ts";
 import {
   isJsonMode, jsonOut, ok, info, err,
@@ -123,12 +124,29 @@ export async function cmdRestore(args: string[]): Promise<void> {
   }
 
   const parsed = await parseBackup(packFile);
+  // **REVIEW_9 B-HIGH-5 / B-codex H2**: process.exit (来自 err() / printRestoreResult JSON
+  // mode 旧 process.exit(1) / loadSecretsJson err()) 跳过 finally → tmpDir leak。注册 sync
+  // exit handler 兜底:无论 process.exit 出口如何,都同步 rmSync tmpDir。正常路径仍走
+  // finally 内 await cleanupParsed,exit handler 仅当异步 cleanup 没跑完就 exit 时兜底。
+  let tmpDirCleaned = false;
+  const syncCleanup = () => {
+    if (!tmpDirCleaned) {
+      try { rmSync(parsed.tmpDir, { recursive: true, force: true }); } catch {}
+      tmpDirCleaned = true;
+    }
+  };
+  process.on("exit", syncCleanup);
+
+  let exitCode = 0;
   try {
     const dryPlan = await applyBackup({ parsed, prefix, renameMap, allowOriginalPath, dryRun: true });
 
     if (dryRun) {
-      if (isJsonMode()) return jsonOut({ ok: true, dryRun: true, manifest: parsed.manifest, plan: dryPlan });
-      printRestorePreview(parsed.manifest, dryPlan);
+      if (isJsonMode()) {
+        await jsonOut({ ok: true, dryRun: true, manifest: parsed.manifest, plan: dryPlan });
+      } else {
+        printRestorePreview(parsed.manifest, dryPlan);
+      }
       return;
     }
 
@@ -142,7 +160,7 @@ export async function cmdRestore(args: string[]): Promise<void> {
         info("备份内无 secrets_index（旧 pack / no-placeholder），--secrets-json 被忽略走普通 restore");
       }
       const result = await applyBackupWithSecrets({ parsed, prefix, renameMap, allowOriginalPath, secretsMap });
-      await printRestoreResult(parsed.manifest, result);
+      exitCode = await printRestoreResult(parsed.manifest, result);
       return;
     }
 
@@ -151,7 +169,7 @@ export async function cmdRestore(args: string[]): Promise<void> {
       if (!hasSecretsIndex) {
         info("备份内无 secrets_index（旧 pack / no-placeholder），--fill-secrets 无意义，走普通 restore");
         const result = await applyBackup({ parsed, prefix, renameMap, allowOriginalPath });
-        await printRestoreResult(parsed.manifest, result);
+        exitCode = await printRestoreResult(parsed.manifest, result);
         return;
       }
       const secretsMap = await promptSecretsInteractive(idx);
@@ -160,19 +178,23 @@ export async function cmdRestore(args: string[]): Promise<void> {
         return;
       }
       const result = await applyBackupWithSecrets({ parsed, prefix, renameMap, allowOriginalPath, secretsMap });
-      await printRestoreResult(parsed.manifest, result);
+      exitCode = await printRestoreResult(parsed.manifest, result);
       return;
     }
 
     // 分支 C：都不传 → 现状走 applyBackup + 尾部加提示
     const result = await applyBackup({ parsed, prefix, renameMap, allowOriginalPath });
-    await printRestoreResult(parsed.manifest, result);
+    exitCode = await printRestoreResult(parsed.manifest, result);
     if (hasSecretsIndex && !isJsonMode()) {
       info(`💡 备份内含 ${idx.total_logical_keys} 个唯一凭据；下次可用 --fill-secrets 交互填入或 --secrets-json <file> 自动化`);
     }
   } finally {
     await cleanupParsed(parsed);
+    tmpDirCleaned = true;
+    process.removeListener("exit", syncCleanup);
   }
+  // finally 后再 exit 让 cleanup 完整跑;exit handler 已被移除不会重复 rm。
+  if (exitCode !== 0) process.exit(exitCode);
 }
 
 /**
@@ -238,16 +260,21 @@ async function promptSecretsInteractive(idx: SecretsIndex): Promise<Record<strin
 /**
  * 还原结果统一输出（兼容 ApplyBackupResult / ApplyBackupWithSecretsResult）。
  * 后者多打一段「凭据填入：已填 X 处 · 跳过 Y · 未知 Z」。
+ *
+ * **REVIEW_9 B-HIGH-5 / B-codex H2**: 返回 exit code 而非自己 process.exit。caller
+ * (cmdRestore) 在 finally 跑完 cleanupParsed 后再 process.exit,避免 tmpDir leak。
+ *
+ * @returns 0 = 成功 / 1 = 有 errors[](partial restore 也算 1 让 CI/script 感知)
  */
 async function printRestoreResult(
   manifest: Manifest,
   result: ApplyBackupResult | ApplyBackupWithSecretsResult,
-): Promise<void> {
+): Promise<number> {
   if (isJsonMode()) {
     await jsonOut({ ok: result.errors.length === 0, manifest, ...result });
-    // REVIEW_8 H6 / B3：errors.length>0 让 exit code 反映出来，Tauri bridge 才能 throw。
-    if (result.errors.length > 0) process.exit(1);
-    return;
+    // REVIEW_8 H6 / B3: errors.length>0 让 exit code 反映;**REVIEW_9 B-HIGH-5**: 不再
+    // 自 process.exit,返 1 让 caller finally cleanup 后再 exit。
+    return result.errors.length > 0 ? 1 : 0;
   }
 
   if (result.errors.length > 0) {
@@ -298,6 +325,7 @@ async function printRestoreResult(
     }
     info(`填完后跑: dch profile use <id>`);
   }
+  return 0;
 }
 
 function printRestorePreview(manifest: Manifest, plan: ApplyBackupResult): void {
