@@ -12,6 +12,28 @@ const ID_RE = /^[a-zA-Z0-9_-]+$/;
 // export 给单测用。
 export const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+/**
+ * REVIEW_8 H3 / Group C：所有 manager 写操作统一走本 helper，自动按 hookTimeoutMs 算 staleMs。
+ *
+ * 旧问题：`withStoreLock` 默认 `staleMs=60_000`。`useProfile` 持锁期间会跑 preSwitch + postSwitch
+ * 两个 hook，最坏耗时 `2 × hookTimeoutMs`。配置上限 hookTimeoutMs=600_000ms（10 min）→ useProfile
+ * 可持锁 1200s，远 > 60s 默认 staleMs → 任何并发 `dch profile add/remove/use` 看 lockfile 时间戳
+ * 都会判定 stale → unlink + 抢占 → 与 useProfile 并发写 store → multi-process lost update（PR-5
+ * 修过的同一类问题再回归）。
+ *
+ * 修复：每次写前 load store 拿当前 hookTimeoutMs（不上锁，race 窗 ms 级 + 误差 ≤ 上次 vs 本次差，
+ * 不会触发抢占），算 staleMs = 2 × hookTimeoutMs + 5_000ms grace。所有 6 处 callsite 用同一值
+ * 才能保证「acquirer 视角的 staleMs ≥ holder 视角的最大持锁时长」不变量成立。
+ */
+async function withProfileLock<T>(fn: () => Promise<T>): Promise<T> {
+  const storeForSize = await loadStore();
+  const staleMs = 2 * storeForSize.preferences.hookTimeoutMs + 5_000;
+  // maxWaitMs 也跟着放大：useProfile 持锁最坏 2×hookTimeoutMs，acquirer wait 必须能等过这段。
+  // 加 5s buffer 让 acquirer 在 holder 释放后立刻 fall through，不至于刚好 timeout。
+  const maxWaitMs = 2 * storeForSize.preferences.hookTimeoutMs + 5_000;
+  return withStoreLock(STORE_LOCK_PATH, fn, { staleMs, maxWaitMs });
+}
+
 export function validateEnv(env: Record<string, string> | undefined): void {
   if (!env) return;
   for (const k of Object.keys(env)) {
@@ -39,7 +61,7 @@ export async function addProfile(p: Profile): Promise<void> {
     throw new Error("profile id 只允许字母数字 _ -");
   }
   validateEnv(p.env);
-  await withStoreLock(STORE_LOCK_PATH, async () => {
+  await withProfileLock(async () => {
     const store = await loadStore();
     if (store.profiles.some((x) => x.id === p.id)) {
       throw new Error(`profile id 重复: ${p.id}`);
@@ -51,7 +73,7 @@ export async function addProfile(p: Profile): Promise<void> {
 
 export async function updateProfile(id: string, patch: Partial<Profile>): Promise<void> {
   if (patch.env !== undefined) validateEnv(patch.env);
-  await withStoreLock(STORE_LOCK_PATH, async () => {
+  await withProfileLock(async () => {
     const store = await loadStore();
     const idx = store.profiles.findIndex((x) => x.id === id);
     if (idx < 0) throw new Error(`未找到 profile: ${id}`);
@@ -61,7 +83,7 @@ export async function updateProfile(id: string, patch: Partial<Profile>): Promis
 }
 
 export async function removeProfile(id: string): Promise<void> {
-  await withStoreLock(STORE_LOCK_PATH, async () => {
+  await withProfileLock(async () => {
     const store = await loadStore();
     store.profiles = store.profiles.filter((x) => x.id !== id);
     for (const k of Object.keys(store.active) as ToolKind[]) {
@@ -72,7 +94,7 @@ export async function removeProfile(id: string): Promise<void> {
 }
 
 export async function useProfile(id: string): Promise<SwitchResult> {
-  return withStoreLock(STORE_LOCK_PATH, async () => {
+  return withProfileLock(async () => {
     const store = await loadStore();
     const profile = store.profiles.find((x) => x.id === id);
     if (!profile) throw new Error(`未找到 profile: ${id}`);
@@ -138,7 +160,7 @@ export async function initTool(tool: ToolKind): Promise<{
   // initToolDir 改 fs（mv + ln -s）在锁外做，避免持锁期间 fs 操作把锁有效期撑大。
   // 真正写 store 的 load+save 走锁。
   const result = await initToolDir(tool);
-  await withStoreLock(STORE_LOCK_PATH, async () => {
+  await withProfileLock(async () => {
     const store = await loadStore();
     const idx = store.profiles.findIndex((p) => p.id === result.defaultProfile.id);
     if (idx < 0) {
@@ -194,7 +216,7 @@ export async function testHook(
 export async function setPreference<K extends keyof ProfileStore["preferences"]>(
   key: K, value: ProfileStore["preferences"][K],
 ): Promise<void> {
-  await withStoreLock(STORE_LOCK_PATH, async () => {
+  await withProfileLock(async () => {
     const store = await loadStore();
     store.preferences[key] = value;
     await saveStore(store);
