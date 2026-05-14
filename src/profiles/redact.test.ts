@@ -279,4 +279,45 @@ describe("valueHash on PlaceholderHit", () => {
       expect(r.content).not.toContain(r.placeholders[0].valueHash);
     }
   });
+
+  // CHANGELOG_20 fix：plain-text scan 命中也必须带 valueHash，否则 secrets-index 会误判
+  // 为 whole-file（hashByEntry.get(entry) === undefined → buildSecretsIndex isWhole=true），
+  // 让 .md / .sh / .yaml 里同 token 多处出现无法 dedup → 用户看到 ACCESS_TOKEN-1..N 全标
+  // "whole-file secret" 而不是合并成 1 个。
+  it("redactPlainTextContent HIGH_CONFIDENCE：valueHash 同 token 同 hash（dedup 关键）", () => {
+    const a = redactByFilename(`SK=sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAA`, "a.sh");
+    const b = redactByFilename(`# in markdown: sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAA`, "b.md");
+    const ha = a.placeholders.find((p) => p.fieldName === "ANTHROPIC_API_KEY");
+    const hb = b.placeholders.find((p) => p.fieldName === "ANTHROPIC_API_KEY");
+    expect(ha?.valueHash).toMatch(/^[0-9a-f]{16}$/);
+    expect(hb?.valueHash).toMatch(/^[0-9a-f]{16}$/);
+    expect(ha?.valueHash).toBe(hb?.valueHash);
+  });
+
+  it("redactPlainTextContent HIGH_CONFIDENCE：异 token 异 hash", () => {
+    const a = redactByFilename(`ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`, "a.sh");
+    const b = redactByFilename(`ghp_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`, "b.sh");
+    const ha = a.placeholders.find((p) => p.fieldName === "GITHUB_PAT");
+    const hb = b.placeholders.find((p) => p.fieldName === "GITHUB_PAT");
+    expect(ha?.valueHash).toBeString();
+    expect(hb?.valueHash).toBeString();
+    expect(ha?.valueHash).not.toBe(hb?.valueHash);
+  });
+
+  it("redactPlainTextContent KEY_VALUE：valueHash 来自 value 部分（非整 line）", () => {
+    // 同 value 不同 KEY 名 → valueHash 应一致（hash 算的是 value 不是 KEY=value 整串）
+    const a = redactByFilename(`ACCESS_TOKEN=samevaluetoken1234567`, "a.sh");
+    const b = redactByFilename(`MY_ACCESS_TOKEN=samevaluetoken1234567`, "b.sh");
+    expect(a.placeholders[0]?.valueHash).toBe(b.placeholders[0]?.valueHash);
+  });
+
+  it("redactPlainTextContent HTTP_AUTH：valueHash 来自 token（不含 scheme/header）", () => {
+    const a = redactByFilename(`Authorization: Bearer eyJTOKEN_VALUE_AAAAAAAAA`, "a.txt");
+    const b = redactByFilename(`X-Api-Key: Token eyJTOKEN_VALUE_AAAAAAAAA`, "b.txt");
+    const ha = a.placeholders.find((p) => p.fieldName === "HTTP_AUTH_TOKEN");
+    const hb = b.placeholders.find((p) => p.fieldName === "HTTP_AUTH_TOKEN");
+    expect(ha?.valueHash).toBeString();
+    expect(hb?.valueHash).toBeString();
+    expect(ha?.valueHash).toBe(hb?.valueHash);
+  });
 });
