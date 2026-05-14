@@ -452,7 +452,8 @@ export { tsForFilename, walkFiles, fileExists, isDirSafe, spawnSimple };
 // from "./profiles/backup.ts"` —— 拆 backup-restore.ts 是内部细节，对外保持单入口。
 
 export {
-  parseBackup, cleanupParsed, applyBackup,
+  parseBackup, cleanupParsed, applyBackup, applyBackupWithSecrets,
   type ParseBackupResult, type ApplyBackupOptions, type ApplyBackupResult,
+  type ApplyBackupWithSecretsOptions, type ApplyBackupWithSecretsResult,
   type AppliedProfile, type SharedAction, type ConflictAction,
 } from "./backup-restore.ts";
