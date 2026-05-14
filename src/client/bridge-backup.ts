@@ -10,7 +10,7 @@ import {
   runDch,
   TIMEOUT_FAST_MS,
   TIMEOUT_BACKUP_MS,
-} from "./bridge.ts";
+} from "./bridge-core.ts";
 import type {
   Manifest, AppliedProfile, SharedAction, PlaceholderEntry, ApplyBackupResult,
 } from "../profiles/backup.ts";

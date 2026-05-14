@@ -10,9 +10,15 @@
  * - tar -h deref symlink（新机器路径不一致，保留 symlink 无意义）
  * - 配置文件按 INCLUDE/EXCLUDE 双门 walk + 按文件名分发 redact
  * - 占位符 `<<DCH_PLACEHOLDER:KEY_NAME>>` + manifest.placeholders[] 精确路径
+ *
+ * **REVIEW_9 G6 拆模块**: 共享 types (FORMAT_VERSION / ManifestProfile /
+ * PlaceholderEntry / Manifest) + helpers (tsForFilename / walkFiles / fileExists /
+ * spawnSimple) 抽到 `backup-shared.ts`,消除 backup.ts ↔ backup-restore.ts +
+ * backup.ts ↔ secrets-index.ts 双向 import。caller 仍 `import { ... } from "./backup.ts"`
+ * 不变 — 通过 re-export 透传。
  */
 
-import { readdir, mkdir, mkdtemp, rm, copyFile, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, copyFile } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
 import { tmpdir, hostname, userInfo } from "node:os";
 import type { ToolKind, ProfileHooks, Profile } from "./types.ts";
@@ -24,8 +30,23 @@ import {
   type PlaceholderHit,
 } from "./redact.ts";
 import { buildSecretsIndex, type SecretsIndex } from "./secrets-index.ts";
+import {
+  FORMAT_VERSION,
+  walkFiles, fileExists, tsForFilename, spawnSimple,
+  type ManifestProfile, type PlaceholderEntry, type Manifest,
+} from "./backup-shared.ts";
 
-export const FORMAT_VERSION = 1 as const;
+// caller 仍 `import { FORMAT_VERSION / Manifest / PlaceholderEntry / ManifestProfile / walkFiles /
+// fileExists / tsForFilename / spawnSimple } from "./backup.ts"` 不变 — 通过下面 re-export 透传
+// (REVIEW_9 G6 拆 backup-shared.ts)
+export {
+  FORMAT_VERSION,
+  walkFiles, fileExists, tsForFilename, spawnSimple,
+} from "./backup-shared.ts";
+export type {
+  ManifestProfile, PlaceholderEntry, Manifest,
+} from "./backup-shared.ts";
+
 const PLACEHOLDER_HINTS: Record<string, string> = {
   INTERN_TOKEN: "Gitlab OAuth Token",
   ANTHROPIC_API_KEY: "Anthropic API Key (sk-ant-...)",
@@ -37,52 +58,6 @@ const PLACEHOLDER_HINTS: Record<string, string> = {
 
 function hintFor(fieldName: string): string {
   return PLACEHOLDER_HINTS[fieldName] ?? "敏感字段，请填回真实值";
-}
-
-export interface ManifestProfile {
-  id: string;
-  tool: ToolKind;
-  configDir_original: string;
-  description?: string;
-  hooks?: ProfileHooks;
-  env_keys: string[];
-  active_in_source: boolean;
-}
-
-export interface PlaceholderEntry {
-  /** dchpack 内相对 path（如 `profiles/claude-pro/configDir/.mcp.json`） */
-  packPath: string;
-  fieldPath: string;
-  fieldName: string;
-  hint: string;
-  /** restore 后实际 host fs 上的绝对路径（dryRun 时根据 final configDir 计算） */
-  hostPath?: string;
-}
-
-export interface Manifest {
-  format_version: typeof FORMAT_VERSION;
-  created_at: string;
-  source_host: string;
-  source_user: string;
-  dch_version: string;
-  options: {
-    include_shared: boolean;
-    no_placeholder: boolean;
-    profile_ids: string[];
-  };
-  profiles: ManifestProfile[];
-  shared: {
-    dch_scripts: string[];
-    agents_paths: string[];
-  };
-  placeholders: PlaceholderEntry[];
-  /**
-   * 按真值 hash 全局合并的 logical key 索引（CHANGELOG_18）。
-   * 仅当 `!no_placeholder` 且实际存在敏感命中时挂出；旧 dchpack（无此字段）由 restore
-   * 端 fall back 到 `placeholders[]` 走逐文件 dump 清单（兼容路径）。
-   */
-  secrets_index?: SecretsIndex;
-  security_warnings: string[];
 }
 
 // ─── createBackup ─────────────────────────────────────────────────────────
@@ -106,19 +81,6 @@ export interface CreateBackupResult {
   manifest: Manifest;
 }
 
-function tsForFilename(d: Date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return (
-    d.getFullYear().toString() +
-    pad(d.getMonth() + 1) +
-    pad(d.getDate()) +
-    "-" +
-    pad(d.getHours()) +
-    pad(d.getMinutes()) +
-    pad(d.getSeconds())
-  );
-}
-
 async function readDchVersion(): Promise<string> {
   try {
     const pkgPath = join(import.meta.dir, "..", "..", "package.json");
@@ -126,54 +88,6 @@ async function readDchVersion(): Promise<string> {
     return pkg.version ?? "0.0.0";
   } catch {
     return "0.0.0";
-  }
-}
-
-/**
- * 递归遍历目录，yield 每个真文件的相对 path + 绝对 path。
- *
- * REVIEW_8 H2 / Group D1：**严禁跟 symlink 走**（dir 也好 file 也好）。
- * 旧实现用 `e.isSymbolicLink() && isDirSafe(abs)` 走 stat 判断 symlink 目标类型，stat
- * follows symlink → 用户在 configDir 放 `bad → /etc` 这种 dir symlink 会让 backup 把
- * /etc 整个递归打包；symlink file 也会被 yield 后让 tar -ch deref 写入恶意目标内容。
- *
- * Dirent.isSymbolicLink() 用 lstat 语义判断「entry 本身是否 symlink」（与 target 类型无关）—
- * 直接 continue 跳过 symlink 即可，不需要再 lstat。
- *
- * 副作用：用户在 configDir 用 symlink 链接外部模板（罕见）会被忽略；建议改用复制。
- * 可接受 trade-off — backup 安全 > 边缘 symlink 用例。
- */
-async function* walkFiles(
-  rootAbs: string,
-  relBase = "",
-): AsyncGenerator<{ relPath: string; absPath: string }> {
-  let entries;
-  try {
-    entries = await readdir(rootAbs, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const e of entries) {
-    if (e.isSymbolicLink()) {
-      // H2：dir / file symlink 一律跳过，杜绝跨 configDir 边界的 fs walk
-      continue;
-    }
-    const abs = join(rootAbs, e.name);
-    const rel = relBase ? `${relBase}/${e.name}` : e.name;
-    if (e.isDirectory()) {
-      yield* walkFiles(abs, rel);
-    } else if (e.isFile()) {
-      yield { relPath: rel, absPath: abs };
-    }
-  }
-}
-
-async function fileExists(p: string): Promise<boolean> {
-  try {
-    await stat(p);
-    return true;
-  } catch {
-    return false;
   }
 }
 
@@ -226,54 +140,6 @@ function entryFromHit(h: PlaceholderHit, packPath: string): PlaceholderEntry {
 async function writeJson(path: string, data: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await Bun.write(path, JSON.stringify(data, null, 2) + "\n");
-}
-
-/**
- * Spawn 子进程跑 shell 命令,返回 ok + stderr。
- *
- * **REVIEW_9 B-MED-2 / B-claude M2**: footgun 修复。
- * - 旧实现 stdout=pipe 但**不消费**:当前 5 个 caller(tar / mv / verify)都不出 stdout 不会
- *   立刻 hang,但未来加任何会出 stdout 的命令(如 `tar -czf - | gzip` 不带 redirect)立刻
- *   死锁(pipe buffer 64KB 满了 child 阻塞 write,父 wait exited 永远不返)。
- * - 旧实现无 timeout:tar / mv 卡死(NFS / 磁盘 hang)直接挂父进程不退出。
- *
- * 修法:
- * 1. **stdout 也并发 consume**(空读丢弃),与 stderr 同样走 Response(stream).text() 防止
- *    pipe buffer 满阻塞 child;
- * 2. **可选 timeoutMs** + AbortController 超时 kill。caller 显式传 ms,默认 undefined = 不
- *    设超时(maintain 旧行为防误伤 createBackup tar 100s+ 大档场景)。
- *
- * 显式让 stdout="ignore" 可以更便宜(skip pipe 创建)但语义不同,当前 caller 不需要 stdout
- * 输出,future-proof 走 pipe + drain 而非 ignore — pipe 让 caller 想读时随时改 drain → 留
- * 接口没掉。
- */
-async function spawnSimple(
-  cmd: string[],
-  cwd?: string,
-  opts?: { timeoutMs?: number },
-): Promise<{ ok: boolean; stderr: string }> {
-  const ac = opts?.timeoutMs ? new AbortController() : undefined;
-  const proc = Bun.spawn(cmd, {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    ...(ac ? { signal: ac.signal } : {}),
-  });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  if (ac && opts?.timeoutMs) {
-    timer = setTimeout(() => ac.abort(), opts.timeoutMs);
-  }
-  try {
-    // 并发 drain 两个 pipe 防 buffer 满阻塞 child(stdout 内容丢弃 不消费)
-    const [, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-    const code = await proc.exited;
-    return { ok: code === 0, stderr };
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }
 
 /** sh single-quote escape：防 spawn ['sh', '-c', cmd] 时含特殊字符的路径被误解析。 */
@@ -542,17 +408,14 @@ ${lines}
 }
 
 
-// ─── 给 backup-restore.ts 用：export helper（不暴露给外部 caller）─────────
-// 把 internal helper 转成 module-level export 让分文件协作。命名空间（前缀 _internal）
-// 让阅读者一眼看出这不是稳定 public API（外部 caller 应该走 createBackup / parseBackup /
-// applyBackup 等）。
-
-export { tsForFilename, walkFiles, fileExists, spawnSimple };
-
 // ─── re-export 还原侧 API，外部 import 不变 ──────────────────────────────
 // cli-profile.ts / bridge.ts 仍可 `import { parseBackup, applyBackup, ApplyBackupResult }
 // from "./profiles/backup.ts"` —— 拆 backup-restore.ts 是内部细节，对外保持单入口。
-
+//
+// REVIEW_9 G6: 旧版 line 416 `export { tsForFilename, walkFiles, fileExists, spawnSimple }`
+// 给 backup-restore.ts 直接 import 这 4 个 helper(双向 import 反向);抽 backup-shared.ts
+// 后这 4 个 helper 由 backup-shared.ts 直接 export,backup-restore.ts 直接 import 自
+// backup-shared.ts 不再走 backup.ts 间接桥(保留本文件 36-39 行 re-export 给外部 caller 兼容)。
 export {
   parseBackup, cleanupParsed, applyBackup, applyBackupWithSecrets,
   type ParseBackupResult, type ApplyBackupOptions, type ApplyBackupResult,

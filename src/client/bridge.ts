@@ -220,49 +220,17 @@ export async function saveFileIfMtime(
 }
 
 // ── Profile bridge: 通过 Tauri 调 dch CLI（--json 模式），结果统一 JSON ─────
-
-export interface DchCommandResult {
-  stdout: string;
-  stderr: string;
-  code: number;
-  /** REVIEW_8 R2 R2-12 / R3 G6：proc_timeout reader 触 5MB cap 时为 true。
-   * UI 侧拿到 `truncated=true` 应警示用户「输出过大已截断」，避免按截断 stdout
-   * parse JSON 误以为完整。Rust DchCommandResult 同字段，通过 `serde(rename_all = "camelCase")` 同步。 */
-  truncated: boolean;
-}
-
-/**
- * `dch profile <args> --json` 通用调用器。auto-append `--json` flag。供 dchProfile / dchBackup
- * 共用（CHANGELOG_18 / Step 6 拆 bridge-backup.ts 时 export 出来给 bridge-backup 复用）。
- *
- * **REVIEW_9 D-MED-2 / C-codex LOW 3 跨批**: parse stdout 前优先检查 `r.truncated` throw 清晰
- * 错误。旧实现忽略 truncated → 5MB 上限被截断的成功 JSON 退化成 parse error,用户看到「JSON
- * Unexpected end of input」一头雾水(实际是 dch 输出过大)。
- */
-export async function runDch<T = unknown>(args: string[], timeoutMs?: number): Promise<T> {
-  // REVIEW_7 H2：按命令传 timeoutMs；Rust 端 spawn_with_timeout 兜底 1800s 上限。
-  // 不传 = Rust 默认（30 分钟，覆盖最坏 hookTimeoutMs 600000ms × 2 + 余量）。
-  const r = await call<DchCommandResult>("run_dch_command", { args: ["profile", ...args, "--json"], timeoutMs });
-  if (r.code === -2) {
-    throw new Error(`命令超时被强制终止 (timeout=${timeoutMs ?? "default"}ms)。检查 hook 脚本是否阻塞`);
-  }
-  if (r.truncated) {
-    throw new Error(
-      `dch 输出超 5MB 上限被截断 (timeout=${timeoutMs ?? "default"}ms)，无法完整解析 JSON。请缩减 backup scope / 拆批操作`,
-    );
-  }
-  if (r.code !== 0) {
-    let parsed: { error?: string } = {};
-    try { parsed = JSON.parse(r.stdout) as { error?: string }; } catch {}
-    throw new Error(parsed.error || r.stderr.trim() || `exit ${r.code}`);
-  }
-  if (!r.stdout.trim()) return undefined as T;
-  return JSON.parse(r.stdout) as T;
-}
-
-export const TIMEOUT_FAST_MS = 10_000;   // 纯文件读写：list / current / show / add / remove / env / config
-export const TIMEOUT_INIT_MS = 30_000;   // init：含 mv + ln 等 fs 操作
-export const TIMEOUT_BACKUP_MS = 5 * 60_000;  // backup / restore：含 7000+ 文件 walk + tar gzip / untar + 占位符替换
+//
+// REVIEW_9 D-codex LOW 1 / G6: DchCommandResult / runDch / TIMEOUT_* 抽到 bridge-core.ts,
+// bridge.ts ↔ bridge-backup.ts 单向依赖 bridge-core,消除旧实现两个 facade 互相 import 的
+// 反向耦合。caller 仍 `import { ... } from "./bridge.ts"` 不变 — 通过下面 re-export 透传。
+export {
+  type DchCommandResult,
+  runDch,
+  TIMEOUT_FAST_MS,
+  TIMEOUT_INIT_MS,
+  TIMEOUT_BACKUP_MS,
+} from "./bridge-core.ts";
 
 import type {
   Profile, ProfileStore, SwitchResult, ToolKind, HookResult,
@@ -272,6 +240,9 @@ import type {
 // dchBackup 方法对象 spread 到下面的 dchProfile，让 caller 调 dchProfile.backup(...) 不变。
 export * from "./bridge-backup.ts";
 import { dchBackup } from "./bridge-backup.ts";
+
+// 给本模块内 dchProfileMethods 用的 runDch / TIMEOUT_* 引用 (private import,与 above 公开 re-export 等价)
+import { runDch, TIMEOUT_FAST_MS, TIMEOUT_INIT_MS } from "./bridge-core.ts";
 
 export type { Profile, ProfileStore, SwitchResult, ToolKind, HookResult };
 
