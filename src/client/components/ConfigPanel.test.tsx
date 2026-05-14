@@ -236,4 +236,90 @@ describe("ConfigPanel TOCTOU banner (CHANGELOG_10 R_2·H1-followup)", () => {
     await act(async () => { fireEvent.click(cancelEditBtn!); });
     expect(container.querySelector(".schema-conflict")).toBeNull();
   });
+
+  // REVIEW_8 R2 R2-8 / R3 G4：touch-only 回归测（外部 touch mtime 变 content 不变 → 不应弹 banner
+  // 且下次 save 用最新 mtime 不是 stale 1000）
+  it("T7 (R2-8 / G4): touch-only 场景 — content 不变 mtime 变 → banner 不弹 + save 用最新 mtime", async () => {
+    const onSave = mock(() => Promise.resolve());
+    const onToast = mock(() => {});
+    const tool = makeTool('{"theme":"dark"}', 1000);
+
+    const { container, rerender } = render(
+      <ConfigPanel tool={tool} onSave={onSave} onToast={onToast} />,
+    );
+
+    // 进 edit 模式（mtime=1000 snapshot 到 enterEditMtimeRef）
+    const editBtn = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent === "编辑");
+    await act(async () => { fireEvent.click(editBtn!); });
+
+    // 模拟外部 `touch` 文件：content 不变，mtime 变 1000 → 2000
+    const touchedTool = makeTool('{"theme":"dark"}', 2000);
+    await act(async () => { rerender(
+      <ConfigPanel tool={touchedTool} onSave={onSave} onToast={onToast} />,
+    ); });
+
+    // 断言 1：banner 不弹（content 未变）
+    expect(container.querySelector(".schema-conflict")).toBeNull();
+
+    // 断言 2：save 用最新 mtime=2000 而非 stale 1000（旧实现 enterEditMtimeRef 不更新 → 透传 1000 →
+    // 后端 CAS stat 拿到 2000 → 抛 MtimeMismatchError → 用户莫名其妙看到 banner）
+    const saveBtn = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent === "保存") as HTMLButtonElement | undefined;
+    await act(async () => { fireEvent.click(saveBtn!); });
+    expect(onSave).toHaveBeenCalledWith(
+      "/Users/test/.test/settings.json",
+      '{"theme":"dark"}',
+      2000, // 最新 mtime, 不是 enter-edit 时的 1000
+    );
+  });
+
+  // REVIEW_8 R2 R2-7 / R3 G4：CAS 失败后用户在 banner 上点「重新加载」按钮，scope.content /
+  // loadedMtimeUs 应是 reload 后的最新值（G4: App.tsx 在 catch isMtimeMismatch 后主动调
+  // loadFilesOnly，让父级推 scope 更新 → ConfigPanel banner 弹出 + 「重新加载」按钮 setBuf
+  // 拿到的是新 content/新 mtime）。
+  // 本测在 ConfigPanel 单元层验：rerender 推新 scope 后，「重新加载」按钮把 buf / enterEditMtimeRef
+  // 切到新 scope，下次 save 用新 mtime 不再撞 CAS。
+  it("T8 (R2-7 / G4): banner 弹出后「重新加载」按钮使下次 save 用最新 mtime（不再撞 CAS）", async () => {
+    const onSave = mock(() => Promise.resolve());
+    const onToast = mock(() => {});
+    const tool = makeTool('{"theme":"dark"}', 1000);
+
+    const { container, rerender } = render(
+      <ConfigPanel tool={tool} onSave={onSave} onToast={onToast} />,
+    );
+
+    const editBtn = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent === "编辑");
+    await act(async () => { fireEvent.click(editBtn!); });
+
+    // 模拟 CAS 失败 → App.tsx 调 loadFilesOnly → 父级推新 scope（content + mtime 都变）
+    const reloadedTool = makeTool('{"theme":"light"}', 3000);
+    await act(async () => { rerender(
+      <ConfigPanel tool={reloadedTool} onSave={onSave} onToast={onToast} />,
+    ); });
+
+    // banner 应弹出（content 变了）
+    expect(container.querySelector(".schema-conflict")).toBeTruthy();
+
+    // 用户点「重新加载（放弃我的改动）」按钮
+    const reloadBtn = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes("重新加载")) as HTMLButtonElement | undefined;
+    expect(reloadBtn).toBeTruthy();
+    await act(async () => { fireEvent.click(reloadBtn!); });
+
+    // banner 消失，buf 切到新 content
+    expect(container.querySelector(".schema-conflict")).toBeNull();
+
+    // 现在 save 应用新 mtime=3000 而非 stale 1000（旧实现 R2-7 的问题：scope.content/mtime
+    // 没真 reload，「重新加载」按钮只复用旧 scope 仍是 stale）
+    const saveBtn = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent === "保存") as HTMLButtonElement | undefined;
+    await act(async () => { fireEvent.click(saveBtn!); });
+    expect(onSave).toHaveBeenCalledWith(
+      "/Users/test/.test/settings.json",
+      '{"theme":"light"}', // reload 后的新 content
+      3000,                 // reload 后的新 mtime（不是 stale 1000）
+    );
+  });
 });

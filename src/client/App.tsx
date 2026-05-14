@@ -170,6 +170,13 @@ export function App() {
       // mock 不兼容 instanceof 的原因）
       if (isMtimeMismatch(e)) {
         flash("文件已被外部修改，请走对话框决策", false);
+        // REVIEW_8 R2 R2-7 / R3 G4：CAS 失败时主动 reload，让 scope.content / loadedMtimeUs 拿到
+        // 磁盘最新值。否则用户在 banner 上点「重新加载」按钮只复用旧 scope（依赖 focus reload 触发
+        // loadFilesOnly 但用户不一定切走切回） → 「重新加载」按钮 setBuf(scope.content) 仍是
+        // CAS 之前的旧内容 + 旧 mtime → 用户改完保存继续撞同 CAS。
+        // 注意：loadFilesOnly 异步，新 scope 推到 ConfigPanel 后由 useEffect 自动 setExternalChanged(true)
+        // 弹 banner（与 focus reload 推 scope.content 变化触发的 banner 同款 UX）
+        void loadFilesOnly();
       } else {
         flash(String(e), false);
       }

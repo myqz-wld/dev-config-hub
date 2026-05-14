@@ -11,10 +11,15 @@ use std::process::Command;
 use std::time::Duration;
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DchCommandResult {
     pub stdout: String,
     pub stderr: String,
     pub code: i32,
+    /// REVIEW_8 R2 R2-12 / R3 G6：proc_timeout reader 触 5MB cap 时设 true，让 UI 可警示
+    /// 「输出已截断」（不至于让 caller 拿到部分 JSON 误以为完整）。M5 已实现 cap +
+    /// truncated_flag，本字段补回从 CommandOutcome 透传到 TS bridge。
+    pub truncated: bool,
 }
 
 /// Spawn `bun src/cli.ts <args>` 并返回结果。
@@ -124,5 +129,7 @@ fn run_dch_command_blocking(
         stderr: String::from_utf8_lossy(&outcome.stderr).to_string(),
         // outcome.code = -2 表示 watchdog 杀；UI 端可据此判断是否 timeout 还是 CLI 内部失败。
         code: outcome.code,
+        // R2-12 / G6：M5 已在 proc_timeout 设了 truncated_flag，这里透传给 caller
+        truncated: outcome.truncated,
     })
 }

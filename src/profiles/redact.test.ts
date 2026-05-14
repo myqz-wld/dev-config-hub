@@ -188,6 +188,34 @@ describe("redactPlainTextContent (REVIEW_8 M2/D5)", () => {
     expect(r.content).toMatch(/Bearer\s*<<DCH_PLACEHOLDER:HTTP_AUTH_TOKEN>>/);
   });
 
+  it("REVIEW_8 R2-11 / R3 G2: HTTP_AUTH 大小写不敏感（lowercase authorization / scheme 也脱敏）", () => {
+    // 旧 regex 末尾 `/g` 不是 `/gi`，lowercase `authorization:` 漏脱敏（HTTP request log /
+    // curl 例子常见小写写法 → 备份明文泄漏凭据）。R3 G2 加 `i` flag 修复。
+    // 注意：x-api-key 会被 KEY_VALUE pattern (/gi) 优先匹配（不同 placeholder name 但都脱敏），
+    // 这里专测 Authorization 头 + lowercase scheme（HTTP_AUTH 独占覆盖的）。
+    const lower = redactByFilename(
+      `authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9LowerXXXX`,
+      "request-lower.txt",
+    );
+    expect(lower.content).not.toContain("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9LowerXXXX");
+    expect(lower.content).toMatch(/<<DCH_PLACEHOLDER:HTTP_AUTH_TOKEN>>/);
+
+    const lowerScheme = redactByFilename(
+      `Authorization: bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9SchemeXXXX`,
+      "request-scheme.txt",
+    );
+    expect(lowerScheme.content).not.toContain("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9SchemeXXXX");
+    expect(lowerScheme.content).toMatch(/<<DCH_PLACEHOLDER:HTTP_AUTH_TOKEN>>/);
+
+    // x-api-key 验证只检查 value 被脱敏（具体 placeholder name 由先匹配的 pattern 决定 — KEY_VALUE 优先）
+    const apiKey = redactByFilename(
+      `x-api-key: abcDEF1234567890abcdefXYZ`,
+      "request-apikey.txt",
+    );
+    expect(apiKey.content).not.toContain("abcDEF1234567890abcdefXYZ");
+    expect(apiKey.placeholders.length).toBeGreaterThan(0);
+  });
+
   it("无敏感内容 → 原样返回 + 空 placeholders", () => {
     const input = "# CLAUDE.md\n\nThis is plain documentation.";
     const r = redactByFilename(input, "CLAUDE.md");

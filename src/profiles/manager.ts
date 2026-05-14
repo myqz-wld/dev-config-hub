@@ -5,7 +5,11 @@ import { loadStore, saveStore, withStoreLock, STORE_LOCK_PATH } from "./store.ts
 import { runHook, type HookContext } from "./hooks.ts";
 import { switchSymlink, initToolDir, currentSymlinkTarget } from "./symlink.ts";
 
-const ID_RE = /^[a-zA-Z0-9_-]+$/;
+// REVIEW_8 Round 2 R2-3 / Round 3 G1：export 给 backup-restore.ts 等 caller 早期校验
+// 恶意 manifest 携带的 `mp.id`，避免 `join(RESTORED_BASE, "../.ssh")` 逃逸 RESTORED_BASE
+// 子树。原本只在 addProfile 内部校验，但 backup-restore.ts 是先 join → mkdir → copyDirRecursive
+// → addProfile，path traversal 在 addProfile 调用之前已经发生。
+export const ID_RE = /^[a-zA-Z0-9_-]+$/;
 // PR-6 (#M5)：profile.env key 校验 — 与 cli-profile.cmdEnv 输出 wrapper 用的同一 regex。
 // 旧版只在输出处 skip 非法 key（用户在 UI/CLI 加 `MY KEY=v` / `1FOO=v` 落盘成功
 // 但 wrapper 模式 silently 丢，难调试）。这里上游守口拦掉，统一行为。

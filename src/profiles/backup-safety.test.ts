@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { IS_WIN } from "../platform.ts";
 import { validateRestorePath } from "./backup-restore.ts";
+import type { Manifest } from "./backup.ts";
 
 /**
  * REVIEW_8 Group D7 — backup/restore safety roundtrip。
@@ -91,17 +92,24 @@ describe.skipIf(IS_WIN)("backup safety roundtrip (REVIEW_8 Group D)", () => {
       expect(validateRestorePath(`${HOME}/foo/../etc`)).toMatch(/'\.\.'/);
     });
 
-    test("拒绝 ~/.ssh / ~/.gnupg / Library 黑名单", () => {
+    test("拒绝 ~/.ssh / ~/.gnupg / Library 黑名单（含大小写不敏感 R2-10 / 黑名单祖先 R2-6）", () => {
       expect(validateRestorePath(`${HOME}/.ssh`)).toMatch(/BLACKLIST/);
       expect(validateRestorePath(`${HOME}/.ssh/authorized_keys`)).toMatch(/BLACKLIST/);
       expect(validateRestorePath(`${HOME}/.gnupg/secring.gpg`)).toMatch(/BLACKLIST/);
       expect(validateRestorePath(`${HOME}/Library/LaunchAgents/x.plist`)).toMatch(/BLACKLIST/);
+      // R2-10：macOS APFS / HFS+ case-insensitive，.SSH / library/LaunchAgents 应同等被拒
+      expect(validateRestorePath(`${HOME}/.SSH/authorized_keys`)).toMatch(/BLACKLIST/);
+      expect(validateRestorePath(`${HOME}/library/LaunchAgents/x.plist`)).toMatch(/BLACKLIST/);
+      expect(validateRestorePath(`${HOME}/Library/LAUNCHAGENTS/y.plist`)).toMatch(/BLACKLIST/);
+      // R2-6：HOME / HOME/Library 是黑名单祖先 → 必拒（写入时会创建黑名单子树）
+      expect(validateRestorePath(HOME)).toMatch(/祖先/);
+      expect(validateRestorePath(`${HOME}/Library`)).toMatch(/祖先/);
     });
 
-    test("HOME 内合法路径通过", () => {
+    test("HOME 内合法路径通过（叶子且不是黑名单祖先）", () => {
       expect(validateRestorePath(`${HOME}/.claude-test`)).toBeNull();
       expect(validateRestorePath(`${HOME}/.dch-restored/test-id`)).toBeNull();
-      expect(validateRestorePath(HOME)).toBeNull();
+      expect(validateRestorePath(`${HOME}/Library/Caches/dch`)).toBeNull(); // Library/Caches 不在黑名单
     });
 
     test("空路径 / 相对路径拒", () => {
@@ -240,4 +248,138 @@ describe.skipIf(IS_WIN)("backup safety roundtrip (REVIEW_8 Group D)", () => {
       await rm(home, { recursive: true, force: true });
     }
   }, 60_000);
+
+  // ── R2 R2-3/R2-4 / R3 G1：恶意 manifest path traversal 反向测试 ──────────
+  // 构造合法 backup → 解压 → 替换 manifest.json 注入恶意 mp.id / shared rel → 重打包 →
+  // spawn restore → 验 errors 拒 + 敏感路径未被写入。
+  describe("R2-3/R2-4 path traversal hardening (R3 G1)", () => {
+    /** Helper: 解压、改 manifest、重打包成新 .dchpack */
+    async function repackWithMaliciousManifest(
+      srcPack: string,
+      mutate: (m: Manifest) => void,
+    ): Promise<string> {
+      const tmp = await mkdtemp(join(tmpdir(), "dch-mal-pack-"));
+      // 1. 解压原 pack 到 tmp
+      const ex = Bun.spawn(["tar", "-xzf", srcPack, "-C", tmp]);
+      await ex.exited;
+      // 2. 读 + 改 manifest
+      const mfPath = join(tmp, "manifest.json");
+      const m = JSON.parse(await readFile(mfPath, "utf-8")) as Manifest;
+      mutate(m);
+      await writeFile(mfPath, JSON.stringify(m, null, 2));
+      // 3. 重打包到 sibling out
+      const out = `${srcPack}.malicious.dchpack`;
+      const re = Bun.spawn(["sh", "-c", `tar -chf - -C '${tmp}' . | gzip -1 > '${out}'`]);
+      await re.exited;
+      await rm(tmp, { recursive: true, force: true });
+      return out;
+    }
+
+    test("R2-3: 恶意 mp.id 含 .. 被早期拒（不 mkdir / copyDirRecursive 写出 ~/.dch-restored）", async () => {
+      const { home } = await setupTmpHomeWithProfiles({
+        profiles: [{ id: "src", configDir: "~/.claude-src", files: { "x.json": "{}" } }],
+      });
+      try {
+        const out = join(home, ".dch/backups/r23.dchpack");
+        const bk = await runCli(home, ["profile", "backup", "--out", out, "--no-shared", "--yes", "--json"]);
+        expect(bk.exitCode).toBe(0);
+
+        const malicious = await repackWithMaliciousManifest(out, (m) => {
+          // 注入恶意 id：`../.ssh` 会让 join(RESTORED_BASE, "../.ssh") = "$HOME/.ssh"
+          m.profiles[0]!.id = "../.ssh";
+        });
+
+        // 清 store
+        await writeFile(join(home, ".dch/profiles.json"), JSON.stringify({
+          version: 1, profiles: [], active: { claude: null, codex: null },
+          preferences: { hookTimeoutMs: 30_000 },
+        }));
+        // 预先放置 sentinel 在 ~/.ssh 验证不被覆盖（攻击如果成功会被 mkdir/copy 写到这）
+        const sshDir = join(home, ".ssh");
+        await mkdir(sshDir, { recursive: true });
+        const sentinel = join(sshDir, "authorized_keys");
+        const SENTINEL = "# user-original-keys";
+        await writeFile(sentinel, SENTINEL);
+
+        const rs = await runCli(home, ["profile", "restore", malicious, "--yes", "--json"]);
+        expect(rs.exitCode).toBe(1); // R2-3 R3 G1: errors 非空 cli 走 exit 1（B3 协议契约）
+        const result = JSON.parse(rs.stdout.trim());
+        // 验证 errors 拒了恶意 id
+        const allErrors = (result.errors as string[] | undefined) ?? [];
+        expect(allErrors.join("\n")).toMatch(/profile id 非法/);
+        // 验证 ~/.ssh/authorized_keys sentinel 未被覆盖
+        const sentinelAfter = await readFile(sentinel, "utf-8");
+        expect(sentinelAfter).toBe(SENTINEL);
+      } finally {
+        await rm(home, { recursive: true, force: true });
+      }
+    }, 60_000);
+
+    test("R2-4: 恶意 manifest.shared.dch_scripts[i] 含 .. 被拒，不写入 ~/.ssh", async () => {
+      const { home } = await setupTmpHomeWithProfiles({
+        profiles: [{ id: "src", configDir: "~/.claude-src", files: { "x.json": "{}" } }],
+      });
+      try {
+        const out = join(home, ".dch/backups/r24.dchpack");
+        const bk = await runCli(home, ["profile", "backup", "--out", out, "--no-shared", "--yes", "--json"]);
+        expect(bk.exitCode).toBe(0);
+
+        const malicious = await repackWithMaliciousManifest(out, (m) => {
+          // 注入恶意 shared rel：`../../.ssh/evil.txt` → join("$HOME/.dch/scripts", rel) = "$HOME/.ssh/evil.txt"
+          m.shared.dch_scripts = ["../../.ssh/evil.txt"];
+        });
+
+        await writeFile(join(home, ".dch/profiles.json"), JSON.stringify({
+          version: 1, profiles: [], active: { claude: null, codex: null },
+          preferences: { hookTimeoutMs: 30_000 },
+        }));
+        const sshDir = join(home, ".ssh");
+        await mkdir(sshDir, { recursive: true });
+
+        const rs = await runCli(home, ["profile", "restore", malicious, "--yes", "--json"]);
+        expect(rs.exitCode).toBe(1); // R2-4 R3 G1: errors 非空 cli 走 exit 1
+        const result = JSON.parse(rs.stdout.trim());
+        const allErrors = (result.errors as string[] | undefined) ?? [];
+        expect(allErrors.join("\n")).toMatch(/manifest\.shared\.dch_scripts.*被拒/);
+        // 验 ~/.ssh/evil.txt 未被写入
+        const evilExists = await stat(join(sshDir, "evil.txt")).then(() => true).catch(() => false);
+        expect(evilExists).toBe(false);
+      } finally {
+        await rm(home, { recursive: true, force: true });
+      }
+    }, 60_000);
+
+    test("R2-4: 恶意 manifest.shared.agents_paths[i] 含 .. 被拒，不写入 ~/Library/LaunchAgents", async () => {
+      const { home } = await setupTmpHomeWithProfiles({
+        profiles: [{ id: "src", configDir: "~/.claude-src", files: { "x.json": "{}" } }],
+      });
+      try {
+        const out = join(home, ".dch/backups/r24b.dchpack");
+        const bk = await runCli(home, ["profile", "backup", "--out", out, "--no-shared", "--yes", "--json"]);
+        expect(bk.exitCode).toBe(0);
+
+        const malicious = await repackWithMaliciousManifest(out, (m) => {
+          // 注入恶意 agents rel：`../Library/LaunchAgents/persist.plist`
+          m.shared.agents_paths = ["../Library/LaunchAgents/persist.plist"];
+        });
+
+        await writeFile(join(home, ".dch/profiles.json"), JSON.stringify({
+          version: 1, profiles: [], active: { claude: null, codex: null },
+          preferences: { hookTimeoutMs: 30_000 },
+        }));
+
+        const rs = await runCli(home, ["profile", "restore", malicious, "--yes", "--json"]);
+        expect(rs.exitCode).toBe(1); // R2-4 R3 G1: errors 非空 cli 走 exit 1
+        const result = JSON.parse(rs.stdout.trim());
+        const allErrors = (result.errors as string[] | undefined) ?? [];
+        expect(allErrors.join("\n")).toMatch(/manifest\.shared\.agents_paths.*被拒/);
+        // 验 ~/Library/LaunchAgents/persist.plist 未被写入
+        const evilExists = await stat(join(home, "Library/LaunchAgents/persist.plist"))
+          .then(() => true).catch(() => false);
+        expect(evilExists).toBe(false);
+      } finally {
+        await rm(home, { recursive: true, force: true });
+      }
+    }, 60_000);
+  });
 });

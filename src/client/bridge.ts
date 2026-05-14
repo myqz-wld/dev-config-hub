@@ -176,7 +176,7 @@ export async function saveFile(filePath: string, content: string): Promise<void>
 }
 
 /**
- * REVIEW_8 H7 (Group E1)：原子写 + mtime CAS（compare-and-swap）。
+ * REVIEW_8 H7 (Group E1) / R3 G5：原子写 + mtime CAS（compare-and-swap）。
  *
  * 后端 Tauri command `save_file_if_mtime` 在写盘前 stat 比对 expectedMtimeUs：
  * - `expectedMtimeUs = number` → 不一致直接 reject（原子，避免 silent overwrite）
@@ -189,58 +189,18 @@ export async function saveFile(filePath: string, content: string): Promise<void>
  *
  * **返回新 mtime（us）** 让 caller 更新 loadedMtimeUs，避免再发 readFileWithMtime
  * 拿一次 IPC 才能继续 edit。
- */
-export class MtimeMismatchError extends Error {
-  constructor(public readonly expectedMtimeUs: number, public readonly actualMtimeUs: number) {
-    super(`文件已被外部修改（expected mtime=${expectedMtimeUs}us, actual=${actualMtimeUs}us）`);
-    this.name = "MtimeMismatchError";
-  }
-}
-
-export class MtimeMissingError extends Error {
-  constructor(public readonly expectedMtimeUs: number) {
-    super(`文件已被删除（expected mtime=${expectedMtimeUs}us）`);
-    this.name = "MtimeMissingError";
-  }
-}
-
-/**
- * REVIEW_8 H7 / Group E1：判断 Error 是否为 mtime CAS 错（mismatch / missing）。
  *
- * **不直接用 `instanceof`**：bun mock.module 替换 module exports 时，consumer 通过
- * `import { MtimeMismatchError } from "./bridge.ts"` 拿到的 class 与 test 文件直接
- * `new MtimeMismatchError(...)` 的 class **不一定是同一个 prototype 引用** — instanceof
- * 比较 prototype chain，跨 module / 跨 mock 时可能 false-negative。改用 `e.name === ...`
- * 判断更鲁棒（约定：classifySaveError 输出的实例必带 name="MtimeMismatchError" /
- * "MtimeMissingError"）。
+ * R3 G5 拆分：mtime CAS 错误类型 + classifier 抽到 `bridge-mtime.ts`（self-contained pure
+ * 类型 + 字符串解析），bridge.ts 落回 ≤500 LOC 护栏。re-export 让既有 caller
+ * `import { MtimeMismatchError } from "./bridge.ts"` 仍可用，无 break change。
  */
-export function isMtimeMismatch(e: unknown): boolean {
-  return e instanceof Error && e.name === "MtimeMismatchError";
-}
-export function isMtimeMissing(e: unknown): boolean {
-  return e instanceof Error && e.name === "MtimeMissingError";
-}
+export {
+  MtimeMismatchError, MtimeMissingError,
+  isMtimeMismatch, isMtimeMissing,
+  classifySaveError,
+} from "./bridge-mtime.ts";
 
-/**
- * 把 Tauri invoke 抛出的错误（string / Error）按前缀分类成专门的错误类，
- * 让 caller 可以 isMtimeMismatch / isMtimeMissing 区分 mtime CAS 失败 vs 普通 IO 错。
- *
- * 抽成 pure 函数（named export）方便单测：bridge.test.ts 不能 mock invoke
- * （`bun mock.module` 跨 file 污染：App.test.tsx mock 了 ./bridge.ts 让其他 file
- * import 拿到 stub），但可以直接测 classifySaveError 的字符串解析逻辑。
- */
-export function classifySaveError(e: unknown): Error {
-  const msg = e instanceof Error ? e.message : String(e);
-  const mismatch = /MTIME_MISMATCH:(\d+):(\d+)/.exec(msg);
-  if (mismatch) {
-    return new MtimeMismatchError(Number(mismatch[1]), Number(mismatch[2]));
-  }
-  const missing = /MTIME_MISSING:(\d+)/.exec(msg);
-  if (missing) {
-    return new MtimeMissingError(Number(missing[1]));
-  }
-  return e instanceof Error ? e : new Error(msg);
-}
+import { classifySaveError } from "./bridge-mtime.ts";
 
 export async function saveFileIfMtime(
   filePath: string,
@@ -265,6 +225,10 @@ export interface DchCommandResult {
   stdout: string;
   stderr: string;
   code: number;
+  /** REVIEW_8 R2 R2-12 / R3 G6：proc_timeout reader 触 5MB cap 时为 true。
+   * UI 侧拿到 `truncated=true` 应警示用户「输出过大已截断」，避免按截断 stdout
+   * parse JSON 误以为完整。Rust DchCommandResult 同字段，通过 `serde(rename_all = "camelCase")` 同步。 */
+  truncated: boolean;
 }
 
 async function runDch<T = unknown>(args: string[], timeoutMs?: number): Promise<T> {
