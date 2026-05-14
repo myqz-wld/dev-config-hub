@@ -148,3 +148,53 @@ describe("placeholderCount", () => {
     expect(placeholderCount("no placeholders here")).toBe(0);
   });
 });
+
+// CHANGELOG_18：valueHash 字段（仅 backup 内存阶段做 secrets-index dedup group key 用，不入 manifest）
+
+describe("valueHash on PlaceholderHit", () => {
+  it("redactJsonContent：同输入同 hash（deterministic）", () => {
+    const a = redactJsonContent(JSON.stringify({ token: "same-secret" }));
+    const b = redactJsonContent(JSON.stringify({ token: "same-secret" }));
+    expect(a.placeholders[0]?.valueHash).toBeString();
+    expect(a.placeholders[0]?.valueHash).toBe(b.placeholders[0]?.valueHash);
+  });
+
+  it("redactJsonContent：异输入异 hash", () => {
+    const a = redactJsonContent(JSON.stringify({ token: "secret-a" }));
+    const b = redactJsonContent(JSON.stringify({ token: "secret-b" }));
+    expect(a.placeholders[0]?.valueHash).toBeString();
+    expect(b.placeholders[0]?.valueHash).toBeString();
+    expect(a.placeholders[0]?.valueHash).not.toBe(b.placeholders[0]?.valueHash);
+  });
+
+  it("redactJsonContent：valueHash 长度 = 16 hex 字符（短 sha256）", () => {
+    const r = redactJsonContent(JSON.stringify({ token: "x" }));
+    expect(r.placeholders[0]?.valueHash).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("redactWholeFile：不带 valueHash（整文件场景每条独立 logical key）", () => {
+    const r = redactWholeFile('{"foo":"bar"}', "auth.json");
+    expect(r.placeholders[0]?.valueHash).toBeUndefined();
+  });
+
+  it("redactProfileEnv：env 段也带 valueHash", () => {
+    const r = redactProfileEnv({ ANTHROPIC_API_KEY: "sk-ant-xxx" });
+    expect(r.placeholders[0]?.valueHash).toBeString();
+    expect(r.placeholders[0]?.valueHash).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("redactTomlContent：TOML 也带 valueHash", () => {
+    const r = redactTomlContent('experimental_bearer_token = "sk-real"');
+    expect(r.placeholders[0]?.valueHash).toBeString();
+    expect(r.placeholders[0]?.valueHash).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("不变量：脱敏后输出 content 内绝不含真值或 valueHash 字符串", () => {
+    const real = "sk-very-secret-real-value-12345";
+    const r = redactJsonContent(JSON.stringify({ api_key: real }));
+    expect(r.content).not.toContain(real);
+    if (r.placeholders[0]?.valueHash) {
+      expect(r.content).not.toContain(r.placeholders[0].valueHash);
+    }
+  });
+});
