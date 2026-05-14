@@ -95,8 +95,15 @@ export async function writeProfileConfigFile(configDir: string, filename: string
   await saveFile(`${dirAbs}/${filename}`, content);
 }
 
-async function version(cmd: string): Promise<string> {
-  return call<string>("get_tool_version", { command: cmd });
+/**
+ * **REVIEW_9 C-HIGH-1 / C-codex H1**: tool 字段映射 Rust 端 ToolKind enum
+ * (commands/version.rs)。serde rename_all = camelCase 让 OpenCode → "openCode";
+ * 其他 lowercase。前端直接传 enum value 而非任意 string,关闭 IPC 直传 shell -c 的注入面。
+ */
+type ToolKind = "zsh" | "claude" | "codex" | "openCode";
+
+async function version(tool: ToolKind): Promise<string> {
+  return call<string>("get_tool_version", { tool });
 }
 
 async function readScope(
@@ -124,10 +131,10 @@ export interface ToolVersions {
  */
 export async function loadAllVersions(): Promise<ToolVersions> {
   const [shell, claude, codex, opencode] = await Promise.all([
-    version("zsh --version"),
-    version("claude --version"),
-    version("codex --version"),
-    version("opencode --version"),
+    version("zsh"),
+    version("claude"),
+    version("codex"),
+    version("openCode"),
   ]);
   return { shell, claude, codex, opencode };
 }

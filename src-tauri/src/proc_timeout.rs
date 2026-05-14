@@ -98,6 +98,15 @@ pub fn spawn_with_timeout(mut cmd: Command, timeout: Duration) -> Result<Command
     thread::spawn(move || drain_to(stderr, stderr_buf_w, trunc_w2));
 
     // 主线程 try_wait polling，超时杀整组。
+    //
+    // **REVIEW_9 C-LOW-2 / C-codex LOW-1**: polling sleep 改 50ms → 15ms。R1 G4 清单本说要
+    // 改但实际未做。50ms polling 对短命令(`dch list` ~100ms)多 50-100ms latency,放大到
+    // loadAllVersions Promise.all × 4 + loadAllConfigs N 次 IPC 总开销 hundreds of ms。
+    // 15ms 是 OS scheduler quantum 中位区间(macOS 1ms tick + 多核唤醒延迟实测 5-10ms 合理),
+    // 既显著降短命令 latency 又避免 sub-ms 高频唤醒空耗 CPU。grace 仍 50ms(reader thread
+    // 收尾时间够,与 polling 频率独立)。
+    const POLL_INTERVAL: Duration = Duration::from_millis(15);
+    const GRACE_AFTER_KILL: Duration = Duration::from_millis(50);
     let start = Instant::now();
     let mut timed_out = false;
     let exit_code: i32 = loop {
@@ -116,7 +125,7 @@ pub fn spawn_with_timeout(mut cmd: Command, timeout: Duration) -> Result<Command
                 unsafe {
                     libc::killpg(pid, libc::SIGKILL);
                 }
-                thread::sleep(Duration::from_millis(50));
+                thread::sleep(GRACE_AFTER_KILL);
                 break status.code().unwrap_or(-1);
             }
             Ok(None) => {
@@ -125,10 +134,10 @@ pub fn spawn_with_timeout(mut cmd: Command, timeout: Duration) -> Result<Command
                     kill_process_group(&mut child, pid);
                     // 杀 group 后给 reader 一点时间收尾（fd 关闭后 read 立即 EOF）。
                     // 50ms 足够把已 buffered 的字节收完。
-                    thread::sleep(Duration::from_millis(50));
+                    thread::sleep(GRACE_AFTER_KILL);
                     break KILL_CODE;
                 }
-                thread::sleep(Duration::from_millis(50));
+                thread::sleep(POLL_INTERVAL);
             }
             Err(e) => return Err(format!("try_wait 失败: {e}")),
         }

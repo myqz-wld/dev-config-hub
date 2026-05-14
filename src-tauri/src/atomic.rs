@@ -30,7 +30,7 @@
 //! 用户单 GUI（webview 单线程 + CLI 偶发并发），残留窗口不重要 —— 主要防的是
 //! "前端读 mtime 后过几秒/几分钟才 save" 这种秒级/分钟级 TOCTOU。
 
-use crate::path_policy::{check_path, PathPolicy};
+use crate::path_policy::{check_path_for_write, PathPolicy};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -50,9 +50,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// 修：tmp_name 加 (a) 当前时间 nanos、(b) module-level AtomicU64 counter。两个加在一起保证
 /// 同进程任意 thread 调用任意次数 tmp_name 都唯一。counter 用 Relaxed 序（仅要求唯一不要求
 /// 跨 thread happens-before），fetch_add 是原子 CAS 不会撞。
+///
+/// **REVIEW_9 C-LOW-1 / C 双方独立**: pub(crate) 让 dch.rs run_dch_with_secrets_temp 复用
+/// 同款 unique 算法,消除 R1 G4 清单说"已抽 tmp_name helper 实际没做"的债。dch.rs 旧
+/// 实现 `format!("dch-secrets-{}-{}.json", pid, nanos)` 缺 AtomicU64 counter,同进程多
+/// thread 并发同 nanos 时撞名(罕见但 thread pool 唤醒时序极端可达,且 secret 写穿 race
+/// 是数据正确性问题不是性能问题)。
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-fn unique_tmp_suffix() -> String {
+pub(crate) fn unique_tmp_suffix() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u128)
@@ -138,6 +144,13 @@ pub fn write_atomic_check_mtime(
 ///
 /// **必须 async + spawn_blocking**（Tauri v2 同步 #[tauri::command] 在主线程跑会冻 webview
 /// — tally AP-19 / CHANGELOG_17）。
+///
+/// **REVIEW_9 C-HIGH-2 / C-codex H2 + C-claude 反驳同意 + 端到端 PoC 写穿**: 用
+/// `check_path_for_write` 替代 lexical `check_path`,与 commands/fs.rs:164 save_file 对齐。
+/// 旧 lexical 让 `$HOME/symlink-to-tmp/x` 通过(字符串前缀符合 HOME)→ rename 真去写,
+/// 文件落到 /tmp/outside-victim/ 写穿 HOME 边界。check_path_for_write 把 parent
+/// canonicalize 后再 boundary check,parent 是 symlink 出 HOME 立即拒。同时保留
+/// "parent 不存在 fall back lexical"的 caller 友好行为(新建配置文件正常)。
 #[tauri::command]
 pub async fn save_file_if_mtime(
     path: String,
@@ -145,7 +158,7 @@ pub async fn save_file_if_mtime(
     expected_mtime_us: Option<u64>,
 ) -> Result<u64, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        check_path(&path, PathPolicy::HomeOnly)?;
+        check_path_for_write(&path, PathPolicy::HomeOnly)?;
         let p = Path::new(&path);
         write_atomic_check_mtime(p, &content, expected_mtime_us)
     })
