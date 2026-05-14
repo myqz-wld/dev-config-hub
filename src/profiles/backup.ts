@@ -162,6 +162,13 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
   // **REVIEW_9 B-codex M1**: --keep 同秒两次调用旧实现走同名 `dch-backup-<TS>.dchpack` 第二次
   // 直接覆盖第一次。修法:fileExists 循环加 -001 / -002 ... 后缀直到空闲名(与 pinBackup 同款
   // backup-manage.ts:215-225 防撞名);outFile 显式传仍以 caller 为准(CLI / UI 显式覆盖意图明确)。
+  //
+  // **REVIEW_9 B-LOW-1 / B-codex MED-3 *未验证* 降**: fileExists check 与后续 Bun.write 之间
+  // 存在 TOCTOU 窗口(并发同秒 createBackup 进程之间互见)。Bun 当前没暴露 O_CREAT|O_EXCL 原子
+  // 创建-或-失败 API,Node fs.open `'wx'` flag 在 Bun 已支持但需迁出 Bun.write 改用 fs.open +
+  // fs.writeFile。trade-off:dch 单用户 single-process 设计,createBackup 同秒并发概率极低
+  // (用户手点 + cron job 偶发碰撞);TOCTOU 命中也只是覆盖一次空 placeholder 不破坏数据。
+  // 接受此 LOW 边界,follow-up 重写为 fs.open(wx) 时一并修。
   let outFile: string;
   if (opts.outFile) {
     outFile = opts.outFile;
@@ -416,9 +423,19 @@ ${lines}
 // 给 backup-restore.ts 直接 import 这 4 个 helper(双向 import 反向);抽 backup-shared.ts
 // 后这 4 个 helper 由 backup-shared.ts 直接 export,backup-restore.ts 直接 import 自
 // backup-shared.ts 不再走 backup.ts 间接桥(保留本文件 36-39 行 re-export 给外部 caller 兼容)。
+//
+// **REVIEW_9 B-LOW-2 / B-claude L1**: applyBackupWithSecrets 直接 re-export 自
+// `./backup-restore-secrets.ts` 而不绕 `./backup-restore.ts`。旧版 backup-restore.ts 顶部
+// `export { applyBackupWithSecrets } from "./backup-restore-secrets.ts"` 与
+// backup-restore-secrets.ts 顶部 `import { applyBackup } from "./backup-restore.ts"` 构成
+// 模块循环 import(虽 ESM 能处理 lazy resolve 但耦合不干净 + Bun toolchain 警告)。本 facade
+// 拆开 import 源 → backup-restore.ts 不再 import / re-export backup-restore-secrets.ts(单向)。
 export {
-  parseBackup, cleanupParsed, applyBackup, applyBackupWithSecrets,
+  parseBackup, cleanupParsed, applyBackup,
   type ParseBackupResult, type ApplyBackupOptions, type ApplyBackupResult,
-  type ApplyBackupWithSecretsOptions, type ApplyBackupWithSecretsResult,
   type AppliedProfile, type SharedAction, type ConflictAction,
 } from "./backup-restore.ts";
+export {
+  applyBackupWithSecrets,
+  type ApplyBackupWithSecretsOptions, type ApplyBackupWithSecretsResult,
+} from "./backup-restore-secrets.ts";

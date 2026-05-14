@@ -18,7 +18,7 @@
  */
 
 import { readdir, mkdir, rm, copyFile, stat, writeFile } from "node:fs/promises";
-import { join, dirname, basename, isAbsolute } from "node:path";
+import { join, dirname, basename, isAbsolute, resolve } from "node:path";
 import { DCH_DIR, expandHome } from "./store.ts";
 
 export const BACKUP_DIR = join(DCH_DIR, "backups");
@@ -106,6 +106,13 @@ async function readManifestSummary(packPath: string): Promise<{
  * 解析 caller 给的 path：支持 basename（默认相对 BACKUP_DIR）/ ~/ 形态 / 绝对路径。
  * 这是 CLI / UI 都用的通用 helper —— 用户在 CLI 写 `backup-rm latest.dchpack` 应等价于
  * 写绝对路径。
+ *
+ * **REVIEW_9 B-MED-2 / B-codex M2 [NEW REGRESSION post-G3]**: 末尾 `resolve(abs)` 规范化
+ * `..` 段。旧实现绝对路径原样返回 / `join` 不消化 `..` → caller 传
+ * `${BACKUP_DIR}/../../../etc/passwd` 时 abs.startsWith(BACKUP_DIR + "/") 成立(字符串前缀
+ * 匹配)但实际指向 BACKUP_DIR 外。`resolve` 把 `..` 段折叠掉,后续 startsWith 边界检查才有效。
+ * 注意 `resolve` 仅字符串 normalize 不解 symlink(symlink 防御靠操作系统沙箱 + Tauri capability,
+ * 不在本层管)。
  */
 export function resolveBackupPath(p: string): string {
   if (!p) throw new Error("路径不能为空");
@@ -115,7 +122,7 @@ export function resolveBackupPath(p: string): string {
   } else if (!isAbsolute(abs)) {
     abs = join(process.cwd(), abs);
   }
-  return abs;
+  return resolve(abs);
 }
 
 export async function listBackups(): Promise<BackupSummary[]> {
@@ -250,9 +257,27 @@ function tsForFilename(d: Date = new Date()): string {
  * - pin=true + 非默认位：原地 touch sidecar
  * - pin=false：rm sidecar（如果传的是 latest.dchpack，没有 sidecar 可删—— pin=false 操作
  *   对默认位没有意义，silently no-op）
+ *
+ * **REVIEW_9 B-MED-1 / B-claude H1 + B-codex L1**: 加 `.dchpack` 后缀必检 + BACKUP_DIR 边界
+ * 默认 enforce(同 deleteBackup 双道保险)。旧实现仅 `resolveBackupPath` 不校验后缀 + 边界 →
+ * caller 误传任意路径(凭据 / LaunchAgents)就 `writeFile(path + ".pinned", "")` 任意写空文件。
+ * `allowOutsideBackupDir: true` opt-out 给单元测试用(同 deleteBackup)。production callers
+ * (CLI cmdBackupPin / bridge.backupPin)**不**传此 opt,默认走严格模式。
  */
-export async function pinBackup(path: string, pin: boolean): Promise<PinBackupResult> {
+export async function pinBackup(
+  path: string,
+  pin: boolean,
+  opts?: { allowOutsideBackupDir?: boolean },
+): Promise<PinBackupResult> {
   const abs = resolveBackupPath(path);
+  if (!abs.endsWith(".dchpack")) {
+    throw new Error(`拒绝置顶非 .dchpack 文件: ${abs}(suffix check 防御误写任意路径 sidecar)`);
+  }
+  if (!opts?.allowOutsideBackupDir) {
+    if (abs !== BACKUP_DIR && !abs.startsWith(BACKUP_DIR + "/")) {
+      throw new Error(`拒绝置顶 BACKUP_DIR 外的文件: ${abs}(BACKUP_DIR 边界 check)`);
+    }
+  }
   if (!(await fileExists(abs))) {
     throw new Error(`备份不存在: ${abs}`);
   }

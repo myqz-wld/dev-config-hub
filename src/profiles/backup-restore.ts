@@ -197,6 +197,11 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
   const dryRun = !!opts.dryRun;
   const renameMap = opts.renameMap ?? {};
   const prefix = opts.prefix;
+  // **REVIEW_9 B-INFO-1 / B-claude I1**: prefix 全局参数,循环外 once 校验。旧实现放循环内
+  // N profiles 时 errors.push N 条同款报错(noisy + 让 caller 看不出真错在哪)。
+  if (prefix !== undefined && prefix !== "" && !/^[a-zA-Z0-9_-]+$/.test(prefix)) {
+    throw new Error(`prefix=${JSON.stringify(prefix)} 非法（仅允许字母数字 _ -）`);
+  }
 
   const store = await loadStore();
   const existingIds = new Set(store.profiles.map((p) => p.id));
@@ -216,13 +221,9 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
       errors.push(`profile id 非法 (含 / \\ .. 等危险字符): ${JSON.stringify(mp.id)}`);
       continue;
     }
-    // renameMap 与 prefix 也校验（caller 控制但仍走防御性校验，避免 CLI / UI 误传 .. 进来）
+    // renameMap 也校验（caller 控制但仍走防御性校验，避免 CLI / UI 误传 .. 进来）
     if (renameMap[mp.id] && !ID_RE.test(renameMap[mp.id]!)) {
       errors.push(`renameMap[${mp.id}]=${JSON.stringify(renameMap[mp.id])} 非法 id`);
-      continue;
-    }
-    if (prefix !== undefined && prefix !== "" && !/^[a-zA-Z0-9_-]+$/.test(prefix)) {
-      errors.push(`prefix=${JSON.stringify(prefix)} 非法（仅允许字母数字 _ -）`);
       continue;
     }
 
@@ -289,25 +290,43 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
       : dirConflict ? "renamed-dir"
       : "none";
 
-    applied.push({ originalId: mp.id, finalId, configDir: collapseHome(finalDirAbs), conflict });
-    existingIds.add(finalId);
-    existingDirs.add(normalizePath(finalDirAbs));
-
-    // 收集占位符（重写 hostPath 为 final 路径）
-    for (const ph of manifest.placeholders) {
-      const prefixOfThisProfile = `profiles/${mp.id}/`;
-      if (!ph.packPath.startsWith(prefixOfThisProfile)) continue;
-      const after = ph.packPath.slice(prefixOfThisProfile.length);
-      let hostPath: string | undefined;
-      if (after === "_meta.json") {
-        hostPath = STORE_PATH; // env 段在 profiles.json
-      } else if (after.startsWith("configDir/")) {
-        hostPath = join(finalDirAbs, after.slice("configDir/".length));
+    // **REVIEW_9 B-HIGH-2 / B-claude H2 [NEW REGRESSION post-G3]**: applied[] /
+    // placeholders[] / existingIds.add / existingDirs.add 假阳性。旧实现在 dryRun=false 路径
+    // 也早 push,然后 try/catch 仅 errors.push 不 splice,addProfile / mkdir / copyDirRecursive
+    // 失败时 result.appliedProfiles 仍含 finalId(实际未注册) + result.placeholders[] 仍含
+    // 该 profile 的 entries(hostPath 写到 finalDirAbs 但实际没创建)→ caller 拿到 result 误以为
+    // 部分成功 / fan-out fill 把 secret 写到不存在的 host 路径报 ENOENT。
+    //
+    // 新实现按 dryRun 分流:
+    //   dryRun=true → 早 push(本来就是算 plan,plan 必含 applied + placeholders)
+    //   dryRun=false → 进 try 后,addProfile 成功才 push,失败仅 errors.push 不污染 applied/placeholders
+    //
+    // existingIds.add / existingDirs.add 也按同款分流(dryRun 时算 plan 累计;实写失败时仍累计
+    // 让后续 profile 撞名继续 + suffix 避免错误地认为「这个 id 又可用了」给后面 profile 撞同名)。
+    // 决策:实写失败时仍 add(避免 N profile 全失败时 second 被分配同款 finalId 又失败)。
+    // 收集占位符 helper(dryRun + try 块都用)
+    const collectPlaceholders = () => {
+      for (const ph of manifest.placeholders) {
+        const prefixOfThisProfile = `profiles/${mp.id}/`;
+        if (!ph.packPath.startsWith(prefixOfThisProfile)) continue;
+        const after = ph.packPath.slice(prefixOfThisProfile.length);
+        let hostPath: string | undefined;
+        if (after === "_meta.json") {
+          hostPath = STORE_PATH; // env 段在 profiles.json
+        } else if (after.startsWith("configDir/")) {
+          hostPath = join(finalDirAbs, after.slice("configDir/".length));
+        }
+        placeholders.push({ ...ph, hostPath });
       }
-      placeholders.push({ ...ph, hostPath });
-    }
+    };
 
-    if (dryRun) continue;
+    if (dryRun) {
+      applied.push({ originalId: mp.id, finalId, configDir: collapseHome(finalDirAbs), conflict });
+      existingIds.add(finalId);
+      existingDirs.add(normalizePath(finalDirAbs));
+      collectPlaceholders();
+      continue;
+    }
 
     // REVIEW_8 R2 R2-9 / R3 G1：rm rollback pre-stat 检查。`--allow-original-path` 模式 +
     // finalDirAbs 撞已有非备份目录时，addProfile 失败 catch 走 `rm -rf finalDirAbs` 会**删整个
@@ -345,9 +364,19 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
       };
       await addProfile(newProfile);
       appliedSuccessfully = true;
+      // **REVIEW_9 B-HIGH-2**: addProfile 成功才 push 真值进 applied / placeholders
+      applied.push({ originalId: mp.id, finalId, configDir: collapseHome(finalDirAbs), conflict });
+      existingIds.add(finalId);
+      existingDirs.add(normalizePath(finalDirAbs));
+      collectPlaceholders();
     } catch (e) {
       const stage = appliedSuccessfully ? "post-add" : "pre/in-add";
       errors.push(`profile ${mp.id} 还原失败 (${stage}): ${e instanceof Error ? e.message : String(e)}`);
+      // **REVIEW_9 B-HIGH-2**: 失败时不污染 applied/placeholders,但 existingIds/existingDirs
+      // 仍 add 让后续 profile 撞同名时拿到不同 suffix(避免 N profile 全失败时 secondary 被
+      // 分配同款 finalId 重蹈覆辙)
+      existingIds.add(finalId);
+      existingDirs.add(normalizePath(finalDirAbs));
       // dirPreExisted=true 时**不**rm（避免 --allow-original-path 撞已有非备份目录误删用户数据）。
       if (dirPreExisted) {
         errors.push(
@@ -373,42 +402,67 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
   // 这种逃逸 ~/.dch/scripts 或 ~/.agents 子树的攻击。攻击模型：恶意 .dchpack 在 manifest.shared.*
   // 数组里塞 `../../.ssh/authorized_keys`，applySharedFile 调 copyFile 把 .dchpack 内的恶意文件
   // 直接覆盖到敏感路径（凭据 / LaunchAgents 持久化）。
+  //
+  // **REVIEW_9 B-HIGH-1 / B-claude H1 + B-codex H1**: 每个 applySharedFile 包 try/catch +
+  // errors.push + continue。旧实现 applySharedFile 内部 throw(disk full / EACCES / fileSha256
+  // bytes() OOM / Promise.all rejection)直接逃出 applyBackup 外层 → 后续 shared 项全部不执行
+  // + caller 拿到 throw 而非结构化 errors[]。+ element-level `typeof rel === "string"` 校验
+  // 防 manifest.shared.*[i] 是 number/null/object 的坏包退化成 join 报错。
   const sharedActions: SharedAction[] = [];
+  const runSharedItem = async (
+    category: SharedAction["category"],
+    rel: unknown,
+    rootForSafeJoin: string,
+    srcRoot: string,
+    label: string,
+  ): Promise<void> => {
+    if (typeof rel !== "string") {
+      errors.push(`${label} 项必须是字符串(实际 ${typeof rel}): ${JSON.stringify(rel)}`);
+      return;
+    }
+    const safeDst = safeJoinUnderRoot(rootForSafeJoin, rel);
+    if (safeDst === null) {
+      errors.push(`${label} 项被拒（path traversal / 绝对路径 / null byte）: ${JSON.stringify(rel)}`);
+      return;
+    }
+    const src = join(srcRoot, rel);
+    try {
+      const action = await applySharedFile(src, safeDst, opts.sharedConflict, dryRun);
+      sharedActions.push({ category, relPath: rel, hostPath: safeDst, action });
+    } catch (e) {
+      errors.push(
+        `${label} 项 ${JSON.stringify(rel)} 应用失败: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  };
   if (manifest.shared.dch_scripts.length > 0) {
     const dchScriptsRoot = join(DCH_DIR, "scripts");
+    const srcRoot = join(tmpDir, "dch", "scripts");
     for (const rel of manifest.shared.dch_scripts) {
-      const safeDst = safeJoinUnderRoot(dchScriptsRoot, rel);
-      if (safeDst === null) {
-        errors.push(`manifest.shared.dch_scripts 项被拒（path traversal / 绝对路径 / null byte）: ${JSON.stringify(rel)}`);
-        continue;
-      }
-      const src = join(tmpDir, "dch", "scripts", rel);
-      const action = await applySharedFile(src, safeDst, opts.sharedConflict, dryRun);
-      sharedActions.push({ category: "dch_script", relPath: rel, hostPath: safeDst, action });
+      await runSharedItem("dch_script", rel, dchScriptsRoot, srcRoot, "manifest.shared.dch_scripts");
     }
   }
   if (manifest.shared.agents_paths.length > 0) {
     const agentsRoot = join(HOME, ".agents");
+    const srcRoot = join(tmpDir, "shared", "agents");
     for (const rel of manifest.shared.agents_paths) {
-      const safeDst = safeJoinUnderRoot(agentsRoot, rel);
-      if (safeDst === null) {
-        errors.push(`manifest.shared.agents_paths 项被拒（path traversal / 绝对路径 / null byte）: ${JSON.stringify(rel)}`);
-        continue;
-      }
-      const src = join(tmpDir, "shared", "agents", rel);
-      const action = await applySharedFile(src, safeDst, opts.sharedConflict, dryRun);
-      sharedActions.push({ category: "agents", relPath: rel, hostPath: safeDst, action });
+      await runSharedItem("agents", rel, agentsRoot, srcRoot, "manifest.shared.agents_paths");
     }
   }
 
   // **REVIEW_9 B-MED-1 / B-claude M1**: 还原 ui-prefs.json。backup.ts:276 写 `tmpDir/dch/ui-prefs.json`,
   // 但 restore 旧实现完全不读 → 跨机器 restore 静默丢失全部 UI 偏好(列宽 / 排序 / 主题等)。
   // 用 backup-then-overwrite 策略与 shared assets 一致;dryRun 仅产 SharedAction 不写 fs。
+  // 同 B-HIGH-1 包 try/catch 让 applySharedFile 异常不阻塞返回。
   const uiPrefsTmpPath = join(tmpDir, "dch", "ui-prefs.json");
   if (await fileExists(uiPrefsTmpPath)) {
     const uiPrefsHostPath = join(DCH_DIR, "ui-prefs.json");
-    const action = await applySharedFile(uiPrefsTmpPath, uiPrefsHostPath, opts.sharedConflict, dryRun);
-    sharedActions.push({ category: "dch_script", relPath: "ui-prefs.json", hostPath: uiPrefsHostPath, action });
+    try {
+      const action = await applySharedFile(uiPrefsTmpPath, uiPrefsHostPath, opts.sharedConflict, dryRun);
+      sharedActions.push({ category: "dch_script", relPath: "ui-prefs.json", hostPath: uiPrefsHostPath, action });
+    } catch (e) {
+      errors.push(`ui-prefs.json 应用失败: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   return { appliedProfiles: applied, sharedActions, placeholders, errors };
@@ -450,10 +504,12 @@ async function applySharedFile(
 // 旧 dchpack（无 secrets_index）/ 没传 secretsMap → 走 fall back 等价 applyBackup。
 //
 // REVIEW_9 G6 拆模块: 实现挪到 backup-restore-secrets.ts(让本文件 ≤ 500 LOC)。
-// caller 仍 `import {applyBackupWithSecrets / ApplyBackupWithSecretsOptions / Result}
-// from "./backup-restore.ts"` 不变。
-export type {
-  ApplyBackupWithSecretsOptions,
-  ApplyBackupWithSecretsResult,
-} from "./backup-restore-secrets.ts";
-export { applyBackupWithSecrets } from "./backup-restore-secrets.ts";
+//
+// **REVIEW_9 B-LOW-2 / B-claude L1**: 旧版本文件 re-export `applyBackupWithSecrets` 让
+// caller 仍 `import {applyBackupWithSecrets} from "./backup-restore.ts"` 不变。但
+// backup-restore-secrets.ts 内部 `import { applyBackup } from "./backup-restore.ts"` →
+// 形成模块循环 import。改 facade backup.ts 直接 re-export 自 backup-restore-secrets.ts;
+// 本文件不再 import / re-export secrets 模块,单向依赖干净:
+//   backup.ts ── re-export ──► backup-restore.ts (parseBackup/applyBackup)
+//   backup.ts ── re-export ──► backup-restore-secrets.ts (applyBackupWithSecrets)
+//   backup-restore-secrets.ts ── import ──► backup-restore.ts (single direction)

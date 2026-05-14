@@ -53,24 +53,32 @@ export const EXCLUDE_PATTERNS: string[] = [
   "**/*.backup.*",
   "**/.DS_Store",
 
-  "debug/**",
-  "file-history/**",
-  "session-env/**",
-  "sessions/**",
-  "shell_snapshots/**",
-  "shell-snapshots/**",
-  "paste-cache/**",
-  ".cache/**",
+  // **REVIEW_9 B-MED-3 / B-claude M1**: 子目录段统一加 `**/` 前缀让任意深度匹配。旧实现仅
+  // root 级匹配 → INCLUDE 子树(`templates/**` / `agents/**` / `plugins/local/**` 等)内嵌
+  // 的 `.cache/` / `.tmp/` / `debug/` 等都漏过滤。Bun.Glob `**/x/**` 同时匹配
+  // `x/foo` (root) 与 `nested/x/foo` (深度)。
+  //
+  // 例外:`cache/**` 保留 root-only — `plugins/cache/**` 是 INCLUDE 主动允许的 plugin
+  // marketplace 合法 cache 数据,跨深度匹配会误伤;靠 `**/.cache/**` (隐藏目录)兜底子树内
+  // 真临时目录。
+  "**/debug/**",
+  "**/file-history/**",
+  "**/session-env/**",
+  "**/sessions/**",
+  "**/shell_snapshots/**",
+  "**/shell-snapshots/**",
+  "**/paste-cache/**",
+  "**/.cache/**",
   "cache/**",
-  "backups/**",
-  "ide/**",
-  "state/**",
-  "tasks/**",
-  "statsig/**",
-  "log/**",
-  "tmp/**",
-  ".tmp/**",
-  "memories/**",
+  "**/backups/**",
+  "**/ide/**",
+  "**/state/**",
+  "**/tasks/**",
+  "**/statsig/**",
+  "**/log/**",
+  "**/tmp/**",
+  "**/.tmp/**",
+  "**/memories/**",
 
   ".last-cleanup",
   ".personality_migration",
