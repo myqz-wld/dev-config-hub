@@ -5,7 +5,7 @@ import {
 } from "../../bridge.ts";
 import { defaultProfileDir } from "../../../profiles/defaults.ts";
 import {
-  TOOLS, MAIN_CONFIG,
+  TOOLS, MAIN_CONFIG, ENV_KEY_RE,
   type AddForm, hookToString,
 } from "./helpers.ts";
 import { Select } from "../Select.tsx";
@@ -182,17 +182,31 @@ export function AddProfileModal({
                 </div>
               ))}
               <div className="form-env-add">
-                <input type="text" placeholder="KEY" value={envKey} onChange={(e) => setEnvKey(e.target.value)} />
+                <input
+                  type="text"
+                  placeholder="KEY"
+                  value={envKey}
+                  onChange={(e) => setEnvKey(e.target.value)}
+                  className={envKey && !ENV_KEY_RE.test(envKey) ? "invalid" : undefined}
+                />
                 <input type="text" placeholder="VALUE" value={envVal} onChange={(e) => setEnvVal(e.target.value)} />
                 <button
                   className="btn-sm"
-                  disabled={!envKey || !envVal}
+                  // REVIEW_8 H7-同源 / Group E7：env key 必须匹配 ENV_KEY_RE，否则 dch profile env
+                  // wrapper 模式会 silently 丢（或 manager.validateEnv 拦截抛错），UI 上游守口避免
+                  // 用户输入坏 KEY 后才在 submit 阶段失败。
+                  disabled={!envKey || !envVal || !ENV_KEY_RE.test(envKey)}
                   onClick={() => {
                     setForm({ ...form, env: { ...form.env, [envKey]: envVal } });
                     setEnvKey(""); setEnvVal("");
                   }}
                 >+</button>
               </div>
+              {envKey && !ENV_KEY_RE.test(envKey) && (
+                <p className="form-hint form-hint-error">
+                  非法 KEY：必须匹配 <code>/^[A-Za-z_][A-Za-z0-9_]*$/</code>（字母 / 下划线开头 + 字母 / 数字 / _）
+                </p>
+              )}
               <p className="form-hint">
                 env 仅在 pre/post hook 子进程里可见；要让 claude / codex 进程拿到，参考 README「Shell wrapper」。
               </p>

@@ -8,6 +8,7 @@ import { readOpenCodeConfig } from "./readers/opencode.ts";
 import { runProfileCommand } from "./cli-profile.ts";
 import { c, LEVEL_COLORS } from "./cli-colors.ts";
 import { HOME, defaultEditor } from "./platform.ts";
+import { isJsonMode, jsonOut } from "./cli-shared.ts";
 
 function renderScope(scope: ConfigScope): string {
   const lines: string[] = [];
@@ -107,8 +108,10 @@ async function main() {
       cwd: pathResolve(import.meta.dir, ".."),
       stdio: ["inherit", "inherit", "inherit"],
     });
-    await proc.exited;
-    return;
+    // REVIEW_8 M9：Bun.spawn 后必须把子进程 exit code 透传给父进程，否则 tauri dev
+    // 失败（端口占用 / Rust 编译错）退非零，dch 仍 exit 0 → caller (CI / wrapper) 误判成功。
+    const exitCode = await proc.exited;
+    process.exit(exitCode ?? 1);
   }
 
   if (args[0] === "edit") {
@@ -126,8 +129,9 @@ async function main() {
     const editor = defaultEditor();
     const resolved = filePath.startsWith("~") ? filePath.replace("~", HOME) : filePath;
     const proc = Bun.spawn([editor, resolved], { stdio: ["inherit", "inherit", "inherit"] });
-    await proc.exited;
-    return;
+    // 同上 REVIEW_8 M9：editor 异常退出（vim 撞 read-only / 用户 :cq）应让 dch 也非零退。
+    const exitCode = await proc.exited;
+    process.exit(exitCode ?? 1);
   }
 
   if (args[0] === "all" || args[0] === "--all") {
@@ -148,7 +152,17 @@ async function main() {
   console.log(renderTool(tools[toolIndex]!));
 }
 
-main().catch((e) => {
+main().catch(async (e) => {
+  // REVIEW_8 H6：runProfileCommand 内部把 jsonMode 设到 cli-shared 模块状态；
+  // 若错误是从 profile cmd throw 上来（如 manager.useProfile 拒绝 / parseFlags 崩），
+  // 必须 jsonOut 错误而不是 console.error 文本 — Tauri bridge runDch 解析 stdout 拿不到
+  // JSON 时只能从 stderr 拼错误，且 r.code 仍 = 1 但前端 message 一会儿 JSON 一会儿
+  // 文本，体感不一致。
+  if (isJsonMode()) {
+    const message = e instanceof Error ? e.message : String(e);
+    await jsonOut({ error: message });
+    process.exit(1);
+  }
   console.error(`${c.red}${e}${c.reset}`);
   process.exit(1);
 });

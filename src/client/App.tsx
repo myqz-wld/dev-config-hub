@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import type { ToolConfig } from "../types.ts";
 import {
-  loadAllVersions, loadAllFiles, saveFile, getHomeDir,
+  loadAllVersions, loadAllFiles, saveFile, saveFileIfMtime, isMtimeMismatch, getHomeDir,
   loadProfileDataDirect,
   type ToolVersions, type ProfileStore, type ProfileActive,
 } from "./bridge.ts";
@@ -142,10 +142,44 @@ export function App() {
     }, ok ? 3000 : 8000);
   }, []);
 
-  const onSave = async (path: string, content: string) => {
-    try { await saveFile(path, content); flash("保存成功", true); void loadFilesOnly(); }
-    catch (e) {
-      flash(String(e), false);
+  /**
+   * REVIEW_8 H7 / Group E2：onSave 接 expectedMtimeUs，走后端 mtime CAS（last-line defense）。
+   *
+   * - `expectedMtimeUs = number` → 走 `saveFileIfMtime`，后端 stat 比对失败抛 `MtimeMismatchError`
+   *   / `MtimeMissingError`（caller catch 弹 banner / flash）
+   * - `expectedMtimeUs = null`   → caller 显式放弃 CAS（如「保留我的改动」按钮主动覆盖语义） →
+   *   仍走 `saveFileIfMtime` 但传 null 跳过 CAS
+   * - `expectedMtimeUs = undefined`（旧 caller 没传） → 走 `saveFile` 老接口（atomic write，
+   *   但不做 mtime check，与原行为兼容）
+   *
+   * 所有路径仍 rethrow 让 caller 知道失败（PR-4 #H2：旧版 fire-and-forget + 同步 setMode("view")
+   * 让用户编辑内容直接丢失的回归保护）。
+   */
+  const onSave = async (path: string, content: string, expectedMtimeUs?: number | null) => {
+    try {
+      if (expectedMtimeUs === undefined) {
+        await saveFile(path, content);
+      } else {
+        await saveFileIfMtime(path, content, expectedMtimeUs);
+      }
+      flash("保存成功", true);
+      void loadFilesOnly();
+    } catch (e) {
+      // MtimeMismatchError 用专门的中文文案，让用户立刻明白要走 banner 决策路径
+      // （走 isMtimeMismatch helper 而非 instanceof — 见 bridge.ts 注释里跨 module
+      // mock 不兼容 instanceof 的原因）
+      if (isMtimeMismatch(e)) {
+        flash("文件已被外部修改，请走对话框决策", false);
+        // REVIEW_8 R2 R2-7 / R3 G4：CAS 失败时主动 reload，让 scope.content / loadedMtimeUs 拿到
+        // 磁盘最新值。否则用户在 banner 上点「重新加载」按钮只复用旧 scope（依赖 focus reload 触发
+        // loadFilesOnly 但用户不一定切走切回） → 「重新加载」按钮 setBuf(scope.content) 仍是
+        // CAS 之前的旧内容 + 旧 mtime → 用户改完保存继续撞同 CAS。
+        // 注意：loadFilesOnly 异步，新 scope 推到 ConfigPanel 后由 useEffect 自动 setExternalChanged(true)
+        // 弹 banner（与 focus reload 推 scope.content 变化触发的 banner 同款 UX）
+        void loadFilesOnly();
+      } else {
+        flash(String(e), false);
+      }
       // PR-4 (#H2)：rethrow 让 caller (ConfigPanel.Scope) 知道失败，否则
       // 旧版 fire-and-forget + 同步 setMode("view") 让用户编辑内容直接丢失
       throw e;

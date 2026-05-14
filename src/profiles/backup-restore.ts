@@ -20,13 +20,110 @@ import { join, dirname, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
 import type { Profile } from "./types.ts";
 import { loadStore, expandHome, collapseHome, HOME, DCH_DIR, STORE_PATH } from "./store.ts";
-import { addProfile } from "./manager.ts";
+import { addProfile, ID_RE } from "./manager.ts";
 import {
   FORMAT_VERSION,
   walkFiles, fileExists, tsForFilename, spawnSimple,
   type Manifest, type PlaceholderEntry,
 } from "./backup.ts";
 import { applyFilledSecrets } from "./secrets-index.ts";
+
+/**
+ * REVIEW_8 H5 / Group D3：默认强制把还原写到 `~/.dch-restored/<finalId>/` 下，忽略 manifest
+ * 携带的 configDir_original。
+ *
+ * 攻击模型：恶意 .dchpack 在 manifest.profiles[].configDir_original 写 `/etc/cron.d` /
+ * `~/.ssh` / `~/Library/LaunchAgents/...`，restore 走 `expandHome(mp.configDir_original)` 当
+ * 目标 → addProfile 注册 + tar 解压副本写过去 → 持久化执行 / 凭据替换。
+ *
+ * 修复：
+ * 1. 默认 ALWAYS 用 `~/.dch-restored/<finalId>/` —— 与现有 .dchpack 不向后兼容（review
+ *    之前没有 release）
+ * 2. `--allow-original-path` opt-in 才允许尊重 manifest 的 configDir_original，但**仍**强制
+ *    `validateRestorePath`：必须 HOME 下、不含 `..`、不在敏感黑名单（~/.ssh / ~/.gnupg /
+ *    ~/Library/Application Support / ~/Library/LaunchAgents）
+ *
+ * REVIEW_8 R2 R2-3/R2-4/R2-6/R2-9/R2-10 / Round 3 G1（path safety hardening）：
+ * - mp.id / finalId early ID_RE 校验（早于 join，杜绝 `..` 注入逃逸 RESTORED_BASE）
+ * - manifest.shared.{dch_scripts,agents_paths}[i] rel 走 safeJoinUnderRoot 防御 `../../.ssh/...`
+ * - validateRestorePath 加「黑名单祖先」检查（`$HOME/Library` 是 `Library/LaunchAgents` 的祖先 → 拒）
+ * - validateRestorePath 大小写不敏感（macOS APFS / HFS+ 默认 case-insensitive，`.SSH` == `.ssh`）
+ * - addProfile 失败 rm rollback pre-stat：finalDirAbs 在 restore 之前已存在时**不**rm，避免
+ *   --allow-original-path 撞已有非备份目录误删用户数据
+ */
+const RESTORED_BASE = join(HOME, ".dch-restored");
+const RESTORE_BLACKLIST = [
+  ".ssh",
+  ".gnupg",
+  "Library/LaunchAgents",
+  "Library/LaunchDaemons",
+  "Library/Application Support/com.apple.TCC", // 隐私权限 DB
+];
+// macOS APFS / HFS+ 默认 case-insensitive：`.SSH/authorized_keys` 与 `.ssh/authorized_keys`
+// 是同一文件。预先 lowercase 一次避免 hot path 重算。
+const RESTORE_BLACKLIST_LC = RESTORE_BLACKLIST.map((s) => s.toLowerCase());
+
+/**
+ * REVIEW_8 R2 R2-3/R2-4 / R3 G1：把 rel join 到 rootAbs 下，**保证不逃逸 rootAbs 子树**。
+ *
+ * 用途：恶意 .dchpack 携带的 `manifest.shared.dch_scripts[i] = "../../.ssh/authorized_keys"`
+ * 走 `join("$HOME/.dch/scripts", rel) = "$HOME/.ssh/authorized_keys"` 真能逃逸到敏感路径。
+ * 本 helper 用四道防线拒：null byte / 绝对路径 / `..` 段 / startsWith rootAbs 二道校验。
+ *
+ * 返回 null = rel 不安全；返回 string = 安全 join 后的绝对路径。
+ *
+ * **case-insensitive note**：startsWith 用原始 case 比较；rootAbs 由 caller 控制（固定 const
+ * 不来自外部输入），rel 来自 manifest（attacker controlled）但前面 `..` 校验已挡。极端 case
+ * insensitive APFS 上同名 dir 不同 case 不影响安全（仍指同 inode），仅影响日志可读性。
+ */
+function safeJoinUnderRoot(rootAbs: string, rel: string): string | null {
+  if (!rel || rel.includes("\0")) return null;
+  if (isAbsolute(rel)) return null;
+  if (rel.split(/[/\\]/).some((s) => s === "..")) return null;
+  const joined = join(rootAbs, rel);
+  if (joined !== rootAbs && !joined.startsWith(rootAbs + "/")) return null;
+  return joined;
+}
+
+/**
+ * 校验 path 是否允许写入。返回 null = 允许；返回 string = reject 原因。
+ *
+ * 1. 必须绝对路径（caller 应该已 expandHome 过）
+ * 2. 必须 startsWith HOME（拒 /etc/* /tmp/* /System/* 等）
+ * 3. 不含 `..` 段（防 `~/foo/../../etc` 字符串绕过）
+ * 4. 不能在 RESTORE_BLACKLIST 任何子树下（即便在 HOME 内）
+ * 5. **不能是 RESTORE_BLACKLIST 任一段的祖先**（R2-6 修复：`$HOME/Library` 是
+ *    `Library/LaunchAgents` 的祖先，opt-in 模式下 .dchpack 内 `LaunchAgents/x.plist`
+ *    会落到 `$HOME/Library/LaunchAgents/x.plist` 黑名单子树）
+ * 6. **大小写不敏感**比较（R2-10 修复：macOS APFS / HFS+ 默认 case-insensitive，
+ *    `.SSH/authorized_keys` 与 `.ssh/authorized_keys` 同 inode）
+ */
+export function validateRestorePath(absPath: string): string | null {
+  if (!absPath || !isAbsolute(absPath)) return `路径不是绝对路径: ${absPath}`;
+  // 字符串子串扫描 .. 段（跨 / 与 \ 分隔，覆盖 fs 拼接 corner case）
+  if (absPath.split(/[/\\]/).some((seg) => seg === "..")) {
+    return `路径含 '..' 段: ${absPath}`;
+  }
+  const absLc = absPath.toLowerCase();
+  const homeLc = HOME.toLowerCase();
+  if (!(absLc === homeLc || absLc.startsWith(homeLc + "/"))) {
+    return `路径不在 HOME 下: ${absPath}`;
+  }
+  const relLc = absLc === homeLc ? "" : absLc.slice(homeLc.length + 1); // strip "HOME/"
+  for (const badLc of RESTORE_BLACKLIST_LC) {
+    // a. absPath 在黑名单本身或其子树（既有逻辑）
+    if (relLc === badLc || relLc.startsWith(badLc + "/")) {
+      return `路径在 RESTORE_BLACKLIST 内: ${absPath}（黑名单段: ${badLc}）`;
+    }
+    // b. R2-6 修复：absPath 是黑名单的祖先（写入时 mkdir/copyDirRecursive 会创建黑名单子树）
+    //    relLc === "" → absPath == HOME 是任何 bad 的祖先；显式拒
+    //    badLc.startsWith(relLc + "/") → relLc 是 badLc 的真前缀（祖先）
+    if (relLc === "" || badLc.startsWith(relLc + "/")) {
+      return `路径是 RESTORE_BLACKLIST 祖先: ${absPath}（黑名单段: ${badLc}，写入会创建敏感子树）`;
+    }
+  }
+  return null;
+}
 
 export interface ParseBackupResult {
   manifest: Manifest;
@@ -72,6 +169,12 @@ export interface ApplyBackupOptions {
   dryRun?: boolean;
   /** shared 文件冲突默认策略：相同 → skip，不同 → backup-then-overwrite */
   sharedConflict?: ConflictAction;
+  /**
+   * REVIEW_8 H5 / D3：opt-in 才允许尊重 manifest.profiles[].configDir_original。默认 false →
+   * 一律落 `~/.dch-restored/<finalId>/`，杜绝恶意 manifest 把还原写到任意路径。
+   * 即使 opt-in 也走 validateRestorePath 二道防线。
+   */
+  allowOriginalPath?: boolean;
 }
 
 export interface AppliedProfile {
@@ -141,6 +244,24 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
   const errors: string[] = [];
 
   for (const mp of manifest.profiles) {
+    // REVIEW_8 R2 R2-3 / R3 G1：early ID_RE 校验。恶意 .dchpack 在 manifest.profiles[].id
+    // 写 `../.ssh` → finalId 也是 `../.ssh` → join(RESTORED_BASE, "../.ssh") = "$HOME/.ssh"
+    // → mkdir / copyDirRecursive 写到 ~/.ssh + addProfile 失败 catch 走 rm -rf 删 ~/.ssh。
+    // ID_RE 与 manager.addProfile 同源（仅字母数字 _ -），早期拒绝避免 join 之前发生 traversal。
+    if (!ID_RE.test(mp.id)) {
+      errors.push(`profile id 非法 (含 / \\ .. 等危险字符): ${JSON.stringify(mp.id)}`);
+      continue;
+    }
+    // renameMap 与 prefix 也校验（caller 控制但仍走防御性校验，避免 CLI / UI 误传 .. 进来）
+    if (renameMap[mp.id] && !ID_RE.test(renameMap[mp.id]!)) {
+      errors.push(`renameMap[${mp.id}]=${JSON.stringify(renameMap[mp.id])} 非法 id`);
+      continue;
+    }
+    if (prefix !== undefined && prefix !== "" && !/^[a-zA-Z0-9_-]+$/.test(prefix)) {
+      errors.push(`prefix=${JSON.stringify(prefix)} 非法（仅允许字母数字 _ -）`);
+      continue;
+    }
+
     let finalId: string;
     let idConflict = false;
     if (renameMap[mp.id]) {
@@ -153,21 +274,48 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
     } else {
       finalId = mp.id;
     }
+    // R2-3 二道防线：finalId 派生后再用 ID_RE 拒（含 prefix/suffix 拼接也可能违规）
+    if (!ID_RE.test(finalId)) {
+      errors.push(`派生的 finalId 非法: ${JSON.stringify(finalId)}（mp.id+prefix/suffix 拼接出危险字符）`);
+      continue;
+    }
     if (existingIds.has(finalId)) {
       errors.push(`final id 仍冲突: ${finalId}（请手动 --rename ${mp.id}=...)`);
       continue;
     }
 
     const originalDirAbs = expandHome(mp.configDir_original);
-    let finalDirAbs = originalDirAbs;
+    // REVIEW_8 H5 / D3：默认强制 ~/.dch-restored/<finalId>/，忽略 manifest 携带的 path。
+    // opt-in 才用 originalDirAbs，且仍走 validateRestorePath 二道防线（拒非 HOME / .. / 黑名单 / 黑名单祖先）。
+    let baseDirAbs: string;
+    if (opts.allowOriginalPath) {
+      const reason = validateRestorePath(originalDirAbs);
+      if (reason !== null) {
+        errors.push(`profile ${mp.id} 的 configDir_original 被拒（${reason}），fallback 到 ~/.dch-restored/${finalId}/`);
+        baseDirAbs = join(RESTORED_BASE, finalId);
+      } else {
+        baseDirAbs = originalDirAbs;
+      }
+    } else {
+      baseDirAbs = join(RESTORED_BASE, finalId);
+    }
+    // R2-3 三道防线：baseDirAbs 必须在 RESTORED_BASE 子树（默认模式）或 HOME 子树（opt-in 模式）。
+    // 即便 ID_RE 已挡 mp.id 危险字符，加 startsWith 兜底（防御性 + future-proof：万一 ID_RE 放宽了）。
+    const expectedRoot = opts.allowOriginalPath ? HOME : RESTORED_BASE;
+    if (baseDirAbs !== expectedRoot && !baseDirAbs.startsWith(expectedRoot + "/")) {
+      errors.push(`baseDirAbs ${baseDirAbs} 逃逸预期 root ${expectedRoot}（path traversal 防御）`);
+      continue;
+    }
+
+    let finalDirAbs = baseDirAbs;
     let dirConflict = false;
     // dir 撞名时：优先用用户传的 prefix（与 finalId 的后缀语义一致），否则 default suffix
     const dirSuffix = prefix ?? suffix;
-    if (existingDirs.has(normalizePath(originalDirAbs))) {
-      finalDirAbs = `${originalDirAbs}${dirSuffix}`;
+    if (existingDirs.has(normalizePath(baseDirAbs))) {
+      finalDirAbs = `${baseDirAbs}${dirSuffix}`;
       dirConflict = true;
       while (existingDirs.has(normalizePath(finalDirAbs))) {
-        finalDirAbs = `${originalDirAbs}-${tsForFilename()}-${Math.random().toString(36).slice(2, 6)}`;
+        finalDirAbs = `${baseDirAbs}-${tsForFilename()}-${Math.random().toString(36).slice(2, 6)}`;
       }
     }
 
@@ -197,8 +345,13 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
 
     if (dryRun) continue;
 
-    // 真还原：copy configDir + addProfile（直接 mkdir + walk，不预 stat 目录）
+    // REVIEW_8 R2 R2-9 / R3 G1：rm rollback pre-stat 检查。`--allow-original-path` 模式 +
+    // finalDirAbs 撞已有非备份目录时，addProfile 失败 catch 走 `rm -rf finalDirAbs` 会**删整个
+    // 用户原有目录**（包括 copyDirRecursive 没动到的用户原文件 — copyFile 只覆盖同名 file）。
+    // 修：mkdir 之前先 stat 看是否已存在（含非空），存在则记 dirPreExisted=true；addProfile 失败
+    // 时**不**rm，改 errors.push 显式告知 caller 手动检查。
     const srcConfigDir = join(tmpDir, "profiles", mp.id, "configDir");
+    const dirPreExisted = await fileExists(finalDirAbs);
     await mkdir(finalDirAbs, { recursive: true });
     await copyDirRecursive(srcConfigDir, finalDirAbs);
     const metaPath = join(tmpDir, "profiles", mp.id, "_meta.json");
@@ -221,25 +374,57 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
       await addProfile(newProfile);
     } catch (e) {
       errors.push(`addProfile(${finalId}) 失败: ${e instanceof Error ? e.message : String(e)}`);
+      // REVIEW_8 R2 R2-9 / R3 G1：dirPreExisted=true 时**不**rm（避免 --allow-original-path 撞已有
+      // 非备份目录误删用户数据）。改用 errors.push 显式告知 caller 手动检查。
+      if (dirPreExisted) {
+        errors.push(
+          `目录 ${finalDirAbs} 在 restore 之前已存在用户文件，跳过 rollback rm 避免误删；` +
+          `如需清理 restore 写入的副本请手动检查。`,
+        );
+      } else {
+        // REVIEW_8 M1 / Group D4：addProfile 失败时回滚刚刚 mkdir 创建的 configDir，避免留 stranded
+        // files 让用户下次 restore 同 id 撞 EEXIST。dirPreExisted=false 时 rm 安全。
+        try {
+          await rm(finalDirAbs, { recursive: true, force: true });
+        } catch (rollbackErr) {
+          errors.push(
+            `回滚 ${finalDirAbs} 失败: ${rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)}`,
+          );
+        }
+      }
     }
   }
 
   // shared 资源
+  // REVIEW_8 R2 R2-4 / R3 G1：每条 rel 走 safeJoinUnderRoot，杜绝 `../../.ssh/authorized_keys`
+  // 这种逃逸 ~/.dch/scripts 或 ~/.agents 子树的攻击。攻击模型：恶意 .dchpack 在 manifest.shared.*
+  // 数组里塞 `../../.ssh/authorized_keys`，applySharedFile 调 copyFile 把 .dchpack 内的恶意文件
+  // 直接覆盖到敏感路径（凭据 / LaunchAgents 持久化）。
   const sharedActions: SharedAction[] = [];
   if (manifest.shared.dch_scripts.length > 0) {
+    const dchScriptsRoot = join(DCH_DIR, "scripts");
     for (const rel of manifest.shared.dch_scripts) {
+      const safeDst = safeJoinUnderRoot(dchScriptsRoot, rel);
+      if (safeDst === null) {
+        errors.push(`manifest.shared.dch_scripts 项被拒（path traversal / 绝对路径 / null byte）: ${JSON.stringify(rel)}`);
+        continue;
+      }
       const src = join(tmpDir, "dch", "scripts", rel);
-      const dst = join(DCH_DIR, "scripts", rel);
-      const action = await applySharedFile(src, dst, opts.sharedConflict, dryRun);
-      sharedActions.push({ category: "dch_script", relPath: rel, hostPath: dst, action });
+      const action = await applySharedFile(src, safeDst, opts.sharedConflict, dryRun);
+      sharedActions.push({ category: "dch_script", relPath: rel, hostPath: safeDst, action });
     }
   }
   if (manifest.shared.agents_paths.length > 0) {
+    const agentsRoot = join(HOME, ".agents");
     for (const rel of manifest.shared.agents_paths) {
+      const safeDst = safeJoinUnderRoot(agentsRoot, rel);
+      if (safeDst === null) {
+        errors.push(`manifest.shared.agents_paths 项被拒（path traversal / 绝对路径 / null byte）: ${JSON.stringify(rel)}`);
+        continue;
+      }
       const src = join(tmpDir, "shared", "agents", rel);
-      const dst = join(HOME, ".agents", rel);
-      const action = await applySharedFile(src, dst, opts.sharedConflict, dryRun);
-      sharedActions.push({ category: "agents", relPath: rel, hostPath: dst, action });
+      const action = await applySharedFile(src, safeDst, opts.sharedConflict, dryRun);
+      sharedActions.push({ category: "agents", relPath: rel, hostPath: safeDst, action });
     }
   }
 

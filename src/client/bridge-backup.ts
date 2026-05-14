@@ -44,6 +44,12 @@ export interface BackupOpts {
 export interface RestoreApplyOpts {
   prefix?: string;
   renameMap?: Record<string, string>;
+  /**
+   * REVIEW_8 H5 / D3：opt-in 才尊重 manifest 携带的 configDir_original。默认 false →
+   * 一律落 ~/.dch-restored/<finalId>/。UI 默认不暴露此 flag — 跨机器迁移用安全默认；
+   * 如有「原地还原」诉求另起 advanced UI 走 opt-in。
+   */
+  allowOriginalPath?: boolean;
 }
 
 export interface RestoreApplyWithSecretsOpts extends RestoreApplyOpts {
@@ -107,6 +113,7 @@ export const dchBackup = {
   restoreApply: (packFile: string, opts: RestoreApplyOpts = {}) => {
     const args: string[] = ["restore", packFile, "--yes"];
     if (opts.prefix) args.push("--prefix", opts.prefix);
+    if (opts.allowOriginalPath) args.push("--allow-original-path");
     if (opts.renameMap && Object.keys(opts.renameMap).length > 0) {
       args.push("--rename", Object.entries(opts.renameMap).map(([k, v]) => `${k}=${v}`).join(","));
     }
@@ -134,6 +141,7 @@ export const dchBackup = {
   ): Promise<RestoreApplyWithSecretsResponse> => {
     const args: string[] = ["profile", "restore", packFile, "--yes", "--json"];
     if (opts.prefix) args.push("--prefix", opts.prefix);
+    if (opts.allowOriginalPath) args.push("--allow-original-path");
     if (opts.renameMap && Object.keys(opts.renameMap).length > 0) {
       args.push("--rename", Object.entries(opts.renameMap).map(([k, v]) => `${k}=${v}`).join(","));
     }

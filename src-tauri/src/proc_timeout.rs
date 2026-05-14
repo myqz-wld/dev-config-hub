@@ -18,6 +18,7 @@
 
 use std::io::Read;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -29,10 +30,25 @@ pub struct CommandOutcome {
     /// 进程 exit code；timeout / 拿不到 code 时为 -2 / -1。
     /// **-2 = timed_out**：上层用这个判断是不是被 watchdog 杀的（vs 子进程自己非零退出）。
     pub code: i32,
+    /// 内部状态：lib.rs 当前只透传 `code`（caller 已用 -2 判定）；保留字段方便日后 UI
+    /// 想区分「watchdog 杀」vs「子进程自己 -2 exit」。
+    #[allow(dead_code)]
     pub timed_out: bool,
+    /// REVIEW_8 M5 / Group C3：stdout/stderr 任一被 5MB cap 截断时为 true。caller 可据此
+    /// 在 UI 提示「输出已截断」+ 引导用户重定向到文件。lib.rs 当前未透传给 bridge —
+    /// 后续可在 DchCommandResult 加 `truncated: bool` 字段把它送到 TS。
+    #[allow(dead_code)]
+    pub truncated: bool,
 }
 
 const KILL_CODE: i32 = -2;
+
+/// REVIEW_8 M5 / Group C3：单流 buffer 上限 5MB。
+///
+/// 旧实现 reader thread 一直 `extend_from_slice` 不设上限，恶意 / 失控 hook (`yes 'x' &`)
+/// 几秒就把 Rust 进程涨到 GB 级。给上限后超出部分直接 discard（仍 read 到 4KB chunk 让
+/// pipe drain，否则 reader 阻塞 → child 在 write 上 block → 进程 hang）。
+const MAX_BUF_BYTES: usize = 5 * 1024 * 1024;
 
 /// Spawn `cmd` 并在 `timeout` 内强制收割：
 /// - Unix：spawn 前 `setsid()` 开新 pgid，超时 `killpg(SIGKILL)` 杀整组（含 hook detach 孙子）
@@ -71,11 +87,15 @@ pub fn spawn_with_timeout(mut cmd: Command, timeout: Duration) -> Result<Command
     // detach 跟随进程 cleanup（OS 在主进程退出时清理）。
     let stdout_buf: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
     let stderr_buf: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+    // REVIEW_8 M5：任一 reader 触顶就 set，主线程 take outcome 时透传给 caller。
+    let truncated_flag = Arc::new(AtomicBool::new(false));
 
     let stdout_buf_w = Arc::clone(&stdout_buf);
-    thread::spawn(move || drain_to(stdout, stdout_buf_w));
+    let trunc_w1 = Arc::clone(&truncated_flag);
+    thread::spawn(move || drain_to(stdout, stdout_buf_w, trunc_w1));
     let stderr_buf_w = Arc::clone(&stderr_buf);
-    thread::spawn(move || drain_to(stderr, stderr_buf_w));
+    let trunc_w2 = Arc::clone(&truncated_flag);
+    thread::spawn(move || drain_to(stderr, stderr_buf_w, trunc_w2));
 
     // 主线程 try_wait polling，超时杀整组。
     let start = Instant::now();
@@ -113,19 +133,32 @@ pub fn spawn_with_timeout(mut cmd: Command, timeout: Duration) -> Result<Command
         stderr: stderr_bytes,
         code: exit_code,
         timed_out,
+        truncated: truncated_flag.load(Ordering::Acquire),
     })
 }
 
 /// 增量读 4KB chunk 到共享 buffer 直到 EOF / read err。每次 read 后立即 lock+append，让主线程
 /// 中途 take snapshot 也能拿到部分字节。失败 / EOF 后线程自然结束。
-fn drain_to<R: Read>(mut r: R, buf: Arc<Mutex<Vec<u8>>>) {
+///
+/// REVIEW_8 M5：buffer 触 MAX_BUF_BYTES 后停止 append，但**继续 read 走 chunk** 让 pipe drain
+/// （否则 reader 阻塞 → child 在 write 上 block → 进程 hang）。
+fn drain_to<R: Read>(mut r: R, buf: Arc<Mutex<Vec<u8>>>, truncated: Arc<AtomicBool>) {
     let mut chunk = [0u8; 4096];
     loop {
         match r.read(&mut chunk) {
             Ok(0) => return, // EOF
             Ok(n) => {
                 if let Ok(mut b) = buf.lock() {
-                    b.extend_from_slice(&chunk[..n]);
+                    let remaining = MAX_BUF_BYTES.saturating_sub(b.len());
+                    if remaining == 0 {
+                        truncated.store(true, Ordering::Release);
+                        // 已 cap：本 chunk 不 append，但仍读后续 chunk 让 pipe drain
+                    } else if remaining < n {
+                        b.extend_from_slice(&chunk[..remaining]);
+                        truncated.store(true, Ordering::Release);
+                    } else {
+                        b.extend_from_slice(&chunk[..n]);
+                    }
                 }
             }
             Err(_) => return,
@@ -243,5 +276,66 @@ mod tests {
         let r = spawn_with_timeout(cmd, Duration::from_secs(5)).unwrap();
         assert_eq!(r.code, 42);
         assert!(!r.timed_out);
+    }
+
+    /// REVIEW_8 M5 / Group C3：单流写超 5MB → buffer cap 到 5MB + truncated=true，进程仍正常退出。
+    /// 关键：cap 后 reader 必须继续 drain pipe，否则 child 在 write 上 block → 进程 hang。
+    #[test]
+    #[cfg(unix)]
+    fn buffer_cap_truncates_oversize_stdout() {
+        // 写 6MB（超 5MB cap），yes 流式写不会一下子全发，需要 reader 持续 drain
+        let mut cmd = Command::new("/bin/sh");
+        // dd 比 yes 更稳定可控；6 * 1024 * 1024 / 4096 = 1536 个 4KB block
+        cmd.args(["-c", "dd if=/dev/zero bs=4096 count=1536 2>/dev/null; exit 0"]);
+        let start = Instant::now();
+        let r = spawn_with_timeout(cmd, Duration::from_secs(15)).unwrap();
+        let elapsed = start.elapsed();
+        // 应在合理时间内完成（不 hang）— dd 写 6MB 远小于 1s
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "buffer cap 后应继续 drain pipe，不让 child hang。实际 elapsed={:?}",
+            elapsed
+        );
+        assert_eq!(r.code, 0, "child 应正常 exit 0");
+        assert!(!r.timed_out, "不是 watchdog 杀的");
+        assert!(r.truncated, "stdout 超 5MB 应标 truncated=true");
+        assert_eq!(r.stdout.len(), MAX_BUF_BYTES, "buffer 应正好 cap 到 MAX_BUF_BYTES");
+    }
+
+    /// 小输出（<5MB）不应误标 truncated。
+    #[test]
+    #[cfg(unix)]
+    fn small_output_not_truncated() {
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", "echo small; exit 0"]);
+        let r = spawn_with_timeout(cmd, Duration::from_secs(5)).unwrap();
+        assert!(!r.truncated, "小输出不应标 truncated");
+        assert_eq!(r.code, 0);
+    }
+
+    /// REVIEW_8 R3 G7 / B-claude-L1：stderr 单独超 5MB 也走 cap + truncated=true（与 stdout 同款）。
+    /// 旧测试只覆盖 stdout 单流，stderr cap 路径没回归保护 — 万一 reader 实现拆分 stdout/stderr
+    /// 走不同 buf 但 truncated_flag 共享时，stderr 单独超 cap 仍应标 truncated。
+    #[test]
+    #[cfg(unix)]
+    fn buffer_cap_truncates_oversize_stderr() {
+        let mut cmd = Command::new("/bin/sh");
+        // 把 dd 输出重定向到 stderr（1>&2）；6MB 超 5MB cap
+        cmd.args(["-c", "dd if=/dev/zero bs=4096 count=1536 1>&2 2>/dev/null; exit 0"]);
+        let start = Instant::now();
+        // 给足够时间，且 cap 后必须继续 drain pipe
+        let r = spawn_with_timeout(cmd, Duration::from_secs(15)).unwrap();
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "stderr cap 后也应继续 drain，不让 child hang。实际 elapsed={:?}",
+            elapsed
+        );
+        assert_eq!(r.code, 0, "child 应正常 exit 0");
+        assert!(!r.timed_out);
+        assert!(r.truncated, "stderr 超 5MB 应标 truncated=true");
+        assert_eq!(r.stderr.len(), MAX_BUF_BYTES, "stderr buffer 应正好 cap 到 MAX_BUF_BYTES");
+        // stdout 应该是空（dd 输出全到 stderr 了）
+        assert_eq!(r.stdout.len(), 0, "stdout 应为空");
     }
 }

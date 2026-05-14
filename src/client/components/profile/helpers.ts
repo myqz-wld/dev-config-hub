@@ -1,6 +1,19 @@
 import type { HookScript } from "../../../profiles/types.ts";
 import type { ToolKind } from "../../bridge.ts";
 
+/**
+ * REVIEW_8 H7-同源 / Group E7：env key 校验 regex。
+ *
+ * **必须与 `src/profiles/manager.ts:ENV_KEY_RE` / `src/cli-profile.ts:233 ENV_KEY_RE`
+ * 完全一致**（任何分叉会让 UI 通过的 key 在 CLI / wrapper 阶段被静默丢弃，难调试）。
+ *
+ * **为什么前端单独定义而不 import manager.ts**：manager.ts 依赖 store.ts / hooks.ts /
+ * symlink.ts（Node-only 模块：fs / lockfile / spawn），bundle 进前端必失败 —— 复制 1
+ * 行 regex 比把 Node 模块塞进前端 bundle 安全得多。如果将来要保证不分叉可以加
+ * cargo-style consistency check，但现在两处都是 1 行常量 + tally AP 已可发现。
+ */
+export const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 export const TOOLS: ToolKind[] = ["claude", "codex"];
 
 export const MAIN_CONFIG: Record<ToolKind, {
