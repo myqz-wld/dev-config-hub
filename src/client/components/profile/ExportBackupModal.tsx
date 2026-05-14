@@ -184,7 +184,7 @@ export function ExportBackupModal({
 
               {noPlaceholder && (
                 <div className="form-row form-row-block">
-                  <p className="form-hint" style={{ color: "#c00", borderLeft: "3px solid #c00", paddingLeft: 12 }}>
+                  <p className="form-hint" style={{ color: "var(--red)", borderLeft: "3px solid var(--red)", paddingLeft: 12 }}>
                     ⚠️ 备份包将含明文 token / API key。请只通过加密渠道（gpg / age / 1Password / 本地）使用。
                     <br />
                     通过明文邮件 / 公开 git repo 分享 = 凭据泄露。
@@ -284,14 +284,14 @@ function formatBytes(bytes: number): string {
 function SecretsSummaryList({ idx }: { idx: SecretsIndex }) {
   return (
     <details open style={{ marginTop: 8 }}>
-      <summary className="form-hint" style={{ cursor: "pointer", color: "#1e3a8a" }}>
+      <summary className="form-hint" style={{ cursor: "pointer", color: "var(--blue)" }}>
         🔑 unique secret 清单（{idx.total_logical_keys} 个，按字段名排序）
       </summary>
-      <div style={{ marginTop: 6, paddingLeft: 12, borderLeft: "2px solid #dbeafe" }}>
+      <div style={{ marginTop: 6, paddingLeft: 12, borderLeft: "2px solid rgba(88,166,255,.25)" }}>
         {idx.entries.map((e) => (
           <p key={e.name} className="form-hint" style={{ margin: "4px 0" }}>
             <code>{e.name}</code>
-            <span style={{ color: "#888" }}> · count={e.count} · {e.hint}</span>
+            <span style={{ color: "var(--fg2)" }}> · count={e.count} · {e.hint}</span>
             {e.fieldNames && e.fieldNames.length > 1 && (
               <span
                 title={`同一 secret 在 ${e.fieldNames.length} 个不同字段名下出现：${e.fieldNames.join(" / ")}`}
@@ -300,9 +300,9 @@ function SecretsSummaryList({ idx }: { idx: SecretsIndex }) {
                   fontSize: 10,
                   padding: "0 5px",
                   borderRadius: 8,
-                  background: "#fef3c7",
-                  color: "#78350f",
-                  border: "1px solid #fbbf24",
+                  background: "rgba(227,179,65,.12)",
+                  color: "var(--yellow)",
+                  border: "1px solid rgba(227,179,65,.35)",
                 }}
               >
                 ⚡{e.fieldNames.length}
@@ -310,7 +310,7 @@ function SecretsSummaryList({ idx }: { idx: SecretsIndex }) {
             )}
           </p>
         ))}
-        <p className="form-hint" style={{ margin: "8px 0 0", color: "#6b7280" }}>
+        <p className="form-hint" style={{ margin: "8px 0 0", color: "var(--fg2)" }}>
           还原时只需填这 {idx.total_logical_keys} 个值（自动 fan-out 到所有 {idx.total_occurrences} 处出现位置）。
         </p>
       </div>

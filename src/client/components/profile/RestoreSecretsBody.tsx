@@ -99,7 +99,7 @@ function SecretEntryRow({
   const hasMore = entry.locations.length > 3;
 
   return (
-    <div className="form-row form-row-block" style={{ borderTop: "1px solid #eee", paddingTop: 8 }}>
+    <div className="form-row form-row-block" style={{ borderTop: "1px solid var(--border)", paddingTop: 8 }}>
       <label style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <code style={{ fontSize: 13 }}>{entry.name}</code>
         <span className="profile-desc">{entry.count} 处 · {entry.hint}</span>
@@ -110,9 +110,9 @@ function SecretEntryRow({
               fontSize: 11,
               padding: "1px 6px",
               borderRadius: 8,
-              background: "#fef3c7",
-              color: "#78350f",
-              border: "1px solid #fbbf24",
+              background: "rgba(227,179,65,.12)",
+              color: "var(--yellow)",
+              border: "1px solid rgba(227,179,65,.35)",
             }}
           >
             ⚡ 跨 {entry.fieldNames.length} 字段名
@@ -132,7 +132,7 @@ function SecretEntryRow({
           style={{
             flex: 1,
             opacity: skipped ? 0.5 : 1,
-            borderColor: empty ? "#c00" : undefined,
+            borderColor: empty ? "var(--red)" : undefined,
             // password 字段禁止浏览器 / Tauri webview 自填密码管理（虽然不太可能触发）
           }}
         />
@@ -157,7 +157,7 @@ function SecretEntryRow({
       </div>
 
       {empty && (
-        <p className="form-hint" style={{ color: "#c00", marginTop: 4 }}>
+        <p className="form-hint" style={{ color: "var(--red)", marginTop: 4 }}>
           请填值或勾选「跳过」
         </p>
       )}
@@ -174,11 +174,11 @@ function SecretEntryRow({
         {previewLocations.map((loc, i) => (
           <p key={i} className="form-hint" style={{ marginLeft: 16, marginTop: 2, fontFamily: "ui-monospace, monospace", fontSize: 11 }}>
             {loc.packPath}
-            <span style={{ color: "#888" }}> · {loc.fieldPath}</span>
+            <span style={{ color: "var(--fg3)" }}> · {loc.fieldPath}</span>
           </p>
         ))}
         {hasMore && !showAllLocations && (
-          <p className="form-hint" style={{ marginLeft: 16, color: "#888" }}>
+          <p className="form-hint" style={{ marginLeft: 16, color: "var(--fg3)" }}>
             …还有 {entry.locations.length - 3} 处（点上面 ▶ 展开全部）
           </p>
         )}
@@ -197,20 +197,21 @@ interface BannerSpec {
 }
 
 function computeBanner(total: number, filled: number, skipped: number, totalOccurrences: number): BannerSpec {
+  // dark theme 友好色：用 styles.css 的 --yellow/--green/--blue/--fg* token + 半透明 wash
   if (skipped === total) {
     return {
       text: `所有 ${total} 个 secret 都将跳过 — 占位符保留，restore 后请按 README 清单手改`,
-      color: "#d97706",
-      bg: "#fef3c7",
-      fg: "#78350f",
+      color: "var(--yellow)",
+      bg: "rgba(227,179,65,.10)",
+      fg: "var(--yellow)",
     };
   }
   if (filled === total) {
     return {
       text: `${total} 个 secret 已就绪 · 还原后将自动 fan-out 到 ${totalOccurrences} 处`,
-      color: "#059669",
-      bg: "#d1fae5",
-      fg: "#064e3b",
+      color: "var(--green)",
+      bg: "rgba(63,185,80,.10)",
+      fg: "var(--green)",
     };
   }
   const pending = total - filled - skipped;
@@ -218,17 +219,17 @@ function computeBanner(total: number, filled: number, skipped: number, totalOccu
     // 部分填 + 部分 skip，无 pending
     return {
       text: `已填 ${filled} 个 · 跳过 ${skipped} 个 · 跳过项的占位符将保留`,
-      color: "#6b7280",
-      bg: "#f3f4f6",
-      fg: "#374151",
+      color: "var(--fg2)",
+      bg: "var(--bg2)",
+      fg: "var(--fg1)",
     };
   }
   // 还有未填未 skip 的
   return {
     text: `已填 ${filled} / ${total} · 还有 ${pending} 个待处理`,
-    color: "#3b82f6",
-    bg: "#dbeafe",
-    fg: "#1e3a8a",
+    color: "var(--blue)",
+    bg: "rgba(88,166,255,.08)",
+    fg: "var(--blue)",
   };
 }
 
