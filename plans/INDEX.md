@@ -5,3 +5,4 @@
 | 文件 | 概要 |
 |---|---|
 | [deep-review-fix-20260514.md](deep-review-fix-20260514.md) | deep-review-fix-20260514 |
+| [dch-secrets-dedup-20260514.md](dch-secrets-dedup-20260514.md) | dch-secrets-dedup-20260514 |
