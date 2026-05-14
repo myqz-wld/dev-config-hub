@@ -15,6 +15,10 @@ tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
+# REVIEW_9 C-codex L1 第二次 review: serde_json 必须保留 — `tauri::generate_context!`
+# 宏编译期需要它(即便 src 没显式 import)。tauri-plugin-shell / tauri-plugin-dialog 同
+# 保留:lib.rs 注册了它们,前端虽然没显式 import 但删除可能影响 Tauri 系统级行为(file
+# dialog / open URL 默认 API 由 plugin 提供)。
 serde_json = "1"
 regex-lite = "0.1"
 

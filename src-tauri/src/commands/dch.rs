@@ -147,6 +147,27 @@ fn run_dch_command_blocking(
 //
 // CLI 等价路径是 `--secrets-json <file>` 由用户自己管 file。
 
+/// **REVIEW_9 C-MED-2 / C-claude MED M2 / D-codex M5 / 三方独立**: RAII guard 强制清理 tempfile,
+/// 替代手工 `remove_file`。旧实现 `run_dch_command_blocking` 内部 panic (unwrap on None /
+/// poisoned mutex) 跳过末尾 remove_file → tempfile 落 /tmp 直到 reboot。mode 0600 防同机
+/// 用户但 TimeMachine snapshot / sleep mode swap 仍带走。Drop trait 保证 panic-safe cleanup。
+struct TmpFileGuard(std::path::PathBuf);
+
+impl Drop for TmpFileGuard {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_file(&self.0) {
+            // ENOENT 是合理 case (caller 已手工 cleanup);其他 err 仅 eprintln 不影响调用方
+            if e.kind() != std::io::ErrorKind::NotFound {
+                eprintln!(
+                    "warn: TmpFileGuard cleanup failed {}: {}",
+                    self.0.display(),
+                    e
+                );
+            }
+        }
+    }
+}
+
 /// CHANGELOG_19：UI restore step 3「填 K 个 secret」走的 IPC。
 /// 在 OS tempdir 下创建 mode-0600 文件写入 secrets_json，spawn dch CLI 完成后强制清理。
 #[tauri::command]
@@ -196,19 +217,14 @@ fn run_dch_with_secrets_temp_blocking(
             .map_err(|e| format!("write secrets tempfile {}: {}", tmp_path.display(), e))?;
     }
 
+    // **REVIEW_9 C-MED-2**: RAII guard 立即 wrap tmp_path,确保 panic / early return / 任何
+    // 后续路径退出本 fn 都会触发 Drop → cleanup tempfile。替代旧手工 remove_file 防 panic
+    // skip。
+    let _guard = TmpFileGuard(tmp_path.clone());
+
     args.push("--secrets-json".to_string());
     args.push(tmp_path.to_string_lossy().into_owned());
 
-    let result = run_dch_command_blocking(args, timeout_ms);
-
-    // best-effort cleanup —— 失败仅 eprintln，不让 dch 实际成功的 result 因 unlink 失败丢掉
-    if let Err(e) = std::fs::remove_file(&tmp_path) {
-        eprintln!(
-            "warn: failed to remove secrets tempfile {}: {}",
-            tmp_path.display(),
-            e
-        );
-    }
-
-    result
+    run_dch_command_blocking(args, timeout_ms)
+    // _guard 在此 drop 触发 cleanup,替代旧手工 remove_file
 }

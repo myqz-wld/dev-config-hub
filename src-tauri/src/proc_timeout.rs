@@ -104,8 +104,18 @@ pub fn spawn_with_timeout(mut cmd: Command, timeout: Duration) -> Result<Command
         match child.try_wait() {
             Ok(Some(status)) => {
                 // 子进程自然退出。short grace 让 reader thread 把 EOF 后剩余字节收完。
-                // 注意：仅当 stdio pipe 真 EOF（无 detach 孙子持 fd）才能短时间收齐；detach 场景
-                // grace 也收不全 —— 那就是 partial output，可接受。
+                // **REVIEW_9 C-HIGH-1**: 即便父正常退出,也 killpg 杀整组兜底。
+                // 攻击模型:父 fork detach 孙子持 stdio pipe FD (典型 `(curl ... &)` /
+                // `(nvm preload &)` / shell prompt async refresh),父 exit 0 后 grandchild
+                // 仍 alive 持 fd → reader thread `r.read()` 永 blocked 等 EOF →
+                // detach_child_does_not_block_after_parent_exits 测试只验「主线程不卡」
+                // 但 reader 仍 leak (Tauri long-lived process 每次 hook detach 累计 leak
+                // 2 thread + 各 ~8MB stack)。父正常退出后 killpg 同 pgid 所有进程,detach
+                // 孙子被收尾 → reader EOF 退出。pid 即 pgid (setsid 已设)。
+                #[cfg(unix)]
+                unsafe {
+                    libc::killpg(pid, libc::SIGKILL);
+                }
                 thread::sleep(Duration::from_millis(50));
                 break status.code().unwrap_or(-1);
             }
@@ -337,5 +347,40 @@ mod tests {
         assert_eq!(r.stderr.len(), MAX_BUF_BYTES, "stderr buffer 应正好 cap 到 MAX_BUF_BYTES");
         // stdout 应该是空（dd 输出全到 stderr 了）
         assert_eq!(r.stdout.len(), 0, "stdout 应为空");
+    }
+
+    /// **REVIEW_9 C-HIGH-1**: 父 fork detach grandchild 持 stdio pipe FD 时,grandchild 在父退出
+    /// 后**也应该被 killpg 杀**(与旧 detach_child_does_not_block_after_parent_exits 互补:旧测
+    /// 只验主线程不卡 + reader 仍 leak; 本测验 grandchild 被杀掉所以 reader 拿到 EOF 退出)。
+    /// 用 sentinel file: grandchild 写 PID 到 file; 父立即 exit; spawn_with_timeout 返回后 100ms
+    /// 检查 grandchild PID 是否还在。
+    #[test]
+    #[cfg(unix)]
+    fn killpg_on_parent_natural_exit_also_kills_detach_grandchild() {
+        let pid_file = std::env::temp_dir().join(format!("dch-killpg-test-{}", std::process::id()));
+        let _ = std::fs::remove_file(&pid_file);
+
+        let script = format!(
+            // grandchild 写 PID 到 file 后 sleep 30; 父立即 exit 0
+            "(sh -c 'echo $$ > {}; sleep 30' &); echo immediate; exit 0",
+            pid_file.display(),
+        );
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", &script]);
+        let r = spawn_with_timeout(cmd, Duration::from_secs(60)).unwrap();
+        assert_eq!(r.code, 0, "父正常 exit 0");
+
+        // 等 200ms 让 grandchild 写 PID + 让父 killpg 杀掉 grandchild
+        thread::sleep(Duration::from_millis(200));
+
+        let grandchild_pid_str = std::fs::read_to_string(&pid_file)
+            .expect("grandchild 应已写 PID 到 sentinel file");
+        let grandchild_pid: i32 = grandchild_pid_str.trim().parse().expect("应是 valid PID");
+
+        // kill(pid, 0) = check if process alive (不发信号);ESRCH(3) = 进程不存在
+        let alive = unsafe { libc::kill(grandchild_pid, 0) } == 0;
+        let _ = std::fs::remove_file(&pid_file);
+
+        assert!(!alive, "grandchild PID {} 应被 killpg 杀(reader thread 才能拿 EOF 退出避免 leak)", grandchild_pid);
     }
 }
