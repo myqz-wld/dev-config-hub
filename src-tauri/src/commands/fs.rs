@@ -16,7 +16,7 @@
 //!
 //! 例外：read_file_with_mtime 给 ConfigPanel 读 ~/.zshrc 等，仍 HomeOnly；不需放宽。
 
-use crate::path_policy::{check_path, home_dir, PathPolicy};
+use crate::path_policy::{check_path, check_path_canonical, check_path_for_write, home_dir, PathPolicy};
 use serde::Serialize;
 use std::fs;
 use std::time::UNIX_EPOCH;
@@ -24,7 +24,8 @@ use std::time::UNIX_EPOCH;
 #[tauri::command]
 pub async fn read_file(path: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        check_path(&path, PathPolicy::HomeOnly)?;
+        // **REVIEW_9 C-HIGH-2**: canonical check 杜绝 HOME 内 symlink 绕到 HOME 外读 /etc 等。
+        check_path_canonical(&path, PathPolicy::HomeOnly)?;
         // 用 read + from_utf8_lossy 而非 read_to_string：与 CLI 端 Bun.file.text() 行为一致。
         // Rust fs::read_to_string 严格 UTF-8，遇到非法字节直接 Err(InvalidData) — 用户的
         // ~/.zshrc 用 GBK / Latin-1 写注释（亚洲开发者偶见混用）会让 loadAllConfigs 整个 reject
@@ -40,8 +41,14 @@ pub async fn read_file(path: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn file_exists(path: String) -> bool {
     tauri::async_runtime::spawn_blocking(move || {
-        // file_exists 不走 PathPolicy（只是布尔判断，无内容泄漏；前端确实需要查
-        // 任意路径存在性的需求被 read_dir / read_link 严格限 HOME 隔离了）。
+        // **REVIEW_9 C-MED-3**: 加 PathPolicy::HomeOnly lexical check。旧实现注释说"无内容
+        // 泄漏"不走 PathPolicy,但**存在性本身是信息泄漏**:webview-XSS / 受损 npm 依赖能
+        // enumerate `/etc/sudoers.d/*` / `/Users/<other-user>/.ssh/id_rsa` /
+        // `/Library/LaunchAgents/com.malware.plist`。其他 IPC 全 HomeOnly,本函数是仅剩缺口。
+        // 失败返 false 与现 unwrap_or(false) 语义对齐。
+        if check_path(&path, PathPolicy::HomeOnly).is_err() {
+            return false;
+        }
         std::path::Path::new(&path).exists()
     })
     .await
@@ -85,7 +92,8 @@ pub async fn read_file_with_mtime(path: String) -> ReadFileWithMtimeResult {
 fn read_file_with_mtime_inner(path: &str) -> ReadFileWithMtimeResult {
     // PathPolicy 失败时直接当文件不存在（前端 readFileWithMtime 回报 missing 走平
     // 路径 — 不对 webview 暴露 boundary error，让 boundary 像 ENOENT 一样静默跳过）。
-    if check_path(path, PathPolicy::HomeOnly).is_err() {
+    // **REVIEW_9 C-HIGH-2**: canonical check 同 read_file。
+    if check_path_canonical(path, PathPolicy::HomeOnly).is_err() {
         return ReadFileWithMtimeResult::missing();
     }
     let p = std::path::Path::new(path);
@@ -150,7 +158,10 @@ impl ReadFileWithMtimeResult {
 #[tauri::command]
 pub async fn save_file(path: String, content: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        check_path(&path, PathPolicy::HomeOnly)?;
+        // **REVIEW_9 C-HIGH-2**: write 场景用 check_path_for_write(canonicalize parent +
+        // basename)杜绝 HOME 内 symlink 指向 HOME 外 dir 时被写穿(实测 save_file
+        // ($HOME/symlink-to-tmp/x) 旧 lexical 通过 → 写到 /tmp/outside-victim/)。
+        check_path_for_write(&path, PathPolicy::HomeOnly)?;
         let p = std::path::Path::new(&path);
         // 走原子 write 而非 fs::write 防 crash 留半文件；不传 expected_mtime → 跳过 CAS。
         crate::atomic::write_atomic_check_mtime(p, &content, None).map(|_| ())
@@ -188,7 +199,10 @@ pub async fn read_dir(path: String) -> Result<Vec<DirEntryView>, String> {
 }
 
 fn read_dir_inner(path: &str) -> Result<Vec<DirEntryView>, String> {
-    check_path(path, PathPolicy::HomeOnly)?;
+    // **REVIEW_9 C-HIGH-2**: canonical check 同 read_file。read_dir 是「列出目录内容」语义,
+    // 与 read_file 同样会因 symlink 解到外部目录而泄漏 (实测 read_dir($HOME/link-to-etc) →
+    // 列出 /etc/sudoers.d 等)。
+    check_path_canonical(path, PathPolicy::HomeOnly)?;
     let p = std::path::Path::new(path);
     let entries = match fs::read_dir(p) {
         Ok(it) => it,
@@ -240,6 +254,13 @@ pub async fn read_link(path: String) -> Result<Option<String>, String> {
 pub(crate) fn read_link_inner(path: &str, home: &str) -> Result<Option<String>, String> {
     let p = std::path::Path::new(path);
     let home_p = std::path::Path::new(home);
+    // **REVIEW_9 C-MED-1**: `..` 段防御。`Path::starts_with(home_p)` 是组件级前缀,但**不**
+    // canonicalize `..` — `/Users/test/foo/../../etc/some-link` components 前 3 个 == home
+    // 通过 starts_with,然后 fs::read_link 按 OS canonicalize 真去读 /etc/some-link。
+    // path_policy::check_path 显式拒 `..` 段,read_link_inner 这里同步加。
+    if p.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return Err(format!("拒绝含 '..' 的路径: {}", path));
+    }
     if !(p == home_p || p.starts_with(home_p)) {
         return Err(format!("拒绝读非 HOME 路径: {}", path));
     }
@@ -345,6 +366,24 @@ mod tests {
         let r = read_link_inner(&link.to_string_lossy(), &tmp.to_string_lossy()).unwrap();
         // 应被 join(parent, "real") 解析成绝对
         assert_eq!(r.as_deref(), Some(target.to_string_lossy().as_ref()));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// **REVIEW_9 C-MED-1 / C-claude MED M1**: read_link_inner 拒含 `..` 段的路径,防
+    /// `/Users/test/foo/../../etc/some-link` 通过 starts_with(home) 后被 fs::read_link 真去
+    /// 读 /etc/some-link 的 traversal 攻击。与 path_policy::check_path 同步加 `..` 拒绝。
+    #[cfg(unix)]
+    #[test]
+    fn read_link_rejects_dotdot_traversal() {
+        let tmp = std::env::temp_dir().join(format!("dch-rl-test6-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        // path 字符串前缀符合 home (tmp 字符串 + /foo/../../etc/...) 但实际 OS 解到 /etc/x
+        let attack = format!("{}/foo/../../etc/passwd", tmp.to_string_lossy());
+
+        let r = read_link_inner(&attack, &tmp.to_string_lossy());
+        assert!(r.is_err(), "含 `..` 段应拒;实际 ok");
+        assert!(r.unwrap_err().contains("拒绝含 '..'"));
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
