@@ -33,7 +33,7 @@ Win 端真机 E2E 留待 CI 验证（参见 [REVIEW_1](reviews/REVIEW_1.md)）�
 - **Profile 快速切换**：维护多套 Claude / Codex 配置（如 `claude-pro` / `claude-api`、`codex-plus` / `codex-api`），一键原子切换 `~/.claude` / `~/.codex` symlink，全局生效
 - **切换前 / 后 Hook**：每个 profile 可定义 `preSwitch` / `postSwitch` shell 脚本，用于自动 kill 残留进程、起 VPN、健康探测、osascript 通知等。`preSwitch` 失败会中断切换
 - **shell wrapper 注入 env**：`dch profile env` + `~/.zshrc` 子 shell wrapper，让 profile.env 落到 claude / codex 进程本身（OAuth / API 走代理）
-- **备份与还原（.dchpack）**：所有 profile + 共享资源（hook 脚本 + `~/.agents/`）打成单文件，跨机器迁移 / 本地灾备 / 分享 profile 给同事。**默认脱敏 token / API key 为占位符**安全分享；CLI + UI 双入口
+- **备份与还原（.dchpack）**：所有 profile + 共享资源（hook 脚本 + `~/.agents/`）打成单文件，跨机器迁移 / 本地灾备 / 分享 profile 给同事。**默认脱敏 token / API key 为占位符**安全分享；CLI + UI 双入口；还原时 secrets-index 全局 dedup（实测 148 处占位符 → 32 logical key），用户填一次按 fieldPath fan-out 到所有 location（CLI `--fill-secrets` / `--secrets-json` + UI step 3「填 K 个 secret」）
 
 ## 环境要求
 
@@ -112,6 +112,8 @@ dch profile backup [opts]                    # 备份所有 profile + 共享资�
 dch profile restore <pack> [opts]            # 还原 .dchpack（自动加 -restored-<TS> 后缀避免撞名）
                                              # [--prefix <p>] [--rename OLD=NEW,...]
                                              # [--dry-run] [--yes]
+                                             # [--fill-secrets] 交互式逐个填回 K 个唯一凭据（隐藏输入）
+                                             # [--secrets-json <file>] 从 JSON 文件喂入（CI / 自动化）
 dch profile backups                          # 列出所有 .dchpack（默认位 / 置顶 / 历史 三组）
 dch profile backup-rm <file> [--yes]         # 删除指定备份（basename 或绝对路径，同名 .pinned 一并删）
 dch profile backup-pin <file> [--unpin]      # 置顶（默认位 → 复制副本 + 置顶；其他 → 原地置顶）
@@ -273,7 +275,15 @@ dch profile backup --no-placeholder
 # 还原（自动加 -restored-<TS> 后缀避免撞名；不切 active）
 dch profile restore ~/.dch/backups/latest.dchpack
 
-# dry-run 看冲突 / 占位符清单 / 共享资源 diff
+# 交互式填回 K 个唯一凭据（隐藏输入；ENTER 跳过；Ctrl+C 中止）
+dch profile restore <file> --fill-secrets
+
+# CI / 自动化场景：从 JSON 文件喂入凭据，全自动 fan-out 到所有 location
+echo '{"ANTHROPIC_AUTH_TOKEN-1":"sk-ant-...","API_KEY-1":"sk-..."}' > secrets.json
+dch profile restore <file> --secrets-json secrets.json --yes
+# 缺 key → 计入 skipped（保留占位符）；多 key → 计入 unknown（warn 不 fail）
+
+# dry-run 看冲突 / 唯一凭据总览（去重后）/ 共享资源 diff
 dch profile restore <file> --dry-run
 
 # 改名指定 profile
@@ -331,18 +341,63 @@ dch profile restore <pack>              # 真还原（不切 active）
 dch profile use <id>
 ```
 
-### 占位符填回（迁移到新机器后）
+### 凭据填回（迁移到新机器后）
 
-还原后，凭据字段被替换为 `<<DCH_PLACEHOLDER:KEY_NAME>>`。CLI 输出会列所有占位符位置（精确到 `~/.<dir>/<file>:<field_name>` + 提示）。
+backup 阶段所有敏感字段被替换为 `<<DCH_PLACEHOLDER:KEY_NAME>>`，并按 `(fieldName, sha256(value))` 全局合并成 `manifest.secrets_index` —— **实测一次 4 profile 备份 148 处占位符 → 32 logical key（4.6x dedup 压缩）**，restore 时填一次按 fieldPath 自动 fan-out 到所有 location。
 
+#### 三种填法
+
+**1. UI 4 步流程**（推荐桌面用户）
+
+`📥 导入备份` → preview → rename conflicts → **填 K 个 secret**（新增）→ apply+report。step 3 显示：
+
+- monospace logical key 名（`ANTHROPIC_AUTH_TOKEN-1`）+ count + hint（`13 occurrences across 2 profiles`）
+- password input + 👁 eye icon toggle 显示明文
+- 「跳过」checkbox（保留占位符让用户后续手改）
+- details 折叠 N 个 packPath 出现位置（默认前 3，>3 显「+M more」）
+- 顶部 banner 4 状态：全跳过黄 / 全填绿 / 部分填中性 / 待处理蓝
+
+**2. CLI 交互模式**（隐藏输入）
+
+```bash
+$ dch profile restore latest.dchpack --fill-secrets --yes
+填入 32 个唯一凭据 (148 处占位符 · ENTER 跳过 · Ctrl+C 中止)
+
+[1/32] ANTHROPIC_AUTH_TOKEN-1 (count=4, 4 occurrences across 2 profiles)
+  ↳ profiles/claude-default/configDir/providers/opus.json
+  ↳ profiles/claude-pro/configDir/providers/opus.json
+  ↳ profiles/claude-default/configDir/providers/sonnet.json
+  ↳ +1 more
+Value (隐藏，ENTER 跳过): ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●
+
+...
 ```
-待填占位符 3 处:
-  ~/.claude-pro-restored-20260513-143025/.mcp.json :: INTERN_TOKEN — Gitlab OAuth Token
-  ~/.codex-default-restored-20260513-143025/config.toml :: experimental_bearer_token — Codex bearer token
-  ~/.codex-default-restored-20260513-143025/auth.json :: AUTH — Codex OAuth payload (~/.codex/auth.json)
+
+raw mode disable echo（用户敲键盘看不到任何字符，不泄露密码长度）；try/finally 恢复 raw mode 防 ctrl+c 让终端 stuck；非 TTY（CI / pipe）fall back 明文 line。
+
+**3. CLI JSON 自动化**（CI / 脚本场景）
+
+```bash
+$ echo '{"ANTHROPIC_AUTH_TOKEN-1":"sk-ant-...","API_KEY-1":"sk-...","Authorization-1":"Bearer ..."}' > secrets.json
+$ dch profile restore latest.dchpack --secrets-json secrets.json --yes
+✓ 已还原 4 个 profile
+凭据填入: 已填 34 处 · 跳过 29 个 logical key · 未知 0
+剩余占位符 114 处（fan-out 后未替换的，多为 _meta.json env 段，需手改 ~/.dch/profiles.json）
 ```
 
-手动编辑这些文件填回真实值（用 `dch edit` 或 ConfigPanel），然后跑 `dch profile use <id>` 切换。
+JSON schema 严格校验：必须 plain object + 所有 value 是 string；缺 key 计入 `secretsSkipped`（保留占位符）；多 key 计入 `secretsUnknown`（warn 不 fail）。**secret value 永不打到 stdout**。
+
+#### 安全约束
+
+- `manifest.secrets_index` 内**绝不**含 valueHash 或任何真值（hash 仅 backup 内存阶段做 group key，分配 logical key 后立即丢弃）
+- UI 端 secret 仅在调 `restoreApplyWithSecrets` 时一次性走 Tauri Rust tempfile route：webview TS 永远拿不到 tempfile 路径 / `OpenOptions::create_new(true).mode(0o600)` 限本用户读写 / drop guard 强制 `remove_file` cleanup
+- CLI 隐藏输入 + JSON 自动化都不会把真值打到 stdout（日志只用 logical key 名 / count / hint）
+- 旧 dchpack（无 `secrets_index`）restore 时自动 fall back 到原 dump 清单，向后兼容
+
+#### 已知限定
+
+- **整文件凭据**（`auth.json` / `credentials.json`）：跳过 dedup（OAuth payload 跨 profile 必然不同），每个 location 独立 logical key。fill 后文件结构是 `{"placeholder": "<填入字符串>"}` 仍非真正的 OAuth payload —— 整文件凭据请用工具自身重新登录获取，不要期待 fill 重建出有效 OAuth
+- **profile.env 段**（`_meta.json` 的 `$.env.K`）：fan-out 阶段排除（fieldPath 与 `~/.dch/profiles.json` 顶层结构 `{ profiles: [...], active: {...} }` 不对齐），用户后续手改 profiles.json
 
 ### 包含 / 排除规则
 
@@ -390,11 +445,12 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │   │   ├── symlink.ts        # 符号链接切换（macOS/Linux symlink + Win junction）
 │   │   ├── symlink.test.ts   # getSymlinkType / normalizeSymlinkTarget 跨平台测试
 │   │   ├── manager.ts        # CRUD + switch 调度（共用核心）
-│   │   ├── backup.ts         # createBackup + 共享 helper（.dchpack 归档）
-│   │   ├── backup-restore.ts # parseBackup / applyBackup / cleanupParsed（.dchpack 还原）
+│   │   ├── backup.ts         # createBackup + 共享 helper（.dchpack 归档 + secrets_index 集成）
+│   │   ├── backup-restore.ts # parseBackup / applyBackup / cleanupParsed / applyBackupWithSecrets（fan-out fill）
 │   │   ├── backup-manage.ts  # listBackups / deleteBackup / pinBackup（默认位 + 置顶 + 历史 三层管理）
 │   │   ├── backup-rules.ts   # INCLUDE / EXCLUDE glob + 敏感字段判断
-│   │   └── redact.ts         # JSON / TOML / 整文件级凭据脱敏
+│   │   ├── secrets-index.ts  # backup placeholder 全局 dedup + restore fieldPath 寻址 fan-out
+│   │   └── redact.ts         # JSON / TOML / 整文件级凭据脱敏（含 valueHash 给 secrets-index）
 │   ├── readers/              # 各工具的配置读取器（平台分流：Win 路径/PowerShell）
 │   │   ├── shell.ts          # POSIX zsh/bash / Win PowerShell $PROFILE
 │   │   ├── claude-code.ts
@@ -405,6 +461,7 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │       ├── main.tsx
 │       ├── App.tsx
 │       ├── bridge.ts         # Tauri IPC 桥接 + dchProfile.* 包装 + readFileWithMtime + getHomeDir
+│       ├── bridge-backup.ts  # bridge.ts 拆出来的 backup IPC（restoreApplyWithSecrets / restorePreviewSecrets 等）
 │       ├── styles.css
 │       ├── dev-server.ts
 │       └── components/
@@ -423,7 +480,8 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │               ├── ProfileCard.tsx
 │               ├── ProfileStoreEditor.tsx  # ~/.dch/profiles.json 的 schema-aware modal
 │               ├── ExportBackupModal.tsx   # 导出 .dchpack（profile 多选 + 共享开关 + keep / 占位符开关）
-│               ├── RestoreBackupModal.tsx  # 导入 .dchpack（preview + 改名 + 占位符跳转）
+│               ├── RestoreBackupModal.tsx  # 导入 .dchpack（4 步：preview + 改名 + 填 K 个 secret + apply+report）
+│               ├── RestoreSecretsBody.tsx  # RestoreBackupModal step 3「填 K 个 secret」的 K logical key 表单
 │               ├── BackupHistoryModal.tsx  # 备份历史（默认位 / 置顶 / 历史 三组 + 还原 / 置顶 / 删除）
 │               ├── HookOutputModal.tsx
 │               ├── PreferencesEditor.tsx
