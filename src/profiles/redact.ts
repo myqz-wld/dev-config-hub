@@ -238,17 +238,17 @@ export function redactPlainTextContent(content: string): RedactResult {
 
   // 1. HIGH_CONFIDENCE：整 token 替换为 placeholder
   for (const { name, re } of HIGH_CONFIDENCE_PATTERNS) {
-    out = out.replace(re, () => {
-      hits.push({ fieldPath: `text.${name}`, fieldName: name });
+    out = out.replace(re, (m: string) => {
+      hits.push({ fieldPath: `text.${name}`, fieldName: name, valueHash: shortHash(m) });
       return makePlaceholder(name);
     });
   }
 
   // 2. KEY_VALUE：保留 key 与分隔符，仅替换 value 部分
   for (const { re } of KEY_VALUE_PATTERNS) {
-    out = out.replace(re, (_m, keyName: string, _value: string) => {
+    out = out.replace(re, (_m: string, keyName: string, value: string) => {
       const upperKey = keyName.toUpperCase().replace(/[-]/g, "_");
-      hits.push({ fieldPath: `text.${upperKey}`, fieldName: upperKey });
+      hits.push({ fieldPath: `text.${upperKey}`, fieldName: upperKey, valueHash: shortHash(value) });
       // 重建 KEY=value 形式（不解析原始分隔符细节，统一用 `=`；用户填回时按上下文调整）
       return `${keyName}=${makePlaceholder(upperKey)}`;
     });
@@ -256,9 +256,9 @@ export function redactPlainTextContent(content: string): RedactResult {
 
   // 3. HTTP_AUTH：保留 header 名 + scheme，仅替换 token
   for (const { re } of HTTP_AUTH_PATTERNS) {
-    out = out.replace(re, (_m, headerName: string, scheme: string | undefined, _token: string) => {
+    out = out.replace(re, (_m: string, headerName: string, scheme: string | undefined, token: string) => {
       const phName = "HTTP_AUTH_TOKEN";
-      hits.push({ fieldPath: `text.${headerName}`, fieldName: phName });
+      hits.push({ fieldPath: `text.${headerName}`, fieldName: phName, valueHash: shortHash(token) });
       const schemePart = scheme ? `${scheme} ` : "";
       return `${headerName}: ${schemePart}${makePlaceholder(phName)}`;
     });
