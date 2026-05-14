@@ -2,11 +2,33 @@ import { describe, expect, it, mock, beforeEach, afterEach } from "bun:test";
 import { render, cleanup, act, fireEvent } from "@testing-library/react";
 import React from "react";
 
+// REVIEW_8 H7 / Group E2：mock bridge.ts 时一并 stub MtimeMismatchError / MtimeMissingError
+// 让 ConfigPanel.tsx 内 `e instanceof MtimeMismatchError` 路径能正确触发。
+// 必须用 module 顶层 class（不是 file-local），mock 共享给 ConfigPanel + 本测共用同一引用。
+class MockMtimeMismatchError extends Error {
+  constructor(public readonly expectedMtimeUs: number, public readonly actualMtimeUs: number) {
+    super(`mtime mismatch expected=${expectedMtimeUs} actual=${actualMtimeUs}`);
+    this.name = "MtimeMismatchError";
+  }
+}
+class MockMtimeMissingError extends Error {
+  constructor(public readonly expectedMtimeUs: number) {
+    super(`mtime missing expected=${expectedMtimeUs}`);
+    this.name = "MtimeMissingError";
+  }
+}
+
 // Mock bridge IPC（避免 happy-dom 下 invoke Tauri command）
 mock.module("../../bridge.ts", () => ({
   getHomeDir: () => Promise.resolve("/Users/test"),
   readFileWithMtime: () => Promise.resolve({ exists: true, content: '{"theme":"dark"}', mtimeUs: 1_000 }),
   saveFile: () => Promise.resolve(),
+  saveFileIfMtime: () => Promise.resolve(2_000),
+  MtimeMismatchError: MockMtimeMismatchError,
+  MtimeMissingError: MockMtimeMissingError,
+  // isMtimeMismatch / isMtimeMissing 用 e.name 判断，与 bridge.ts 真实实现一致
+  isMtimeMismatch: (e: unknown) => e instanceof Error && e.name === "MtimeMismatchError",
+  isMtimeMissing: (e: unknown) => e instanceof Error && e.name === "MtimeMissingError",
 }));
 
 // stub CMEditor 的语言扩展
@@ -22,7 +44,7 @@ import type { ToolConfig } from "../../types.ts";
  * 构造一份最小化 ToolConfig，仅 1 个 JSON scope。
  * 默认 view 模式（CMEditor 只读），点「编辑」进 edit。
  */
-function makeTool(content: string): ToolConfig {
+function makeTool(content: string, loadedMtimeUs?: number | null): ToolConfig {
   return {
     name: "Test Tool",
     version: "1.0.0",
@@ -35,6 +57,7 @@ function makeTool(content: string): ToolConfig {
       exists: true,
       format: "json",
       content,
+      ...(loadedMtimeUs !== undefined ? { loadedMtimeUs } : {}),
     }],
   };
 }
@@ -129,6 +152,88 @@ describe("ConfigPanel TOCTOU banner (CHANGELOG_10 R_2·H1-followup)", () => {
     await act(async () => { rerender(
       <ConfigPanel tool={makeTool('{"theme":"dark"}')} onSave={onSave} onToast={onToast} />,
     ); });
+    expect(container.querySelector(".schema-conflict")).toBeNull();
+  });
+
+  // REVIEW_8 H7 / Group E2: mtime CAS last-line defense 回归保护
+  it("T4: enter-edit 拿到 loadedMtimeUs，点 save 时透传给 onSave 第 3 参数", async () => {
+    const onSave = mock(() => Promise.resolve());
+    const onToast = mock(() => {});
+    const tool = makeTool('{"theme":"dark"}', 12345);
+
+    const { container } = render(
+      <ConfigPanel tool={tool} onSave={onSave} onToast={onToast} />,
+    );
+
+    const editBtn = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent === "编辑");
+    await act(async () => { fireEvent.click(editBtn!); });
+
+    const saveBtn = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent === "保存") as HTMLButtonElement | undefined;
+    await act(async () => { fireEvent.click(saveBtn!); });
+
+    // onSave 第 3 参数 === enter-edit 时的 loadedMtimeUs
+    expect(onSave).toHaveBeenCalledWith(
+      "/Users/test/.test/settings.json",
+      '{"theme":"dark"}',
+      12345,
+    );
+  });
+
+  it("T5: onSave 抛 MtimeMismatchError → externalChanged banner 自动弹出（与父级 reload 同款 UX）", async () => {
+    const onSave = mock(() => Promise.reject(new MockMtimeMismatchError(1000, 2000)));
+    const onToast = mock(() => {});
+    const tool = makeTool('{"theme":"dark"}', 1000);
+
+    const { container } = render(
+      <ConfigPanel tool={tool} onSave={onSave} onToast={onToast} />,
+    );
+
+    const editBtn = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent === "编辑");
+    await act(async () => { fireEvent.click(editBtn!); });
+
+    // banner 起初不存在
+    expect(container.querySelector(".schema-conflict")).toBeNull();
+
+    const saveBtn = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent === "保存") as HTMLButtonElement | undefined;
+    // 分两段 act：先 fire click，再单独 act 让 async onSave reject + catch + setState 完整 flush
+    await act(async () => { fireEvent.click(saveBtn!); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+    // 验 onSave 真被调用（catch 路径必经 await）
+    expect(onSave).toHaveBeenCalledTimes(1);
+    // 关键断言：banner 弹出（catch 路径触发，不等父级 reload）
+    expect(container.querySelector(".schema-conflict")).toBeTruthy();
+    expect(container.querySelector(".schema-conflict-msg")?.textContent).toContain("外部修改");
+  });
+
+  it("T6: onSave reject MtimeMismatchError 后 banner 弹出 + 取消编辑能退出", async () => {
+    const onSave = mock(() => Promise.reject(new MockMtimeMismatchError(1000, 2000)));
+    const onToast = mock(() => {});
+
+    const { container } = render(
+      <ConfigPanel tool={makeTool('{"theme":"dark"}', 1000)} onSave={onSave} onToast={onToast} />,
+    );
+
+    const editBtn = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent === "编辑");
+    await act(async () => { fireEvent.click(editBtn!); });
+
+    const saveBtn = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent === "保存") as HTMLButtonElement | undefined;
+    await act(async () => { fireEvent.click(saveBtn!); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(container.querySelector(".schema-conflict")).toBeTruthy();
+
+    // 走「取消编辑」退出 edit 模式（buf 没改过 → 「保留我的改动」按钮 CHANGELOG_10 R_2·H1-followup
+    // 设计 disabled，本测验另一条路径：取消编辑后 banner 消失 + 退回 view 模式）
+    const cancelEditBtn = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent === "取消编辑") as HTMLButtonElement | undefined;
+    expect(cancelEditBtn).toBeTruthy();
+    await act(async () => { fireEvent.click(cancelEditBtn!); });
     expect(container.querySelector(".schema-conflict")).toBeNull();
   });
 });

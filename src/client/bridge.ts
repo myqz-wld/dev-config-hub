@@ -102,10 +102,10 @@ async function version(cmd: string): Promise<string> {
 async function readScope(
   path: string, level: ConfigScope["level"], label: string, format: ConfigScope["format"],
 ): Promise<ConfigScope> {
-  // 单次 IPC 拿 exists + content（不消费 mtime；ConfigPanel 当前展示模式不做 TOCTOU
-  // 比对，去掉双 IPC race + 减半 IPC 顺手收益）。
-  const { exists, content } = await readFileWithMtime(path);
-  return { level, label, filePath: path, exists, format, content };
+  // REVIEW_8 H7 / E2：灌入 mtimeUs 给 ConfigPanel edit 模式做 TOCTOU CAS。
+  // 单次 IPC 同步拿 exists + content + mtime（消除 file_exists/read_file 双 IPC race）。
+  const { exists, content, mtimeUs } = await readFileWithMtime(path);
+  return { level, label, filePath: path, exists, format, content, loadedMtimeUs: mtimeUs };
 }
 
 export interface ToolVersions {
@@ -173,6 +173,90 @@ export async function loadAllConfigs(): Promise<ToolConfig[]> {
 
 export async function saveFile(filePath: string, content: string): Promise<void> {
   await call("save_file", { path: filePath, content });
+}
+
+/**
+ * REVIEW_8 H7 (Group E1)：原子写 + mtime CAS（compare-and-swap）。
+ *
+ * 后端 Tauri command `save_file_if_mtime` 在写盘前 stat 比对 expectedMtimeUs：
+ * - `expectedMtimeUs = number` → 不一致直接 reject（原子，避免 silent overwrite）
+ * - `expectedMtimeUs = null` → 跳过 CAS（首次创建 / caller 显式不 care）
+ *
+ * 错误前缀（atomic.rs:write_atomic_check_mtime）：
+ * - `MTIME_MISMATCH:<expected>:<actual>` → throw `MtimeMismatchError`（含 expected/actual）
+ * - `MTIME_MISSING:<expected>`           → throw `MtimeMissingError`（caller 期望存在但已删）
+ * - 其他 IO / boundary 失败 → 原始 Error 透传
+ *
+ * **返回新 mtime（us）** 让 caller 更新 loadedMtimeUs，避免再发 readFileWithMtime
+ * 拿一次 IPC 才能继续 edit。
+ */
+export class MtimeMismatchError extends Error {
+  constructor(public readonly expectedMtimeUs: number, public readonly actualMtimeUs: number) {
+    super(`文件已被外部修改（expected mtime=${expectedMtimeUs}us, actual=${actualMtimeUs}us）`);
+    this.name = "MtimeMismatchError";
+  }
+}
+
+export class MtimeMissingError extends Error {
+  constructor(public readonly expectedMtimeUs: number) {
+    super(`文件已被删除（expected mtime=${expectedMtimeUs}us）`);
+    this.name = "MtimeMissingError";
+  }
+}
+
+/**
+ * REVIEW_8 H7 / Group E1：判断 Error 是否为 mtime CAS 错（mismatch / missing）。
+ *
+ * **不直接用 `instanceof`**：bun mock.module 替换 module exports 时，consumer 通过
+ * `import { MtimeMismatchError } from "./bridge.ts"` 拿到的 class 与 test 文件直接
+ * `new MtimeMismatchError(...)` 的 class **不一定是同一个 prototype 引用** — instanceof
+ * 比较 prototype chain，跨 module / 跨 mock 时可能 false-negative。改用 `e.name === ...`
+ * 判断更鲁棒（约定：classifySaveError 输出的实例必带 name="MtimeMismatchError" /
+ * "MtimeMissingError"）。
+ */
+export function isMtimeMismatch(e: unknown): boolean {
+  return e instanceof Error && e.name === "MtimeMismatchError";
+}
+export function isMtimeMissing(e: unknown): boolean {
+  return e instanceof Error && e.name === "MtimeMissingError";
+}
+
+/**
+ * 把 Tauri invoke 抛出的错误（string / Error）按前缀分类成专门的错误类，
+ * 让 caller 可以 isMtimeMismatch / isMtimeMissing 区分 mtime CAS 失败 vs 普通 IO 错。
+ *
+ * 抽成 pure 函数（named export）方便单测：bridge.test.ts 不能 mock invoke
+ * （`bun mock.module` 跨 file 污染：App.test.tsx mock 了 ./bridge.ts 让其他 file
+ * import 拿到 stub），但可以直接测 classifySaveError 的字符串解析逻辑。
+ */
+export function classifySaveError(e: unknown): Error {
+  const msg = e instanceof Error ? e.message : String(e);
+  const mismatch = /MTIME_MISMATCH:(\d+):(\d+)/.exec(msg);
+  if (mismatch) {
+    return new MtimeMismatchError(Number(mismatch[1]), Number(mismatch[2]));
+  }
+  const missing = /MTIME_MISSING:(\d+)/.exec(msg);
+  if (missing) {
+    return new MtimeMissingError(Number(missing[1]));
+  }
+  return e instanceof Error ? e : new Error(msg);
+}
+
+export async function saveFileIfMtime(
+  filePath: string,
+  content: string,
+  expectedMtimeUs: number | null,
+): Promise<number> {
+  try {
+    return await call<number>("save_file_if_mtime", {
+      path: filePath,
+      content,
+      // Tauri 2 自动 camelCase ↔ snake_case 转换，匹配 Rust 端 expected_mtime_us: Option<u64>
+      expectedMtimeUs,
+    });
+  } catch (e) {
+    throw classifySaveError(e);
+  }
 }
 
 // ── Profile bridge: 通过 Tauri 调 dch CLI（--json 模式），结果统一 JSON ─────

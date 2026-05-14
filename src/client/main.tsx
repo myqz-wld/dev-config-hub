@@ -2,12 +2,45 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
 
+/**
+ * REVIEW_8 H10 / Group E6：渲染 root 之前 / 渲染期顶层 throw 的 fatal error overlay。
+ *
+ * **不能用 `innerHTML`**：错误信息可能含 HTML / `<script>` 注入字符（用户 .zshrc 解析坏 →
+ * unhandledrejection.reason 携带未消毒字符串 → `body.innerHTML = "...${reason}..."` 直接 XSS）。
+ * React 还没起或已 unmount → 不能用 React fallback；走原生 DOM API + textContent 严格逃逸。
+ *
+ * 两处调用：
+ *   1. unhandledrejection 全局监听（React mount 失败 / 异步 promise 没人 catch）
+ *   2. createRoot.render() 同步 throw（最早期 root mount 失败）
+ */
+export function renderFatalError(parent: HTMLElement, title: string, body: string): void {
+  // 容器样式与原 inline style 等价（保持视觉一致）
+  parent.style.background = "#0d1117";
+  parent.style.color = "#f85149";
+  parent.style.padding = "40px";
+  parent.style.fontFamily = "monospace";
+
+  // 清空旧子节点（避免 React partially-mounted 残留 + 二次 fatal error 叠 DOM）
+  while (parent.firstChild) parent.removeChild(parent.firstChild);
+
+  const h2 = document.createElement("h2");
+  h2.textContent = title;
+
+  const pre = document.createElement("pre");
+  pre.style.whiteSpace = "pre-wrap";
+  pre.style.wordBreak = "break-word";
+  pre.textContent = body;
+
+  parent.appendChild(h2);
+  parent.appendChild(pre);
+}
+
 window.addEventListener("unhandledrejection", (e) => {
-  document.body.style.background = "#0d1117";
-  document.body.style.color = "#f85149";
-  document.body.style.padding = "40px";
-  document.body.style.fontFamily = "monospace";
-  document.body.innerHTML = `<h2>Error</h2><pre>${e.reason}</pre>`;
+  // e.reason 可能是 Error / string / 任意对象；统一转 string，由 textContent 消毒
+  const reason = e.reason instanceof Error
+    ? (e.reason.stack || e.reason.message || String(e.reason))
+    : String(e.reason);
+  renderFatalError(document.body, "Error", reason);
 });
 
 /**
@@ -82,8 +115,8 @@ try {
     <ErrorBoundary><App /></ErrorBoundary>
   );
 } catch (e) {
-  document.body.style.background = "#0d1117";
-  document.body.style.color = "#f85149";
-  document.body.style.padding = "40px";
-  document.body.innerHTML = `<h2>Render Error</h2><pre>${e}</pre>`;
+  // REVIEW_8 H10 / Group E6：root mount throw → 用 textContent helper 消毒
+  // （不能用 innerHTML：e.toString() 可能含 HTML / `<script>`）
+  const body = e instanceof Error ? (e.stack || e.message || String(e)) : String(e);
+  renderFatalError(document.body, "Render Error", body);
 }
