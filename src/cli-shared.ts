@@ -86,9 +86,21 @@ export const VALUE_FLAGS = new Set([
  * - `--key value` 在 VALUE_FLAGS 里 → 一定取下一个 arg 当 value（即便 value 以 -- 开头）
  * - `--key` 不在 VALUE_FLAGS 且下一个 arg 以 -- 开头 → boolean true
  *
+ * **REVIEW_8 M11 / B6**：
+ * 1. VALUE_FLAGS 末尾缺 value → 直接 throw（旧行为静默变 boolean true 让 backup --out 写到
+ *    undefined / cmdAdd --pre-hook 缺 hook 内容这种沉默错误，难定位）
+ * 2. `--env BADFORMAT` 缺 `=` → 直接 throw（旧用 err()→process.exit 不可测试）
+ * 3. opts.allowedFlags 设置时 → 未知 flag 直接 throw（防 typo 如 `--no-share` vs `--no-shared`
+ *    被 silently 当 boolean 收下导致 cmd 走默认路径）。caller opt-in，未设时维持旧宽松语义。
+ *
+ * 抛 Error 而非 err() 让单测能 toThrow 验证；外层 main().catch(B1) 在 json 模式会 jsonOut。
+ *
  * export 给单测用（CHANGELOG_5 反复修过这块没 spec 易再退化）。
  */
-export function parseFlags(argv: string[]): {
+export function parseFlags(
+  argv: string[],
+  opts?: { allowedFlags?: Set<string> },
+): {
   positional: string[];
   flags: Record<string, string | true>;
   envPairs: [string, string][];
@@ -98,15 +110,27 @@ export function parseFlags(argv: string[]): {
   const envPairs: [string, string][] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
-    if (a === "--env" && argv[i + 1]) {
-      const kv = argv[++i]!;
+    if (a === "--env") {
+      const kv = argv[i + 1];
+      if (kv === undefined) throw new Error("--env 需要 KEY=VALUE 形式: 缺 value");
+      i++;
       const eq = kv.indexOf("=");
-      if (eq < 0) err(`--env 需要 KEY=VALUE 形式: ${kv}`);
+      if (eq < 0) throw new Error(`--env 需要 KEY=VALUE 形式: ${kv}`);
       envPairs.push([kv.slice(0, eq), kv.slice(eq + 1)]);
     } else if (a.startsWith("--")) {
       const key = a.slice(2);
+      if (opts?.allowedFlags && !opts.allowedFlags.has(key)) {
+        throw new Error(
+          `未知 flag --${key}（typo? 检查与允许集合: ${[...opts.allowedFlags].sort().join(", ")}）`,
+        );
+      }
       const next = argv[i + 1];
-      if (next !== undefined && (VALUE_FLAGS.has(key) || !next.startsWith("--"))) {
+      if (VALUE_FLAGS.has(key)) {
+        // 已知带值的 flag：必须有 next，否则报错。下一个 arg 一律当 value（即便 -- 开头）。
+        if (next === undefined) throw new Error(`--${key} 需要 value，但末尾缺失`);
+        flags[key] = next;
+        i++;
+      } else if (next !== undefined && !next.startsWith("--")) {
         flags[key] = next;
         i++;
       } else {
