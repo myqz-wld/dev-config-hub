@@ -183,7 +183,11 @@ export interface DchCommandResult {
   code: number;
 }
 
-async function runDch<T = unknown>(args: string[], timeoutMs?: number): Promise<T> {
+/**
+ * `dch profile <args> --json` 通用调用器。auto-append `--json` flag。供 dchProfile / dchBackup
+ * 共用（CHANGELOG_18 / Step 6 拆 bridge-backup.ts 时 export 出来给 bridge-backup 复用）。
+ */
+export async function runDch<T = unknown>(args: string[], timeoutMs?: number): Promise<T> {
   // REVIEW_7 H2：按命令传 timeoutMs；Rust 端 spawn_with_timeout 兜底 1800s 上限。
   // 不传 = Rust 默认（30 分钟，覆盖最坏 hookTimeoutMs 600000ms × 2 + 余量）。
   const r = await call<DchCommandResult>("run_dch_command", { args: ["profile", ...args, "--json"], timeoutMs });
@@ -199,40 +203,22 @@ async function runDch<T = unknown>(args: string[], timeoutMs?: number): Promise<
   return JSON.parse(r.stdout) as T;
 }
 
-const TIMEOUT_FAST_MS = 10_000;   // 纯文件读写：list / current / show / add / remove / env / config
-const TIMEOUT_INIT_MS = 30_000;   // init：含 mv + ln 等 fs 操作
-const TIMEOUT_BACKUP_MS = 5 * 60_000;  // backup / restore：含 7000+ 文件 walk + tar gzip / untar + 占位符替换
+export const TIMEOUT_FAST_MS = 10_000;   // 纯文件读写：list / current / show / add / remove / env / config
+export const TIMEOUT_INIT_MS = 30_000;   // init：含 mv + ln 等 fs 操作
+export const TIMEOUT_BACKUP_MS = 5 * 60_000;  // backup / restore：含 7000+ 文件 walk + tar gzip / untar + 占位符替换
 
 import type {
   Profile, ProfileStore, SwitchResult, ToolKind, HookResult,
 } from "../profiles/types.ts";
-import type {
-  Manifest, AppliedProfile, SharedAction, PlaceholderEntry, ApplyBackupResult,
-} from "../profiles/backup.ts";
-import type {
-  BackupSummary, BackupManifestSummary, PinBackupResult,
-} from "../profiles/backup-manage.ts";
+
+// 类型 surface 透传：caller 仍只 import "../bridge.ts" 拿到 backup / restore 全套类型。
+// dchBackup 方法对象 spread 到下面的 dchProfile，让 caller 调 dchProfile.backup(...) 不变。
+export * from "./bridge-backup.ts";
+import { dchBackup } from "./bridge-backup.ts";
 
 export type { Profile, ProfileStore, SwitchResult, ToolKind, HookResult };
-export type { Manifest, AppliedProfile, SharedAction, PlaceholderEntry, ApplyBackupResult };
-export type { BackupSummary, BackupManifestSummary, PinBackupResult };
 
-export interface BackupOpts {
-  outFile?: string;
-  profileIds?: string[];
-  noShared?: boolean;
-  noPlaceholder?: boolean;
-  yes?: boolean;
-  /** keep=true → 写带时间戳的历史副本；false（默认）→ 覆盖 ~/.dch/backups/latest.dchpack */
-  keep?: boolean;
-}
-
-export interface RestoreApplyOpts {
-  prefix?: string;
-  renameMap?: Record<string, string>;
-}
-
-export const dchProfile = {
+const dchProfileMethods = {
   list: () => runDch<ProfileStore>(["list"], TIMEOUT_FAST_MS),
 
   add: (tool: ToolKind, id: string, opts: {
@@ -264,76 +250,13 @@ export const dchProfile = {
 
   config: (key: "hookTimeoutMs", value: number) =>
     runDch<{ ok: true }>(["config", key, String(value)], TIMEOUT_FAST_MS),
+};
 
-  /**
-   * 备份 profile + 共享资源到 .dchpack。
-   * - keep=false（默认）：覆盖默认位 ~/.dch/backups/latest.dchpack
-   * - keep=true：写带时间戳的历史副本 ~/.dch/backups/dch-backup-<TS>.dchpack
-   * - outFile 显式指定：以 outFile 为准（最高优先级）
-   * - noShared: 不打 ~/.dch/scripts/ + ~/.agents/（默认带）
-   * - noPlaceholder: 保留原始 token / API key（强制 yes，避免脚本误用泄露）
-   */
-  backup: (opts: BackupOpts = {}) => {
-    const args: string[] = ["backup"];
-    if (opts.outFile) args.push("--out", opts.outFile);
-    if (opts.profileIds && opts.profileIds.length > 0) args.push("--profiles", opts.profileIds.join(","));
-    if (opts.noShared) args.push("--no-shared");
-    if (opts.noPlaceholder) args.push("--no-placeholder");
-    if (opts.keep) args.push("--keep");
-    if (opts.yes || opts.noPlaceholder) args.push("--yes");
-    return runDch<{ ok: true; outFile: string; bytes: number; manifest: Manifest }>(args, TIMEOUT_BACKUP_MS);
-  },
-
-  /**
-   * dry-run 还原：只解析 .dchpack 拿 manifest + 算冲突 plan，不动 fs。
-   * UI 用这个数据渲染冲突 / 改名 / 占位符清单 modal。
-   */
-  restorePreview: (packFile: string) =>
-    runDch<{ ok: true; dryRun: true; manifest: Manifest; plan: ApplyBackupResult }>(
-      ["restore", packFile, "--dry-run"], TIMEOUT_BACKUP_MS),
-
-  /**
-   * 真还原：写 configDir + addProfile + 处理共享资源。
-   * UI 在用户点「确认还原」后调，传 renameMap 把改过名的传回。
-   */
-  restoreApply: (packFile: string, opts: RestoreApplyOpts = {}) => {
-    const args: string[] = ["restore", packFile, "--yes"];
-    if (opts.prefix) args.push("--prefix", opts.prefix);
-    if (opts.renameMap && Object.keys(opts.renameMap).length > 0) {
-      args.push("--rename", Object.entries(opts.renameMap).map(([k, v]) => `${k}=${v}`).join(","));
-    }
-    return runDch<{
-      ok: boolean;
-      manifest: Manifest;
-      appliedProfiles: AppliedProfile[];
-      sharedActions: SharedAction[];
-      placeholders: PlaceholderEntry[];
-      errors: string[];
-    }>(args, TIMEOUT_BACKUP_MS);
-  },
-
-  /**
-   * 列出 ~/.dch/backups/ 下所有 .dchpack（按 default / pinned / history 三类分组）。
-   * 每条含 manifest 摘要（profile / 占位符 / 来源主机 / 时间）。
-   */
-  backups: () =>
-    runDch<{ ok: true; backupDir: string; items: BackupSummary[] }>(["backups"], TIMEOUT_BACKUP_MS),
-
-  /** 删除指定备份（绝对路径或 basename）+ 同名 .pinned sidecar */
-  backupRm: (path: string) =>
-    runDch<{ ok: true; removed: string }>(["backup-rm", path, "--yes"], TIMEOUT_FAST_MS),
-
-  /**
-   * 置顶 / 取消置顶。
-   * - pin=true + 默认位（latest.dchpack）：复制到带时间戳新文件 + 加 sidecar，原 latest.dchpack 不动
-   * - pin=true + 非默认位：原地 touch sidecar
-   * - pin=false：rm sidecar
-   */
-  backupPin: (path: string, pin: boolean) => {
-    const args = ["backup-pin", path];
-    if (!pin) args.push("--unpin");
-    return runDch<{ ok: true; pin: boolean; pinnedPath: string; copiedFromLatest: boolean }>(args, TIMEOUT_FAST_MS);
-  },
+// dchProfile：profile 管理（add/remove/use/...） + backup 子组（spread 自 dchBackup）
+// 拆出 dchBackup 让 bridge.ts 顶在 500 行护栏下；caller 只看到一个 dchProfile 入口。
+export const dchProfile = {
+  ...dchProfileMethods,
+  ...dchBackup,
 };
 
 // ── Profile 直读 fs 路径（替代 dchProfile.{list,current} 双 bun spawn） ───────
