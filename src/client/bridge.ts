@@ -234,6 +234,10 @@ export interface DchCommandResult {
 /**
  * `dch profile <args> --json` 通用调用器。auto-append `--json` flag。供 dchProfile / dchBackup
  * 共用（CHANGELOG_18 / Step 6 拆 bridge-backup.ts 时 export 出来给 bridge-backup 复用）。
+ *
+ * **REVIEW_9 D-MED-2 / C-codex LOW 3 跨批**: parse stdout 前优先检查 `r.truncated` throw 清晰
+ * 错误。旧实现忽略 truncated → 5MB 上限被截断的成功 JSON 退化成 parse error,用户看到「JSON
+ * Unexpected end of input」一头雾水(实际是 dch 输出过大)。
  */
 export async function runDch<T = unknown>(args: string[], timeoutMs?: number): Promise<T> {
   // REVIEW_7 H2：按命令传 timeoutMs；Rust 端 spawn_with_timeout 兜底 1800s 上限。
@@ -241,6 +245,11 @@ export async function runDch<T = unknown>(args: string[], timeoutMs?: number): P
   const r = await call<DchCommandResult>("run_dch_command", { args: ["profile", ...args, "--json"], timeoutMs });
   if (r.code === -2) {
     throw new Error(`命令超时被强制终止 (timeout=${timeoutMs ?? "default"}ms)。检查 hook 脚本是否阻塞`);
+  }
+  if (r.truncated) {
+    throw new Error(
+      `dch 输出超 5MB 上限被截断 (timeout=${timeoutMs ?? "default"}ms)，无法完整解析 JSON。请缩减 backup scope / 拆批操作`,
+    );
   }
   if (r.code !== 0) {
     let parsed: { error?: string } = {};

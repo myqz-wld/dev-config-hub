@@ -137,22 +137,34 @@ export async function parseBackup(packFile: string): Promise<ParseBackupResult> 
     throw new Error(`备份文件不存在: ${packFile}`);
   }
   const tmpDir = await mkdtemp(join(tmpdir(), "dch-restore-"));
-  const r = await spawnSimple(["tar", "-xzf", packFile, "-C", tmpDir]);
-  if (!r.ok) {
-    await rm(tmpDir, { recursive: true, force: true });
-    throw new Error(`解压备份失败（不是有效的 .dchpack？）: ${r.stderr}`);
+  // **REVIEW_9 B-HIGH-2 / B-claude H2**: 把 mkdtemp 之后所有可能抛错的步骤包在 try/catch
+  // 内,catch 内统一 cleanup tmpDir 后 rethrow。旧实现 `Bun.file(manifestPath).json()` 不在
+  // try/catch,manifest 损坏(空 / 非 JSON / null access)时直接 throw 让 tmpDir leak;实测
+  // 用户开发机已堆 44 个 `dch-restore-*` 泄漏目录,每个 MB 级 dchpack 内容。
+  try {
+    const r = await spawnSimple(["tar", "-xzf", packFile, "-C", tmpDir]);
+    if (!r.ok) {
+      throw new Error(`解压备份失败（不是有效的 .dchpack？）: ${r.stderr}`);
+    }
+    const manifestPath = join(tmpDir, "manifest.json");
+    if (!(await fileExists(manifestPath))) {
+      throw new Error("备份内未找到 manifest.json，包格式不正确");
+    }
+    let manifest: Manifest;
+    try {
+      manifest = await Bun.file(manifestPath).json() as Manifest;
+    } catch (e) {
+      throw new Error(`备份内 manifest.json 解析失败: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (manifest.format_version !== FORMAT_VERSION) {
+      throw new Error(`不兼容的 format_version: ${manifest.format_version}（本版本仅支持 ${FORMAT_VERSION}）`);
+    }
+    return { manifest, packPath: packFile, tmpDir };
+  } catch (e) {
+    // 任意异常路径都 cleanup tmpDir(rm 失败仅 swallow 避免遮蔽原 error)
+    try { await rm(tmpDir, { recursive: true, force: true }); } catch {}
+    throw e;
   }
-  const manifestPath = join(tmpDir, "manifest.json");
-  if (!(await fileExists(manifestPath))) {
-    await rm(tmpDir, { recursive: true, force: true });
-    throw new Error("备份内未找到 manifest.json，包格式不正确");
-  }
-  const manifest = await Bun.file(manifestPath).json() as Manifest;
-  if (manifest.format_version !== FORMAT_VERSION) {
-    await rm(tmpDir, { recursive: true, force: true });
-    throw new Error(`不兼容的 format_version: ${manifest.format_version}（本版本仅支持 ${FORMAT_VERSION}）`);
-  }
-  return { manifest, packPath: packFile, tmpDir };
 }
 
 export async function cleanupParsed(parsed: ParseBackupResult): Promise<void> {

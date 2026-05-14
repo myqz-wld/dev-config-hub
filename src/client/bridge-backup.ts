@@ -31,6 +31,77 @@ export type {
   SecretLogicalEntry, SecretLocation, SecretsIndex,
 };
 
+/**
+ * **REVIEW_9 D-HIGH-1 升 HIGH+**: partial restore 错误。CLI `dch profile restore` JSON 模式
+ * `errors.length > 0` 时 stdout 是合法 result JSON 含 manifest + appliedProfiles +
+ * sharedActions + errors[],但 process.exit(1) 让 bridge runDch 旧实现把它当 throw error 处理
+ * → modal 拿不到 result → 报告页 / `onReloadProfile()` 全跳过(state 紊乱:profiles.json 已加
+ * N-1 个 + ~/.dch-restored/ 已写 N-1 个 + UI 卡 step 3 + secret 99 个还在 React state)。
+ *
+ * 修法:用 PartialRestoreError 区分「部分还原」(stdout 是 result JSON + code 1)与「彻底失败」
+ * (stdout 是 jsonErr `{error}` 或空)。Modal catch instanceof 分支:partial → setResult(e.result)
+ * + onToast 部分还原 + await onReloadProfile;彻底失败 → 现状 toast。
+ */
+export class PartialRestoreError<R extends ApplyBackupResult | ApplyBackupWithSecretsResult> extends Error {
+  constructor(
+    public readonly result: R,
+    public readonly manifest: Manifest,
+  ) {
+    super(
+      `部分还原: ${result.errors.length} 错误,已应用 ${result.appliedProfiles.length} profile / ` +
+      `${result.sharedActions.length} shared`,
+    );
+    this.name = "PartialRestoreError";
+  }
+}
+
+/**
+ * 收 DchCommandResult,识别 partial restore + truncated + 普通 error,返回完整 restore result
+ * (含 manifest)。供 restoreApply / restoreApplyWithSecrets 共用,避免重复维护两套错误处理。
+ *
+ * 识别 partial restore 的 4 道条件:
+ *   1. r.code !== 0(CLI process.exit(1))
+ *   2. r.stdout 是合法 JSON
+ *   3. parsed.manifest 字段存在
+ *   4. parsed.errors 是 array (非空 → partial; 空 → CLI 出 bug 也按 partial 处理)
+ *
+ * 任一不满足 → 抛 plain Error(走旧 jsonErr / stderr 路径)。
+ */
+function consumeRestoreResult<R extends ApplyBackupResult | ApplyBackupWithSecretsResult>(
+  r: DchCommandResult,
+  timeoutLabel: string,
+): { manifest: Manifest } & R {
+  if (r.code === -2) {
+    throw new Error(`命令超时被强制终止 (timeout=${timeoutLabel}ms)。检查 hook 脚本是否阻塞`);
+  }
+  if (r.truncated) {
+    throw new Error(
+      `dch 输出超 5MB 上限被截断 (timeout=${timeoutLabel}ms)，无法完整解析 JSON。请缩减 restore scope / 拆批操作`,
+    );
+  }
+
+  let parsed: Partial<{ manifest: Manifest; errors: string[]; error: string }> & Record<string, unknown> = {};
+  if (r.stdout.trim()) {
+    try { parsed = JSON.parse(r.stdout) as typeof parsed; } catch {}
+  }
+
+  // partial restore: code !== 0 + stdout 是含 manifest + errors 的 result JSON
+  if (r.code !== 0 && parsed.manifest && Array.isArray(parsed.errors)) {
+    throw new PartialRestoreError(parsed as unknown as R, parsed.manifest);
+  }
+
+  if (r.code !== 0) {
+    throw new Error(parsed.error || r.stderr.trim() || `exit ${r.code}`);
+  }
+  if (!r.stdout.trim()) {
+    throw new Error("dch profile restore 返回空 stdout");
+  }
+  if (!parsed.manifest) {
+    throw new Error("dch profile restore stdout 缺 manifest 字段");
+  }
+  return parsed as { manifest: Manifest } & R;
+}
+
 export interface BackupOpts {
   outFile?: string;
   profileIds?: string[];
@@ -109,22 +180,23 @@ export const dchBackup = {
    * 真还原：写 configDir + addProfile + 处理共享资源。
    * UI 在用户点「确认还原」后调，传 renameMap 把改过名的传回。
    * **不填 secrets** → 占位符原样保留，用户事后按 readme 清单手改。
+   *
+   * **REVIEW_9 D-HIGH-1**: 走 consumeRestoreResult helper,partial restore 抛
+   * `PartialRestoreError(result, manifest)` 让 modal catch instanceof 分支拿到 result 渲染
+   * 部分还原报告 + reload profile,而不是当 plain error 跳过。
    */
-  restoreApply: (packFile: string, opts: RestoreApplyOpts = {}) => {
-    const args: string[] = ["restore", packFile, "--yes"];
+  restoreApply: async (packFile: string, opts: RestoreApplyOpts = {}): Promise<{
+    ok: boolean;
+    manifest: Manifest;
+  } & ApplyBackupResult> => {
+    const args: string[] = ["profile", "restore", packFile, "--yes", "--json"];
     if (opts.prefix) args.push("--prefix", opts.prefix);
     if (opts.allowOriginalPath) args.push("--allow-original-path");
     if (opts.renameMap && Object.keys(opts.renameMap).length > 0) {
       args.push("--rename", Object.entries(opts.renameMap).map(([k, v]) => `${k}=${v}`).join(","));
     }
-    return runDch<{
-      ok: boolean;
-      manifest: Manifest;
-      appliedProfiles: AppliedProfile[];
-      sharedActions: SharedAction[];
-      placeholders: PlaceholderEntry[];
-      errors: string[];
-    }>(args, TIMEOUT_BACKUP_MS);
+    const r = await invoke<DchCommandResult>("run_dch_command", { args, timeoutMs: TIMEOUT_BACKUP_MS });
+    return consumeRestoreResult<{ ok: boolean } & ApplyBackupResult>(r, String(TIMEOUT_BACKUP_MS));
   },
 
   /**
@@ -134,6 +206,8 @@ export const dchBackup = {
    *
    * 走 Tauri command `run_dch_with_secrets_temp`：Rust 端建 tempfile + spawn dch + 删 tempfile，
    * secret 只在一次 IPC 入参里出现，**不**经第二次 IPC 也**不**落 webview localStorage / log。
+   *
+   * **REVIEW_9 D-HIGH-1**: 同 restoreApply 走 consumeRestoreResult helper 抛 PartialRestoreError。
    */
   restoreApplyWithSecrets: async (
     packFile: string,
@@ -150,18 +224,7 @@ export const dchBackup = {
       secretsJson: JSON.stringify(opts.secretsMap),
       timeoutMs: TIMEOUT_BACKUP_MS,
     });
-    if (r.code === -2) {
-      throw new Error(`命令超时被强制终止 (timeout=${TIMEOUT_BACKUP_MS}ms)。检查 hook 脚本是否阻塞`);
-    }
-    if (r.code !== 0) {
-      let parsed: { error?: string } = {};
-      try { parsed = JSON.parse(r.stdout) as { error?: string }; } catch {}
-      throw new Error(parsed.error || r.stderr.trim() || `exit ${r.code}`);
-    }
-    if (!r.stdout.trim()) {
-      throw new Error("dch profile restore --secrets-json 返回空 stdout");
-    }
-    return JSON.parse(r.stdout) as RestoreApplyWithSecretsResponse;
+    return consumeRestoreResult<RestoreApplyWithSecretsResponse>(r, String(TIMEOUT_BACKUP_MS));
   },
 
   /**
