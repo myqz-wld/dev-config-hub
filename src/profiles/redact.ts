@@ -156,8 +156,94 @@ export function redactProfileEnv(
 }
 
 /**
+ * REVIEW_8 M2 / Group D5：纯文本文件（CLAUDE.md / hook .sh / .yaml / .conf 等）的脱敏。
+ *
+ * 旧 fall-through 直接 return 原 content → CLAUDE.md / hook 脚本里带 sk-ant-...，备份原样
+ * 含明文凭据。本函数走 regex 替换而非语法解析（这些文件无统一结构），命中即换 placeholder。
+ *
+ * 三组模式：
+ * - HIGH_CONFIDENCE_PATTERNS：token shape 极强特征（厂家固定前缀 + 长度），低假阳
+ * - KEY_VALUE_PATTERNS：`KEY = VALUE` / `KEY: VALUE` / `export KEY=VALUE` 形式且 KEY 命中
+ *   敏感词，VALUE 长度 ≥ 16
+ * - HTTP_AUTH_PATTERNS：`Authorization: Bearer ...` 这类 HTTP header 内的 token
+ *
+ * 假阳风险：纯文本不像 JSON/TOML 有结构 — 可能错误替换正常代码片段（如 markdown 里
+ * 解释 API key 用法的示例）。这是接受的代价 — review 之前没 release，错改总比泄漏好。
+ *
+ * 命中后写一条 placeholder hit（fieldPath 用 `text.line:col`，fieldName 用模式名前缀）让
+ * UI 能定位（虽然 fieldPath 仅做提示，UI 不解析它）。
+ */
+const HIGH_CONFIDENCE_PATTERNS: Array<{ name: string; re: RegExp }> = [
+  { name: "ANTHROPIC_API_KEY", re: /sk-ant-[A-Za-z0-9_-]{20,}/g },
+  { name: "OPENAI_PROJ_KEY", re: /sk-proj-[A-Za-z0-9_-]{20,}/g },
+  { name: "OPENAI_API_KEY", re: /\bsk-[A-Za-z0-9]{32,}\b/g },
+  { name: "GITHUB_PAT", re: /\bghp_[A-Za-z0-9]{36,}\b/g },
+  { name: "GITHUB_OAUTH", re: /\bgho_[A-Za-z0-9]{36,}\b/g },
+  { name: "GITHUB_USER_OAUTH", re: /\bghu_[A-Za-z0-9]{36,}\b/g },
+  { name: "GITHUB_SERVER_OAUTH", re: /\bghs_[A-Za-z0-9]{36,}\b/g },
+  { name: "GITLAB_PAT", re: /\bglpat-[A-Za-z0-9_-]{20,}\b/g },
+  { name: "SLACK_BOT_TOKEN", re: /\bxoxb-[A-Za-z0-9-]{20,}\b/g },
+  { name: "SLACK_USER_TOKEN", re: /\bxoxp-[A-Za-z0-9-]{20,}\b/g },
+  { name: "AWS_ACCESS_KEY_ID", re: /\bAKIA[0-9A-Z]{16}\b/g },
+];
+
+// KEY = VALUE / KEY: VALUE / export KEY=VALUE
+// 仅当 KEY 含敏感词（api_key / token / secret / password / bearer 等）才命中
+// VALUE 接受引号包裹与否，长度 ≥ 16，[A-Za-z0-9_+./=-] 字符集
+const KEY_VALUE_PATTERNS: Array<{ name: string; re: RegExp }> = [
+  {
+    name: "GENERIC_KEY_VALUE",
+    re: /\b((?:[A-Z][A-Z0-9_]*_)?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PASSWD|BEARER|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|AUTH))\s*[:=]\s*["']?([A-Za-z0-9_+./=-]{16,})["']?/gi,
+  },
+];
+
+// Authorization: Bearer xxx / Basic xxx / Token xxx
+const HTTP_AUTH_PATTERNS: Array<{ name: string; re: RegExp }> = [
+  {
+    name: "HTTP_AUTH",
+    re: /\b(Authorization|X-Api-Key|X-Auth-Token)\s*:\s*(Bearer|Basic|Token)?\s*([A-Za-z0-9_+./=-]{16,})/g,
+  },
+];
+
+export function redactPlainTextContent(content: string): RedactResult {
+  let out = content;
+  const hits: PlaceholderHit[] = [];
+
+  // 1. HIGH_CONFIDENCE：整 token 替换为 placeholder
+  for (const { name, re } of HIGH_CONFIDENCE_PATTERNS) {
+    out = out.replace(re, () => {
+      hits.push({ fieldPath: `text.${name}`, fieldName: name });
+      return makePlaceholder(name);
+    });
+  }
+
+  // 2. KEY_VALUE：保留 key 与分隔符，仅替换 value 部分
+  for (const { re } of KEY_VALUE_PATTERNS) {
+    out = out.replace(re, (_m, keyName: string, _value: string) => {
+      const upperKey = keyName.toUpperCase().replace(/[-]/g, "_");
+      hits.push({ fieldPath: `text.${upperKey}`, fieldName: upperKey });
+      // 重建 KEY=value 形式（不解析原始分隔符细节，统一用 `=`；用户填回时按上下文调整）
+      return `${keyName}=${makePlaceholder(upperKey)}`;
+    });
+  }
+
+  // 3. HTTP_AUTH：保留 header 名 + scheme，仅替换 token
+  for (const { re } of HTTP_AUTH_PATTERNS) {
+    out = out.replace(re, (_m, headerName: string, scheme: string | undefined, _token: string) => {
+      const phName = "HTTP_AUTH_TOKEN";
+      hits.push({ fieldPath: `text.${headerName}`, fieldName: phName });
+      const schemePart = scheme ? `${scheme} ` : "";
+      return `${headerName}: ${schemePart}${makePlaceholder(phName)}`;
+    });
+  }
+
+  return { content: out, placeholders: hits };
+}
+
+/**
  * 按文件名分发：扩展名 .json → JSON，.toml → TOML，整文件级（auth.json /
- * credentials.json）走 redactWholeFile。其他文件不处理。
+ * credentials.json）走 redactWholeFile。**REVIEW_8 M2 / D5**：其他文件类型 fall-through
+ * 到 redactPlainTextContent（regex 替换 token），不再原样返回。
  *
  * caller 拿到 filename 是 basename（如 `settings.json`），用于 sensitive-file 命中判断
  * + 选 parser。
@@ -166,5 +252,5 @@ export function redactByFilename(content: string, filename: string): RedactResul
   if (isSensitiveFile(filename)) return redactWholeFile(content, filename);
   if (filename.endsWith(".json")) return redactJsonContent(content);
   if (filename.endsWith(".toml")) return redactTomlContent(content);
-  return { content, placeholders: [] };
+  return redactPlainTextContent(content);
 }

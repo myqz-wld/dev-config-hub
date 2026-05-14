@@ -27,6 +27,56 @@ import {
   type Manifest, type PlaceholderEntry,
 } from "./backup.ts";
 
+/**
+ * REVIEW_8 H5 / Group D3：默认强制把还原写到 `~/.dch-restored/<finalId>/` 下，忽略 manifest
+ * 携带的 configDir_original。
+ *
+ * 攻击模型：恶意 .dchpack 在 manifest.profiles[].configDir_original 写 `/etc/cron.d` /
+ * `~/.ssh` / `~/Library/LaunchAgents/...`，restore 走 `expandHome(mp.configDir_original)` 当
+ * 目标 → addProfile 注册 + tar 解压副本写过去 → 持久化执行 / 凭据替换。
+ *
+ * 修复：
+ * 1. 默认 ALWAYS 用 `~/.dch-restored/<finalId>/` —— 与现有 .dchpack 不向后兼容（review
+ *    之前没有 release）
+ * 2. `--allow-original-path` opt-in 才允许尊重 manifest 的 configDir_original，但**仍**强制
+ *    `validateRestorePath`：必须 HOME 下、不含 `..`、不在敏感黑名单（~/.ssh / ~/.gnupg /
+ *    ~/Library/Application Support / ~/Library/LaunchAgents）
+ */
+const RESTORED_BASE = join(HOME, ".dch-restored");
+const RESTORE_BLACKLIST = [
+  ".ssh",
+  ".gnupg",
+  "Library/LaunchAgents",
+  "Library/LaunchDaemons",
+  "Library/Application Support/com.apple.TCC", // 隐私权限 DB
+];
+
+/**
+ * 校验 path 是否允许写入。返回 null = 允许；返回 string = reject 原因。
+ *
+ * 1. 必须绝对路径（caller 应该已 expandHome 过）
+ * 2. 必须 startsWith HOME（拒 /etc/* /tmp/* /System/* 等）
+ * 3. 不含 `..` 段（防 `~/foo/../../etc` 字符串绕过）
+ * 4. 不能在 RESTORE_BLACKLIST 任何子树下（即便在 HOME 内）
+ */
+export function validateRestorePath(absPath: string): string | null {
+  if (!absPath || !isAbsolute(absPath)) return `路径不是绝对路径: ${absPath}`;
+  // 字符串子串扫描 .. 段（跨 / 与 \ 分隔，覆盖 fs 拼接 corner case）
+  if (absPath.split(/[/\\]/).some((seg) => seg === "..")) {
+    return `路径含 '..' 段: ${absPath}`;
+  }
+  if (!(absPath === HOME || absPath.startsWith(HOME + "/"))) {
+    return `路径不在 HOME 下: ${absPath}`;
+  }
+  const rel = absPath.slice(HOME.length + 1); // strip "HOME/"
+  for (const bad of RESTORE_BLACKLIST) {
+    if (rel === bad || rel.startsWith(bad + "/")) {
+      return `路径在 RESTORE_BLACKLIST 内: ${absPath}（黑名单段: ${bad}）`;
+    }
+  }
+  return null;
+}
+
 export interface ParseBackupResult {
   manifest: Manifest;
   packPath: string;
@@ -71,6 +121,12 @@ export interface ApplyBackupOptions {
   dryRun?: boolean;
   /** shared 文件冲突默认策略：相同 → skip，不同 → backup-then-overwrite */
   sharedConflict?: ConflictAction;
+  /**
+   * REVIEW_8 H5 / D3：opt-in 才允许尊重 manifest.profiles[].configDir_original。默认 false →
+   * 一律落 `~/.dch-restored/<finalId>/`，杜绝恶意 manifest 把还原写到任意路径。
+   * 即使 opt-in 也走 validateRestorePath 二道防线。
+   */
+  allowOriginalPath?: boolean;
 }
 
 export interface AppliedProfile {
@@ -158,15 +214,29 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
     }
 
     const originalDirAbs = expandHome(mp.configDir_original);
-    let finalDirAbs = originalDirAbs;
+    // REVIEW_8 H5 / D3：默认强制 ~/.dch-restored/<finalId>/，忽略 manifest 携带的 path。
+    // opt-in 才用 originalDirAbs，且仍走 validateRestorePath 二道防线（拒非 HOME / .. / 黑名单）。
+    let baseDirAbs: string;
+    if (opts.allowOriginalPath) {
+      const reason = validateRestorePath(originalDirAbs);
+      if (reason !== null) {
+        errors.push(`profile ${mp.id} 的 configDir_original 被拒（${reason}），fallback 到 ~/.dch-restored/${finalId}/`);
+        baseDirAbs = join(RESTORED_BASE, finalId);
+      } else {
+        baseDirAbs = originalDirAbs;
+      }
+    } else {
+      baseDirAbs = join(RESTORED_BASE, finalId);
+    }
+    let finalDirAbs = baseDirAbs;
     let dirConflict = false;
     // dir 撞名时：优先用用户传的 prefix（与 finalId 的后缀语义一致），否则 default suffix
     const dirSuffix = prefix ?? suffix;
-    if (existingDirs.has(normalizePath(originalDirAbs))) {
-      finalDirAbs = `${originalDirAbs}${dirSuffix}`;
+    if (existingDirs.has(normalizePath(baseDirAbs))) {
+      finalDirAbs = `${baseDirAbs}${dirSuffix}`;
       dirConflict = true;
       while (existingDirs.has(normalizePath(finalDirAbs))) {
-        finalDirAbs = `${originalDirAbs}-${tsForFilename()}-${Math.random().toString(36).slice(2, 6)}`;
+        finalDirAbs = `${baseDirAbs}-${tsForFilename()}-${Math.random().toString(36).slice(2, 6)}`;
       }
     }
 
@@ -220,6 +290,16 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
       await addProfile(newProfile);
     } catch (e) {
       errors.push(`addProfile(${finalId}) 失败: ${e instanceof Error ? e.message : String(e)}`);
+      // REVIEW_8 M1 / Group D4：addProfile 失败时回滚刚刚创建的 configDir，避免留 stranded
+      // files 让用户下次 restore 同 id 撞 EEXIST。finalDirAbs 永远是本次新建（前文 existingDirs
+      // 撞名检测 + suffix），rm 安全。回滚自身失败也只 push errors 不阻塞后续 profile。
+      try {
+        await rm(finalDirAbs, { recursive: true, force: true });
+      } catch (rollbackErr) {
+        errors.push(
+          `回滚 ${finalDirAbs} 失败: ${rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)}`,
+        );
+      }
     }
   }
 

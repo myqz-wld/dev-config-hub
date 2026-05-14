@@ -27,7 +27,7 @@ import {
 
 // REVIEW_8 M11 / B6：每个 cmd 显式 allowed flag 集合（防 typo 被吞）。
 const BACKUP_ALLOWED = new Set(["out", "profiles", "no-shared", "no-placeholder", "yes", "keep"]);
-const RESTORE_ALLOWED = new Set(["prefix", "rename", "dry-run", "yes"]);
+const RESTORE_ALLOWED = new Set(["prefix", "rename", "dry-run", "yes", "allow-original-path"]);
 const BACKUP_RM_ALLOWED = new Set(["yes"]);
 const BACKUP_PIN_ALLOWED = new Set(["unpin"]);
 
@@ -93,6 +93,9 @@ export async function cmdRestore(args: string[]): Promise<void> {
 
   const dryRun = flags["dry-run"] === true;
   const prefix = typeof flags.prefix === "string" ? flags.prefix : undefined;
+  // REVIEW_8 H5 / D3：opt-in 才允许尊重 manifest 携带的 configDir_original，否则一律落
+  // ~/.dch-restored/<finalId>/。即使 opt-in 也走 validateRestorePath 二道防线（拒非 HOME / .. / 黑名单）。
+  const allowOriginalPath = flags["allow-original-path"] === true;
   const renameMap: Record<string, string> = {};
   if (typeof flags.rename === "string") {
     for (const pair of flags.rename.split(",")) {
@@ -109,7 +112,7 @@ export async function cmdRestore(args: string[]): Promise<void> {
 
   const parsed = await parseBackup(packFile);
   try {
-    const dryPlan = await applyBackup({ parsed, prefix, renameMap, dryRun: true });
+    const dryPlan = await applyBackup({ parsed, prefix, renameMap, allowOriginalPath, dryRun: true });
 
     if (dryRun) {
       if (isJsonMode()) return jsonOut({ ok: true, dryRun: true, manifest: parsed.manifest, plan: dryPlan });
@@ -117,7 +120,7 @@ export async function cmdRestore(args: string[]): Promise<void> {
       return;
     }
 
-    const result = await applyBackup({ parsed, prefix, renameMap });
+    const result = await applyBackup({ parsed, prefix, renameMap, allowOriginalPath });
     if (isJsonMode()) {
       await jsonOut({ ok: result.errors.length === 0, manifest: parsed.manifest, ...result });
       // REVIEW_8 H6 / B3：applyBackup 把 errors 数组带回但 ok=true 只表示流程没崩；errors.length>0

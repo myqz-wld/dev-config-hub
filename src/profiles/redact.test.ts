@@ -135,10 +135,64 @@ describe("redactByFilename", () => {
     expect(r.placeholders[0]?.fieldName).toBe("CREDENTIALS");
   });
 
-  it("非 JSON / TOML → 不处理", () => {
-    const r = redactByFilename("# CLAUDE.md\n\napi_key: secret", "CLAUDE.md");
+  it("非 JSON / TOML（CLAUDE.md / 脚本）→ 走 redactPlainTextContent regex 替换（REVIEW_8 M2/D5）", () => {
+    // 旧行为：fall-through 原样返回 → 内含 sk-ant-... 的 markdown 备份会泄漏
+    // 新行为：HIGH_CONFIDENCE_PATTERNS 命中 token 替换为 placeholder
+    const r = redactByFilename(
+      "# CLAUDE.md\n\n用我的 key: sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz1234567890",
+      "CLAUDE.md",
+    );
+    expect(r.placeholders.length).toBeGreaterThan(0);
+    expect(r.content).not.toContain("sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz1234567890");
+    expect(r.content).toContain("<<DCH_PLACEHOLDER:ANTHROPIC_API_KEY>>");
+  });
+});
+
+describe("redactPlainTextContent (REVIEW_8 M2/D5)", () => {
+  it("HIGH_CONFIDENCE: sk-ant-... 被替换", () => {
+    const r = redactByFilename(
+      "ANTHROPIC_API_KEY=sk-ant-api03-XYZ12345678901234567890",
+      "hook.sh",
+    );
+    expect(r.content).not.toContain("sk-ant-api03-XYZ");
+    expect(r.placeholders.some((p) => p.fieldName === "ANTHROPIC_API_KEY")).toBe(true);
+  });
+
+  it("HIGH_CONFIDENCE: GitHub PAT (ghp_...) 被替换", () => {
+    const r = redactByFilename(
+      "export GH_TOKEN=ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789",
+      "env.sh",
+    );
+    expect(r.content).not.toContain("ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789");
+    expect(r.placeholders.some((p) => p.fieldName === "GITHUB_PAT")).toBe(true);
+  });
+
+  it("HIGH_CONFIDENCE: AWS Access Key 被替换", () => {
+    const r = redactByFilename("AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE", "env.sh");
+    expect(r.content).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(r.placeholders.some((p) => p.fieldName === "AWS_ACCESS_KEY_ID")).toBe(true);
+  });
+
+  it("KEY_VALUE: SECRET_TOKEN=xxx 被替换", () => {
+    const r = redactByFilename(`SECRET_TOKEN=randomTokenValue123456`, "config.env");
+    expect(r.content).not.toContain("randomTokenValue123456");
+    expect(r.placeholders.some((p) => p.fieldName.includes("SECRET_TOKEN"))).toBe(true);
+  });
+
+  it("HTTP_AUTH: Authorization: Bearer xxx 被替换", () => {
+    const r = redactByFilename(
+      `Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9XXXX`,
+      "request.txt",
+    );
+    expect(r.content).not.toContain("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9XXXX");
+    expect(r.content).toMatch(/Bearer\s*<<DCH_PLACEHOLDER:HTTP_AUTH_TOKEN>>/);
+  });
+
+  it("无敏感内容 → 原样返回 + 空 placeholders", () => {
+    const input = "# CLAUDE.md\n\nThis is plain documentation.";
+    const r = redactByFilename(input, "CLAUDE.md");
+    expect(r.content).toBe(input);
     expect(r.placeholders).toHaveLength(0);
-    expect(r.content).toContain("api_key: secret");
   });
 });
 
