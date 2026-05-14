@@ -78,6 +78,7 @@ export function info(msg: string): void {
 export const VALUE_FLAGS = new Set([
   "dir", "desc", "from", "pre-hook", "post-hook",
   "out", "profiles", "prefix", "rename",
+  "secrets-json",
 ]);
 
 /**
@@ -143,6 +144,69 @@ export async function readStdinLine(): Promise<string> {
     };
     process.stdin.on("data", onData);
     process.stdin.on("end", onEnd);
+  });
+}
+
+/**
+ * stdin 隐藏输入（密码 / secret 用）。返回 string | null：
+ * - **string**：用户按 ENTER 提交（含空字符串 = ENTER 直接跳过该项）
+ * - **null**：用户 Ctrl+C 中止 → caller 应 stop 并走 finally cleanup（不直接 process.exit）
+ *
+ * **非 TTY**（CI / pipe stdin）→ fall back `readStdinLine()`，保证脚本场景也能用。
+ *
+ * 实现要点（plan 风险节第 6 条）：
+ * - `setRawMode(true)` 禁用 echo（用户敲键盘看不到任何字符，不泄露密码长度）
+ * - **try/finally 恢复 raw mode**：onData / onEnd / SIGINT 任一路径都 cleanup
+ * - **SIGINT** 不 process.exit(130)：而是 resolve null，让 caller 仍跑外层 finally（如 cleanupParsed
+ *   清解压临时目录），避免 ctrl+c 导致 tmp dir 残留
+ * - 支持 backspace（^H 0x08 / DEL 0x7f）回退；其他控制字符（< 0x20）忽略
+ * - Ctrl+D（EOF 0x04）视为提交当前累积值（与 readStdinLine 一致）
+ */
+export async function readStdinSecret(): Promise<string | null> {
+  if (!process.stdin.isTTY) {
+    const line = await readStdinLine();
+    return line;
+  }
+  return new Promise<string | null>((resolve) => {
+    let acc = "";
+    let settled = false;
+    const settle = (v: string | null): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      process.stdout.write("\n");
+      resolve(v);
+    };
+    const cleanup = (): void => {
+      try { process.stdin.setRawMode(false); } catch { /* TTY 状态恢复失败，忽略 */ }
+      process.stdin.pause();
+      process.stdin.removeListener("data", onData);
+      process.stdin.removeListener("end", onEnd);
+      process.removeListener("SIGINT", onSig);
+    };
+    const onSig = (): void => settle(null);
+    const onData = (chunk: string): void => {
+      for (const ch of chunk) {
+        const code = ch.charCodeAt(0);
+        if (ch === "\r" || ch === "\n") return settle(acc);
+        if (code === 0x03) return settle(null);          // Ctrl+C
+        if (code === 0x04) return settle(acc);            // Ctrl+D
+        if (code === 0x08 || code === 0x7f) {             // Backspace / DEL
+          if (acc.length > 0) acc = acc.slice(0, -1);
+          continue;
+        }
+        if (code < 0x20) continue;                         // 其他控制字符忽略
+        acc += ch;
+      }
+    };
+    const onEnd = (): void => settle(acc);
+
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", onData);
+    process.stdin.on("end", onEnd);
+    process.on("SIGINT", onSig);
   });
 }
 

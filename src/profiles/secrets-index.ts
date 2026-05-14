@@ -300,6 +300,15 @@ function setLeaf(node: unknown, last: PathSegment, value: string): boolean {
 export interface ApplyFilledSecretsResult {
   /** 实际成功写入的 location 总数（≤ index.total_occurrences） */
   written: number;
+  /**
+   * 成功写入的 location 集合，元素是 `${packPath}|${fieldPath}` 复合 key（同一 packPath 内可能
+   * 多个不同 fieldName 的 placeholder，不能仅靠 packPath dedup —— 否则 caller filter 时会误删
+   * 同文件内未填的其他 placeholder）。Caller（applyBackupWithSecrets）按此复合 key 从原
+   * placeholders[] filter 出「真正仍未填」的占位符，让 ApplyBackupResult.placeholders 反映
+   * fill 后状态而非 stale manifest 数据（Step 4 originally returned only `written: number`；
+   * CHANGELOG_18 fix）。
+   */
+  filledLocations: Set<string>;
   /** secretsMap 没传值的 logical_key 列表（用户主动跳过） */
   skipped: string[];
   /** secretsMap 里有但 index.entries 里没有的 key（warn 不 fail） */
@@ -325,9 +334,10 @@ export async function applyFilledSecrets(
 ): Promise<ApplyFilledSecretsResult> {
   const skipped: string[] = [];
   const errors: string[] = [];
+  const filledLocations = new Set<string>();
 
   // 1. 收集每个 host file 的待写入项；同时累 skipped
-  type Pending = { fieldPath: string; value: string };
+  type Pending = { packPath: string; fieldPath: string; value: string };
   const byHostFile = new Map<string, Pending[]>();
   for (const entry of index.entries) {
     const value = secretsMap[entry.name];
@@ -339,8 +349,8 @@ export async function applyFilledSecrets(
       const hostPath = resolveHostPath(loc.packPath);
       if (!hostPath) continue;
       const list = byHostFile.get(hostPath);
-      if (list) list.push({ fieldPath: loc.fieldPath, value });
-      else byHostFile.set(hostPath, [{ fieldPath: loc.fieldPath, value }]);
+      if (list) list.push({ packPath: loc.packPath, fieldPath: loc.fieldPath, value });
+      else byHostFile.set(hostPath, [{ packPath: loc.packPath, fieldPath: loc.fieldPath, value }]);
     }
   }
 
@@ -351,23 +361,25 @@ export async function applyFilledSecrets(
   // 3. 逐文件 read → parse → set → stringify → write
   let written = 0;
   for (const [hostPath, pendings] of byHostFile) {
-    const fileWritten = await fillSingleFile(hostPath, pendings, errors);
+    const fileWritten = await fillSingleFile(hostPath, pendings, errors, filledLocations);
     written += fileWritten;
   }
 
-  return { written, skipped, unknown, errors };
+  return { written, filledLocations, skipped, unknown, errors };
 }
 
 /**
  * 单文件 fill：read → parse → 多 set → stringify → write。
  *
- * 任何失败（parse / 寻址 / write）都记 errors[] 不抛；返回成功 set 的 fieldPath 数。
- * 当且仅当至少 1 个 set 成功才会写盘（避免只读操作误写）。
+ * 任何失败（parse / 寻址 / write）都记 errors[] 不抛；成功 set 的 `${packPath}|${fieldPath}`
+ * 复合 key 累到 `filledLocations`，返回成功 set 数。当且仅当至少 1 个 set 成功才会写盘
+ * （避免只读操作误写）。
  */
 async function fillSingleFile(
   hostPath: string,
-  pendings: Array<{ fieldPath: string; value: string }>,
+  pendings: Array<{ packPath: string; fieldPath: string; value: string }>,
   errors: string[],
+  filledLocations: Set<string>,
 ): Promise<number> {
   const isJson = hostPath.endsWith(".json");
   const isToml = hostPath.endsWith(".toml");
@@ -393,6 +405,7 @@ async function fillSingleFile(
   }
 
   let okCount = 0;
+  const tentative = new Set<string>();
   for (const p of pendings) {
     let pf: ParsedFieldPath;
     try {
@@ -403,6 +416,7 @@ async function fillSingleFile(
     }
     if (setByFieldPath(parsed, pf.segments, p.value)) {
       okCount++;
+      tentative.add(`${p.packPath}|${p.fieldPath}`);
     } else {
       errors.push(`${hostPath} :: ${p.fieldPath}: 寻址失败（节点缺失 / 类型不符 / 非 string leaf）`);
     }
@@ -428,5 +442,7 @@ async function fillSingleFile(
     errors.push(`${hostPath}: 写入失败: ${e instanceof Error ? e.message : String(e)}`);
     return 0;
   }
+  // write 成功才 commit tentative → filledLocations（避免 stringify/write fail 时虚报已填）
+  for (const key of tentative) filledLocations.add(key);
   return okCount;
 }

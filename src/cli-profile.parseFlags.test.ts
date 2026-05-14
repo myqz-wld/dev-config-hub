@@ -92,19 +92,20 @@ describe("parseFlags (REVIEW_2 PR-1 回归保护)", () => {
     expect(r.envPairs).toEqual([["FOO", ""]]);
   });
 
-  it("VALUE_FLAGS 集合内容固定（9 项：5 个 profile flag + 4 个 backup flag）", () => {
-    expect(VALUE_FLAGS.size).toBe(9);
+  it("VALUE_FLAGS 集合内容固定（10 项：5 个 profile flag + 5 个 backup/restore flag）", () => {
+    expect(VALUE_FLAGS.size).toBe(10);
     // profile add 系列
     expect(VALUE_FLAGS.has("dir")).toBe(true);
     expect(VALUE_FLAGS.has("desc")).toBe(true);
     expect(VALUE_FLAGS.has("from")).toBe(true);
     expect(VALUE_FLAGS.has("pre-hook")).toBe(true);
     expect(VALUE_FLAGS.has("post-hook")).toBe(true);
-    // backup / restore 系列（CHANGELOG_16 + CHANGELOG_17 加入）
+    // backup / restore 系列（CHANGELOG_16 + CHANGELOG_17 + CHANGELOG_18 加入）
     expect(VALUE_FLAGS.has("out")).toBe(true);
     expect(VALUE_FLAGS.has("profiles")).toBe(true);
     expect(VALUE_FLAGS.has("prefix")).toBe(true);
     expect(VALUE_FLAGS.has("rename")).toBe(true);
+    expect(VALUE_FLAGS.has("secrets-json")).toBe(true);
   });
 
   it("VALUE_FLAGS 末尾缺 value → 静默变 boolean true（已知 LOW，REVIEW_2 R1-L5/R2-L1）", () => {
