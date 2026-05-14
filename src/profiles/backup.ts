@@ -228,11 +228,52 @@ async function writeJson(path: string, data: unknown): Promise<void> {
   await Bun.write(path, JSON.stringify(data, null, 2) + "\n");
 }
 
-async function spawnSimple(cmd: string[], cwd?: string): Promise<{ ok: boolean; stderr: string }> {
-  const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
-  const stderr = await new Response(proc.stderr).text();
-  const code = await proc.exited;
-  return { ok: code === 0, stderr };
+/**
+ * Spawn 子进程跑 shell 命令,返回 ok + stderr。
+ *
+ * **REVIEW_9 B-MED-2 / B-claude M2**: footgun 修复。
+ * - 旧实现 stdout=pipe 但**不消费**:当前 5 个 caller(tar / mv / verify)都不出 stdout 不会
+ *   立刻 hang,但未来加任何会出 stdout 的命令(如 `tar -czf - | gzip` 不带 redirect)立刻
+ *   死锁(pipe buffer 64KB 满了 child 阻塞 write,父 wait exited 永远不返)。
+ * - 旧实现无 timeout:tar / mv 卡死(NFS / 磁盘 hang)直接挂父进程不退出。
+ *
+ * 修法:
+ * 1. **stdout 也并发 consume**(空读丢弃),与 stderr 同样走 Response(stream).text() 防止
+ *    pipe buffer 满阻塞 child;
+ * 2. **可选 timeoutMs** + AbortController 超时 kill。caller 显式传 ms,默认 undefined = 不
+ *    设超时(maintain 旧行为防误伤 createBackup tar 100s+ 大档场景)。
+ *
+ * 显式让 stdout="ignore" 可以更便宜(skip pipe 创建)但语义不同,当前 caller 不需要 stdout
+ * 输出,future-proof 走 pipe + drain 而非 ignore — pipe 让 caller 想读时随时改 drain → 留
+ * 接口没掉。
+ */
+async function spawnSimple(
+  cmd: string[],
+  cwd?: string,
+  opts?: { timeoutMs?: number },
+): Promise<{ ok: boolean; stderr: string }> {
+  const ac = opts?.timeoutMs ? new AbortController() : undefined;
+  const proc = Bun.spawn(cmd, {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    ...(ac ? { signal: ac.signal } : {}),
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (ac && opts?.timeoutMs) {
+    timer = setTimeout(() => ac.abort(), opts.timeoutMs);
+  }
+  try {
+    // 并发 drain 两个 pipe 防 buffer 满阻塞 child(stdout 内容丢弃 不消费)
+    const [, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const code = await proc.exited;
+    return { ok: code === 0, stderr };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /** sh single-quote escape：防 spawn ['sh', '-c', cmd] 时含特殊字符的路径被误解析。 */
@@ -252,10 +293,28 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
   if (wanted.length === 0) throw new Error("没有可备份的 profile（store 为空或 --profiles 过滤无匹配）");
 
   // 默认位 vs 历史：见 CreateBackupOptions.keep 注释。outFile 显式传 → 直接用。
-  const outFile = opts.outFile
-    ?? (opts.keep
-      ? join(DCH_DIR, "backups", `dch-backup-${tsForFilename()}.dchpack`)
-      : join(DCH_DIR, "backups", "latest.dchpack"));
+  // **REVIEW_9 B-codex M1**: --keep 同秒两次调用旧实现走同名 `dch-backup-<TS>.dchpack` 第二次
+  // 直接覆盖第一次。修法:fileExists 循环加 -001 / -002 ... 后缀直到空闲名(与 pinBackup 同款
+  // backup-manage.ts:215-225 防撞名);outFile 显式传仍以 caller 为准(CLI / UI 显式覆盖意图明确)。
+  let outFile: string;
+  if (opts.outFile) {
+    outFile = opts.outFile;
+  } else if (opts.keep) {
+    const baseTs = tsForFilename();
+    let candidate = join(DCH_DIR, "backups", `dch-backup-${baseTs}.dchpack`);
+    let suffix = 1;
+    while (await fileExists(candidate)) {
+      candidate = join(DCH_DIR, "backups", `dch-backup-${baseTs}-${String(suffix).padStart(3, "0")}.dchpack`);
+      suffix++;
+      if (suffix > 999) {
+        // 不可能撞到 1000 同秒备份;防御性退出避免无限循环
+        throw new Error(`createBackup: 同秒 ${baseTs} 已有 999+ 个 .dchpack,无法分配空闲文件名`);
+      }
+    }
+    outFile = candidate;
+  } else {
+    outFile = join(DCH_DIR, "backups", "latest.dchpack");
+  }
   await mkdir(dirname(outFile), { recursive: true });
 
   const tmpDir = await mkdtemp(join(tmpdir(), "dch-backup-"));

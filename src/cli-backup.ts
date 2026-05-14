@@ -150,6 +150,16 @@ export async function cmdRestore(args: string[]): Promise<void> {
       return;
     }
 
+    // **REVIEW_9 B-MED-3 / B-claude M3**: 把 dryPlan 决议出的 finalId 沉淀进 renameMap 给真
+    // restore 复用,杜绝 dryRun vs actual 跨秒导致 defaultSuffix() 不同时间戳 → finalDirAbs
+    // 错位(UI「点击编辑文件」链接 404 / JSON-mode caller 拿到的 plan vs result configDir 不
+    // 对齐)。仅沉淀 originalId → finalId,allowOriginalPath 撞 dir 撞 timestamp 的边角 case
+    // 用户自己用 --rename 解决。
+    const sealedRenameMap: Record<string, string> = { ...renameMap };
+    for (const ap of dryPlan.appliedProfiles) {
+      if (!sealedRenameMap[ap.originalId]) sealedRenameMap[ap.originalId] = ap.finalId;
+    }
+
     const idx = parsed.manifest.secrets_index;
     const hasSecretsIndex = !!idx && idx.entries.length > 0;
 
@@ -159,7 +169,7 @@ export async function cmdRestore(args: string[]): Promise<void> {
       if (!hasSecretsIndex) {
         info("备份内无 secrets_index（旧 pack / no-placeholder），--secrets-json 被忽略走普通 restore");
       }
-      const result = await applyBackupWithSecrets({ parsed, prefix, renameMap, allowOriginalPath, secretsMap });
+      const result = await applyBackupWithSecrets({ parsed, prefix, renameMap: sealedRenameMap, allowOriginalPath, secretsMap });
       exitCode = await printRestoreResult(parsed.manifest, result);
       return;
     }
@@ -168,7 +178,7 @@ export async function cmdRestore(args: string[]): Promise<void> {
     if (fillSecrets) {
       if (!hasSecretsIndex) {
         info("备份内无 secrets_index（旧 pack / no-placeholder），--fill-secrets 无意义，走普通 restore");
-        const result = await applyBackup({ parsed, prefix, renameMap, allowOriginalPath });
+        const result = await applyBackup({ parsed, prefix, renameMap: sealedRenameMap, allowOriginalPath });
         exitCode = await printRestoreResult(parsed.manifest, result);
         return;
       }
@@ -177,13 +187,13 @@ export async function cmdRestore(args: string[]): Promise<void> {
         info("已中止（Ctrl+C），未写盘");
         return;
       }
-      const result = await applyBackupWithSecrets({ parsed, prefix, renameMap, allowOriginalPath, secretsMap });
+      const result = await applyBackupWithSecrets({ parsed, prefix, renameMap: sealedRenameMap, allowOriginalPath, secretsMap });
       exitCode = await printRestoreResult(parsed.manifest, result);
       return;
     }
 
     // 分支 C：都不传 → 现状走 applyBackup + 尾部加提示
-    const result = await applyBackup({ parsed, prefix, renameMap, allowOriginalPath });
+    const result = await applyBackup({ parsed, prefix, renameMap: sealedRenameMap, allowOriginalPath });
     exitCode = await printRestoreResult(parsed.manifest, result);
     if (hasSecretsIndex && !isJsonMode()) {
       info(`💡 备份内含 ${idx.total_logical_keys} 个唯一凭据；下次可用 --fill-secrets 交互填入或 --secrets-json <file> 自动化`);
