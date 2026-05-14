@@ -9,6 +9,9 @@ import { RestoreSecretsBody, computeSecretsButton, type SecretsState } from "./R
 import {
   CloseConfirm, RestorePreviewBody, RestoreReportBody,
 } from "./restore-modal-bodies.tsx";
+import {
+  decideAttemptClose, countFilledSecrets, nextSecretsStateAfterIPC,
+} from "./restore-modal-helpers.ts";
 
 /**
  * 导入备份 modal：3-4 步流程（CHANGELOG_18 / Step 7）
@@ -71,17 +74,20 @@ export function RestoreBackupModal({
    *
    * 调用方：modal-backdrop / 右上角 ✕ / footer 取消按钮 三处统一走。
    * busy 中也调用（footer 已 disabled，但 backdrop / X 仍可触发 — 由 attemptClose 内拦截）。
+   *
+   * **REVIEW_9 G12 / D-MED-3**: 决策逻辑抽 `decideAttemptClose` pure helper 给 invariant test
+   * 覆盖(busy / secrets phase + filled / phase mismatch 各分支)。component handler 仅做
+   * filledCount 计算 + 按决策结果 dispatch (setConfirmClose / onClose)。
    */
   const attemptClose = () => {
-    if (busy) return; // busy 中拒绝任何关闭路径，防 setState on unmounted（D-codex M4 同根）
-    if (phase === "secrets" && hasSecrets) {
-      const filledCount = secretEntries!
-        .filter((e) => !secretsState.skipMap[e.name] && (secretsState.secretsMap[e.name] ?? "").length > 0)
-        .length;
-      if (filledCount > 0) {
-        setConfirmClose(true);
-        return;
-      }
+    const filledCount = hasSecrets
+      ? countFilledSecrets(secretEntries!, secretsState)
+      : 0;
+    const decision = decideAttemptClose({ busy, phase, hasSecrets, filledCount });
+    if (decision === "noop") return;
+    if (decision === "confirm") {
+      setConfirmClose(true);
+      return;
     }
     onClose();
   };
@@ -105,7 +111,7 @@ export function RestoreBackupModal({
       const entries = r.manifest.secrets_index?.entries;
       setSecretEntries(entries && entries.length > 0 ? entries : null);
       // 重置 secretsState（避免重 preview 时残留旧值）
-      setSecretsState({ secretsMap: {}, skipMap: {} });
+      setSecretsState(nextSecretsStateAfterIPC());
       setPhase("rename");
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
@@ -134,7 +140,7 @@ export function RestoreBackupModal({
     setPreview(null);
     setRenameMap({});
     setSecretEntries(null);
-    setSecretsState({ secretsMap: {}, skipMap: {} });
+    setSecretsState(nextSecretsStateAfterIPC());
     setPhase("rename");
     autoPreviewedRef.current = false;
   };
@@ -195,7 +201,7 @@ export function RestoreBackupModal({
           const v = secretsState.secretsMap[e.name];
           if (v && v.length > 0) filledMap[e.name] = v;
         }
-        setSecretsState({ secretsMap: {}, skipMap: {} });
+        setSecretsState(nextSecretsStateAfterIPC());
         const r = await dchProfile.restoreApplyWithSecrets(packPath.trim(), {
           renameMap,
           secretsMap: filledMap,
@@ -221,7 +227,7 @@ export function RestoreBackupModal({
     } finally {
       setBusy(false);
       // REVIEW_9 D-MED-1: 兜底再清一次 secretsState（任何分支 failed/success/partial 都到这里）
-      setSecretsState({ secretsMap: {}, skipMap: {} });
+      setSecretsState(nextSecretsStateAfterIPC());
     }
   };
 
@@ -258,7 +264,7 @@ export function RestoreBackupModal({
               onCancel={() => setConfirmClose(false)}
               onConfirm={() => {
                 // 用户确认放弃 → 立即清 secretsState 再关 modal（防关闭过渡帧 React DevTools 还能看到）
-                setSecretsState({ secretsMap: {}, skipMap: {} });
+                setSecretsState(nextSecretsStateAfterIPC());
                 setConfirmClose(false);
                 onClose();
               }}

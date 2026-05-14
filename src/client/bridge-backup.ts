@@ -89,8 +89,11 @@ function humanizeTimeout(ms: number): string {
  * 前显式验证两个 array 完整,失败走 plain Error 含描述信息。
  *
  * **REVIEW_9 D-LOW-4**: timeout 错误信息走 humanizeTimeout helper。
+ *
+ * **REVIEW_9 G12 / D-MED-3**: export 给 invariant test 用 (bridge-backup.invariants.test.ts);
+ * 非 test caller 仍用 restoreApply / restoreApplyWithSecrets 包装函数,不直接调本 helper。
  */
-function consumeRestoreResult<R extends ApplyBackupResult | ApplyBackupWithSecretsResult>(
+export function consumeRestoreResult<R extends ApplyBackupResult | ApplyBackupWithSecretsResult>(
   r: DchCommandResult,
   timeoutLabel: string,
 ): { manifest: Manifest } & R {
@@ -181,8 +184,11 @@ export type RestoreApplyWithSecretsResponse = {
  * REVIEW_9 D-MED-6 (D-claude MED 3): restoreApply / restoreApplyWithSecrets args 构造
  * 完全重复（prefix / allow-original-path / rename map flatten 三段），抽 helper 单点维护
  * 避免一处加新 flag 另一处忘加。
+ *
+ * **REVIEW_9 G12 / D-MED-3**: export 给 invariant test 用,验证 prefix / allowOriginalPath /
+ * renameMap empty / renameMap multi-key 各组合下 args 顺序与内容正确。
  */
-function buildRestoreArgs(packFile: string, opts: RestoreApplyOpts): string[] {
+export function buildRestoreArgs(packFile: string, opts: RestoreApplyOpts): string[] {
   const args: string[] = ["profile", "restore", packFile, "--yes", "--json"];
   if (opts.prefix) args.push("--prefix", opts.prefix);
   if (opts.allowOriginalPath) args.push("--allow-original-path");
