@@ -19,6 +19,7 @@
 
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { rename, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import type { SecretsIndex } from "./secrets-index.ts";
 
 // ─── fieldPath 寻址类型 ───────────────────────────────────────
@@ -36,6 +37,11 @@ export interface ParsedFieldPath {
 /**
  * 解析 fieldPath 字符串：
  * - **JSON 形式**：`$.a.b[0].c` / `$.env.OPENAI_API_KEY` / `$.placeholder`
+ * - **JSON 根数组形式**：`$[0]...` / `$[0].name`（**REVIEW_9 A-MED-1 [NEW REGRESSION
+ *   post-G1/G6]**: walkAndRedact 对 `JSON.parse("[...]")` 根数组生成 `$[0]...` fieldPath,旧
+ *   parseFieldPath 只识别 `$.` 与单 `$` 不识别 `$[` → setByFieldPath 始终 false → 真凭据放在
+ *   JSON 根数组里 fan-out fill 失败 silent 漏写。新版 `$[` 进 JSON 模式直接交给 tokenizer 解
+ *   bracket 段)
  * - **TOML 形式**：`a.b.c` / `a.b[0].c`（**REVIEW_9 A-HIGH-1**: 也识别 `key[i]` 段——TOML
  *   array-of-tables 备份后 fieldPath 含 `[i]` 但旧 parseDotPath 只 `s.split(".")` 拆,导致
  *   secrets-fill 寻址失败,真凭据无法回填到 array-of-tables。新版与 parseJsonPath 共享
@@ -53,6 +59,10 @@ export function parseFieldPath(fp: string): ParsedFieldPath {
   if (fp.startsWith("$.")) {
     return { kind: "json", segments: parsePathTokens(fp.slice(2)) };
   }
+  if (fp.startsWith("$[")) {
+    // **REVIEW_9 A-MED-1**: JSON 根数组,从 `$` 后开始 tokenize 让 bracket parser 处理 `[i]` 段
+    return { kind: "json", segments: parsePathTokens(fp.slice(1)) };
+  }
   if (fp === "$") {
     return { kind: "json", segments: [] };
   }
@@ -67,7 +77,9 @@ export function parseFieldPath(fp: string): ParsedFieldPath {
  * - bracket 段: `a[0].b` / `a[0][1]` → key + index 混排
  * - escape 段: `a\.b.c` → key=`a.b` + key=`c`(`\.` 表字面 `.`,`\[` `\]` `\\` 同理)
  *
- * 不支持: 其他正则字符;空 key;非整数 index。
+ * 不支持: 其他正则字符;**REVIEW_9 A-INFO-1**: 空 key (`a..b` / `.a` / `a.`) 视为契约破坏抛
+ * Error,旧实现静默吞空 segment(`a..b` 拆成 `["a","b"]` 而非报错)→ 用户编辑 manifest typo
+ * 时拼出错误的 dedup group key 静默错填;非整数 index。
  */
 function parsePathTokens(s: string): PathSegment[] {
   if (!s) return [];
@@ -100,7 +112,8 @@ function parsePathTokens(s: string): PathSegment[] {
       buf += ch;
       i++;
     }
-    if (buf) segs.push({ type: "key", key: buf });
+    if (!buf) throw new Error(`empty key segment in fieldPath: ${s}`);
+    segs.push({ type: "key", key: buf });
     if (s[i] === ".") i++;
   }
   return segs;
@@ -300,7 +313,10 @@ async function fillSingleFile(
   // **REVIEW_9 A-claude M2**: 原子写。旧实现 `Bun.write(hostPath, out)` 半写时会留破坏后的
   // 配置(JSON / TOML 解析失败让 Claude / codex 启动崩溃)。三步原子:写 tmp → mv → rename。
   // 同 fs 内 mv = rename(2) 原子,半写时 hostPath 仍指向上次内容。
-  const tmpPath = `${hostPath}.dch-fill-tmp-${process.pid}`;
+  // **REVIEW_9 A-MED-2**: tmpPath suffix 加 8 字符 UUID 防进程内并发 race。旧实现仅 `process.pid`,
+  // 同进程并发 2 个 fillSingleFile 撞同一 hostPath(典型: 用户连续点击 fill 触发两轮)时
+  // tmpPath 相同 → 后写覆盖前写 tmp 内容,rename 时把别人正在写的脏数据落盘。
+  const tmpPath = `${hostPath}.dch-fill-tmp-${process.pid}-${randomUUID().slice(0, 8)}`;
   try {
     await Bun.write(tmpPath, out);
   } catch (e) {

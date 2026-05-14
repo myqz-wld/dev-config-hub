@@ -704,3 +704,60 @@ describe("REVIEW_9 e2e round-trip: walkAndRedact escape → parseFieldPath → s
     expect(data.config["weird[name"]).toBe("new-value");
   });
 });
+
+describe("REVIEW_9 A-MED-1: parseFieldPath 识别 JSON 根数组 `$[i]...`", () => {
+  it("`$[0]` 单独 → JSON 模式 + index 段", () => {
+    const r = parseFieldPath("$[0]");
+    expect(r.kind).toBe("json");
+    expect(r.segments).toEqual([{ type: "index", index: 0 }]);
+  });
+
+  it("`$[0].name` → JSON 模式 + index + key 混排", () => {
+    const r = parseFieldPath("$[0].name");
+    expect(r.kind).toBe("json");
+    expect(r.segments).toEqual([
+      { type: "index", index: 0 },
+      { type: "key", key: "name" },
+    ]);
+  });
+
+  it("`$[0].api_key` setByFieldPath 能命中 JSON 根数组里的 sensitive 字段", () => {
+    const data = [{ name: "alpha", api_key: "<<DCH_PLACEHOLDER:api_key>>" }];
+    const pf = parseFieldPath("$[0].api_key");
+    expect(setByFieldPath(data, pf.segments, "real-key-A")).toBe(true);
+    expect(data[0]!.api_key).toBe("real-key-A");
+  });
+
+  it("`$[1][0].token` 嵌套数组 → 双 index + key 段", () => {
+    const r = parseFieldPath("$[1][0].token");
+    expect(r.kind).toBe("json");
+    expect(r.segments).toEqual([
+      { type: "index", index: 1 },
+      { type: "index", index: 0 },
+      { type: "key", key: "token" },
+    ]);
+  });
+});
+
+describe("REVIEW_9 A-INFO-1: parsePathTokens 空 segment 抛 Error 而非静默吞", () => {
+  it("`$.a..b` 中段空 → throw", () => {
+    expect(() => parseFieldPath("$.a..b")).toThrow(/empty key segment/);
+  });
+
+  it("`$..a` leading 空 → throw", () => {
+    expect(() => parseFieldPath("$..a")).toThrow(/empty key segment/);
+  });
+
+  it("`a..b` TOML 形式中段空 → throw", () => {
+    expect(() => parseFieldPath("a..b")).toThrow(/empty key segment/);
+  });
+
+  it("`a.b.` trailing `.` 不报错(尾部点不产生空段,接受 typo)", () => {
+    // tokenizer 在最后一个 `.` 时 i++ 后退出循环,不进入 buf 收集 → 不抛
+    const r = parseFieldPath("a.b.");
+    expect(r.segments).toEqual([
+      { type: "key", key: "a" },
+      { type: "key", key: "b" },
+    ]);
+  });
+});

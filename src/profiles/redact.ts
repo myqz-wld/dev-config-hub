@@ -87,14 +87,45 @@ function escapeKey(k: string): string {
 }
 
 /**
+ * **REVIEW_9 A-HIGH-1**: 中性 key 配 token-shape value 的兜底检测。即使 key 名不在
+ * SENSITIVE_KEYS（如 `{value: "sk-ant-..."}` / `{config: {secret: "ghp_..."}}`），只要 value
+ * 字符串命中 HIGH_CONFIDENCE_PATTERNS 任一 → 仍换 placeholder + 记 hit（fieldName 用 pattern
+ * 名而非原 key 名,让 fan-out 时能落到正确 logical key）。
+ *
+ * 注意 HIGH_CONFIDENCE_PATTERNS 用 `/g` flag 有 lastIndex 状态，每次复用前必须 reset；这里改
+ * `re.test()` 形式（不 reset 会让连续多次调用结果不稳）。
+ */
+function detectTokenShape(value: string): string | undefined {
+  for (const { name, re } of HIGH_CONFIDENCE_PATTERNS) {
+    re.lastIndex = 0;
+    if (re.test(value)) return name;
+  }
+  return undefined;
+}
+
+/**
  * 递归遍历对象 / 数组，命中 sensitive key 的 string value 替换为 placeholder。
  * 数字 / 布尔 / null / 嵌套对象 value 不动（敏感字段实际都是字符串 token）。
+ *
+ * **REVIEW_9 A-HIGH-3**: TOML Date 是 `typeof === "object"` 但不是 plain object（smol-toml
+ * 把 `created_at = 2024-01-01T00:00:00Z` parse 成 Date 实例）。旧实现走 `Object.entries(date)`
+ * 拿空 entries 把 Date 改写成空 `{}` 损坏数据。入口 short-circuit return 原值。
+ *
+ * **REVIEW_9 A-HIGH-2**: sensitive key + array value 时旧实现走 walkAndRedact array 分支但 array
+ * 内 string element 没 key context（fieldPath = `$.tokens[i]` 但 isSensitiveKey 在 array
+ * 元素层判 index 不判 parent key）→ 真凭据 array `{tokens: ["sk-real-1", ...]}` 漏脱敏直接进
+ * dchpack。新版加 `Array.isArray(v) && isSensitiveKey(k)` 分支,遍历 array 把所有 string item
+ * 换 placeholder（fieldPath 拼 `[i]`，fieldName 复用 parent key 让 fan-out 时同一 logical key
+ * 对应一组 array 槽位）。
+ *
+ * **REVIEW_9 A-HIGH-1**: 中性 key 配 token-shape value 走 detectTokenShape 兜底（详该函数注释）。
  */
 function walkAndRedact(
   node: unknown,
   pathPrefix: string,
   hits: PlaceholderHit[],
 ): unknown {
+  if (node instanceof Date) return node;
   if (Array.isArray(node)) {
     return node.map((item, i) => walkAndRedact(item, `${pathPrefix}[${i}]`, hits));
   }
@@ -103,9 +134,25 @@ function walkAndRedact(
     for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
       const escapedK = escapeKey(k);
       const fieldPath = pathPrefix ? `${pathPrefix}.${escapedK}` : escapedK;
-      if (typeof v === "string" && isSensitiveKey(k)) {
+      if (Array.isArray(v) && isSensitiveKey(k)) {
+        out[k] = v.map((item, i) => {
+          if (typeof item === "string") {
+            hits.push({ fieldPath: `${fieldPath}[${i}]`, fieldName: k, valueHash: shortHash(item) });
+            return makePlaceholder(k);
+          }
+          return walkAndRedact(item, `${fieldPath}[${i}]`, hits);
+        });
+      } else if (typeof v === "string" && isSensitiveKey(k)) {
         hits.push({ fieldPath, fieldName: k, valueHash: shortHash(v) });
         out[k] = makePlaceholder(k);
+      } else if (typeof v === "string") {
+        const tokenName = detectTokenShape(v);
+        if (tokenName) {
+          hits.push({ fieldPath, fieldName: tokenName, valueHash: shortHash(v) });
+          out[k] = makePlaceholder(tokenName);
+        } else {
+          out[k] = v;
+        }
       } else {
         out[k] = walkAndRedact(v, fieldPath, hits);
       }
@@ -276,22 +323,24 @@ const HIGH_CONFIDENCE_PATTERNS: Array<{ name: string; re: RegExp }> = [
 // KEY = VALUE / KEY: VALUE / export KEY=VALUE
 // 仅当 KEY 含敏感词（api_key / token / secret / password / bearer 等）才命中。
 //
-// **REVIEW_9 A-HIGH-4 + A-claude M1**: 重写。
-// 旧 regex `[A-Za-z0-9_+./=-]{16,}` 字符集过窄,漏 `:` (Slack webhook url) /
-// `password!@#$` (含 shell special) / `tok:abc...` 类组合,且 callback 一律重建为
-// `KEY=value` 损坏 YAML (`api_key: "x"` → `api_key=<<placeholder>>`)、丢引号 (强 lint
-// 工具报错)、丢空白对齐。
+// **REVIEW_9 A-HIGH-4 + A-claude M1**: 重写 unquoted 分支 charset。
+// 旧 unquoted `[^\s"'\n][^\s\n\r]{7,}` 只排除空白 / 换行 / 引号,会贪婪吞行内分隔符
+// `,;|&` → 跨字段污染:`API_KEY=secret123,name=foo` value 被匹配成 `secret123,name=foo`
+// 整段,replace callback 拼回去把 `name=foo` 一起换成 placeholder 一部分,数据 silent 破坏。
 //
-// 新设计:三组捕获 quote 区分(双引号 / 单引号 / 无引号)+ callback 拼回原 layout。
-//   - 双引号: `KEY <sep> "value..."`  → 重建保留 `"`
-//   - 单引号: `KEY <sep> 'value...'`  → 重建保留 `'`
-//   - 无引号: `KEY <sep> value...`    → value 截到行尾下一个空白(允许任意 char 含 `:` `!@#$`)
-// 分隔符 `<sep>` (`=` 或 `:` + 周围空白) + 引号都被 callback 原样拼回,YAML / properties / TS
-// 等 syntax 不破坏。value 长度 ≥ 8(避免 `key=v` 短设置误命中)。
+// 新设计四组捕获(双引号 / 单引号 / URL 整段 / 普通 token):
+//   - 双引号: `KEY <sep> "value..."`        → 重建保留 `"`
+//   - 单引号: `KEY <sep> 'value...'`        → 重建保留 `'`
+//   - URL 优先: `KEY <sep> https?://...`    → 整段 URL 都属 secret(query 里 ?token=xxx 也算)
+//                                              charset `[^\s\n\r]+` 不截 `&` 让 query 完整
+//   - 无引号 token: `KEY <sep> value...`    → charset `[^\s,;|&"'\n\r]{8,}` 不吞 `,;|&` 等
+//                                              行内分隔符,边界处自然停止
+// 分隔符 `<sep>` (`=` 或 `:` + 周围空白) + 引号都被 callback 原样拼回,YAML / properties /
+// TS / shell 等 syntax 不破坏。value 长度 ≥ 8(避免 `key=v` 短设置误命中)。
 const KEY_VALUE_PATTERNS: Array<{ name: string; re: RegExp }> = [
   {
     name: "GENERIC_KEY_VALUE",
-    re: /\b((?:[A-Za-z][A-Za-z0-9_]*_)?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PASSWD|BEARER|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|AUTH))(\s*[:=]\s*)(?:"([^"\n]{8,})"|'([^'\n]{8,})'|([^\s"'\n][^\s\n\r]{7,}))/gi,
+    re: /\b((?:[A-Za-z][A-Za-z0-9_]*_)?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PASSWD|BEARER|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|AUTH))(\s*[:=]\s*)(?:"([^"\n]{8,})"|'([^'\n]{8,})'|(https?:\/\/[^\s\n\r]+)|([^\s,;|&"'\n\r]{8,}))/gi,
   },
 ];
 
@@ -318,7 +367,8 @@ export function redactPlainTextContent(content: string): RedactResult {
   }
 
   // 2. KEY_VALUE: 保留 key + 分隔符 + 引号(原样拼回 不损坏 YAML / properties / TS),
-  //    仅替换 value 部分。**REVIEW_9 A-HIGH-4 + A-claude M1**: callback 重写。
+  //    仅替换 value 部分。**REVIEW_9 A-HIGH-4 + A-claude M1**: callback 重写,新增 URL
+  //    分支(integral capture group #4)优先匹配整段 https?:// URL,unquoted token 移到 #5。
   for (const { re } of KEY_VALUE_PATTERNS) {
     out = out.replace(re, (
       _m: string,
@@ -326,9 +376,10 @@ export function redactPlainTextContent(content: string): RedactResult {
       sep: string,
       doubleQuoted: string | undefined,
       singleQuoted: string | undefined,
+      url: string | undefined,
       unquoted: string | undefined,
     ) => {
-      const value = doubleQuoted ?? singleQuoted ?? unquoted ?? "";
+      const value = doubleQuoted ?? singleQuoted ?? url ?? unquoted ?? "";
       if (!value) return _m;
       // **REVIEW_9 A-HIGH-4 防御**: value 已是 placeholder 形式(HIGH_CONFIDENCE 阶段刚换)
       // 时跳过 — 否则会用 KEY_VALUE 通用名(如 `API_KEY`)覆盖 HIGH_CONFIDENCE 精准名

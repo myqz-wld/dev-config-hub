@@ -430,3 +430,136 @@ describe("REVIEW_9 A-codex M2: walkAndRedact 对含特殊字符 key escape 让 f
     expect(r.placeholders[0]!.fieldPath).toBe("$.outer.v1\\.secret");
   });
 });
+
+describe("REVIEW_9 A-HIGH-1: 中性 key 配 token-shape value 兜底脱敏", () => {
+  it("中性 key `value` 配 sk-ant-... 长度 token → 命中 ANTHROPIC_API_KEY", () => {
+    const r = redactJsonContent(JSON.stringify({ value: "sk-ant-abcdefghijklmnopqrstuvwxyz0123456789" }));
+    const obj = JSON.parse(r.content);
+    expect(obj.value).toBe(makePlaceholder("ANTHROPIC_API_KEY"));
+    expect(r.placeholders).toHaveLength(1);
+    expect(r.placeholders[0]!.fieldName).toBe("ANTHROPIC_API_KEY");
+  });
+
+  it("中性 key `config` 嵌套含 ghp_ token → 命中 GITHUB_PAT", () => {
+    const r = redactJsonContent(JSON.stringify({
+      config: { meta: "ghp_abcdefghijklmnopqrstuvwxyz0123456789AB" },
+    }));
+    const obj = JSON.parse(r.content);
+    expect(obj.config.meta).toBe(makePlaceholder("GITHUB_PAT"));
+  });
+
+  it("中性 key 配普通字符串 → 不脱敏", () => {
+    const r = redactJsonContent(JSON.stringify({ name: "production", model: "opus" }));
+    expect(r.placeholders).toHaveLength(0);
+  });
+});
+
+describe("REVIEW_9 A-HIGH-2: sensitive key + array value → 遍历 array 把 string item 换 placeholder", () => {
+  it("`tokens: [...]` 数组里 string 元素逐一换 placeholder 拼 fieldPath `[i]`", () => {
+    const r = redactJsonContent(JSON.stringify({
+      tokens: ["sk-real-1-aaaaaaaaa", "sk-real-2-bbbbbbbbb", "sk-real-3-ccccccccc"],
+    }));
+    const obj = JSON.parse(r.content);
+    expect(obj.tokens).toEqual([
+      makePlaceholder("tokens"),
+      makePlaceholder("tokens"),
+      makePlaceholder("tokens"),
+    ]);
+    expect(r.placeholders).toHaveLength(3);
+    expect(r.placeholders[0]!.fieldPath).toBe("$.tokens[0]");
+    expect(r.placeholders[1]!.fieldPath).toBe("$.tokens[1]");
+    expect(r.placeholders[2]!.fieldPath).toBe("$.tokens[2]");
+    expect(r.placeholders.every((p) => p.fieldName === "tokens")).toBe(true);
+  });
+
+  it("array 嵌入 object 时 object 走常规 walkAndRedact 不串扰", () => {
+    const r = redactJsonContent(JSON.stringify({
+      secrets: ["plain-string-token-1", { not_sensitive: "hello" }, "plain-string-token-2"],
+    }));
+    const obj = JSON.parse(r.content);
+    expect(obj.secrets[0]).toBe(makePlaceholder("secrets"));
+    expect(obj.secrets[1]).toEqual({ not_sensitive: "hello" });
+    expect(obj.secrets[2]).toBe(makePlaceholder("secrets"));
+  });
+
+  it("非 sensitive key + array 不脱敏(避免假阳)", () => {
+    const r = redactJsonContent(JSON.stringify({
+      models: ["opus", "sonnet", "haiku"],
+    }));
+    expect(r.placeholders).toHaveLength(0);
+  });
+});
+
+describe("REVIEW_9 A-HIGH-3: walkAndRedact TOML Date short-circuit 不损坏", () => {
+  it("TOML Date 字段不被 Object.entries 改写成空 table", () => {
+    const toml = [
+      "created_at = 2024-01-01T00:00:00Z",
+      "name = \"prod\"",
+      "[server]",
+      "api_key = \"sk-real-toml\"",
+    ].join("\n");
+    const r = redactTomlContent(toml);
+    // Date 字段保留为 ISO datetime,不被改写
+    expect(r.content).toContain("2024-01-01");
+    // 敏感 key 仍正确脱敏
+    expect(r.content).toContain(makePlaceholder("api_key"));
+    expect(r.placeholders).toHaveLength(1);
+  });
+
+  it("嵌套 [section] 内 Date + sensitive 同时正确处理", () => {
+    const toml = [
+      "[meta]",
+      "updated = 2024-06-15T12:00:00Z",
+      "token = \"sk-real-nested\"",
+    ].join("\n");
+    const r = redactTomlContent(toml);
+    expect(r.content).toContain("2024-06-15");
+    expect(r.content).toContain(makePlaceholder("token"));
+  });
+});
+
+describe("REVIEW_9 A-HIGH-4: KEY_VALUE charset 不吞行内分隔符 + URL 整段优先", () => {
+  it("`API_KEY=secret123,name=foo` value 不吞 `,name=foo` 跨字段(unquoted 分支)", () => {
+    const text = "API_KEY=secret-token-12345,name=foo";
+    const r = redactByFilename(text, "config.env");
+    // 原 charset bug 会让 value 匹配成 "secret-token-12345,name=foo" 整段
+    // 新 charset 在 `,` 处自然停止,只换 secret 部分,保留 `,name=foo`
+    expect(r.content).toContain("name=foo");
+    expect(r.content).toContain(makePlaceholder("API_KEY"));
+  });
+
+  it("管道 `|` 不被吞", () => {
+    const text = "TOKEN=abc12345defghi|piped_command";
+    const r = redactByFilename(text, "script.sh");
+    expect(r.content).toContain("|piped_command");
+    expect(r.content).toContain(makePlaceholder("TOKEN"));
+  });
+
+  it("分号 `;` 不被吞(shell 命令分隔)", () => {
+    const text = "SECRET=abcdefghijklm;echo done";
+    const r = redactByFilename(text, "script.sh");
+    expect(r.content).toContain(";echo done");
+    expect(r.content).toContain(makePlaceholder("SECRET"));
+  });
+
+  it("URL 整段(含 query 内 `&`)优先匹配", () => {
+    // 用命中 sensitive key 列表的 key (TOKEN/AUTH 等) 才走 KEY_VALUE 分支
+    const text = `BEARER_TOKEN=https://hooks.slack.com/services/T0/B0/abcdefghijk?token=xyz&channel=ops`;
+    const r = redactByFilename(text, "config.env");
+    // URL 应整段被换(query 内 `&` 不截断)
+    expect(r.content).not.toContain("hooks.slack.com");
+    expect(r.content).not.toContain("&channel=ops");
+    expect(r.content).toContain(makePlaceholder("BEARER_TOKEN"));
+  });
+
+  it("双引号 / 单引号包裹的 value 仍按引号边界 callback 拼回", () => {
+    const yaml1 = `api_key: "sk-quoted-secret-1234"`;
+    const r1 = redactByFilename(yaml1, "config.yaml");
+    // 引号保留,key/sep 不破坏
+    expect(r1.content).toMatch(/api_key: "<<DCH_PLACEHOLDER:API_KEY>>"/);
+
+    const yaml2 = `api_key: 'sk-quoted-secret-5678'`;
+    const r2 = redactByFilename(yaml2, "config.yaml");
+    expect(r2.content).toMatch(/api_key: '<<DCH_PLACEHOLDER:API_KEY>>'/);
+  });
+});
