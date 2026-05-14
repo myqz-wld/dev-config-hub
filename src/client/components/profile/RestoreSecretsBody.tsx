@@ -100,9 +100,24 @@ function SecretEntryRow({
 
   return (
     <div className="form-row form-row-block" style={{ borderTop: "1px solid #eee", paddingTop: 8 }}>
-      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <code style={{ fontSize: 13 }}>{entry.name}</code>
         <span className="profile-desc">{entry.count} 处 · {entry.hint}</span>
+        {entry.fieldNames && entry.fieldNames.length > 1 && (
+          <span
+            title={`同一 secret 在 ${entry.fieldNames.length} 个不同字段名下出现：${entry.fieldNames.join(" / ")}`}
+            style={{
+              fontSize: 11,
+              padding: "1px 6px",
+              borderRadius: 8,
+              background: "#fef3c7",
+              color: "#78350f",
+              border: "1px solid #fbbf24",
+            }}
+          >
+            ⚡ 跨 {entry.fieldNames.length} 字段名
+          </span>
+        )}
       </label>
 
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
