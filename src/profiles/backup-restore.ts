@@ -355,8 +355,17 @@ export async function applyBackupWithSecrets(
     baseResult.errors.push(`secrets-fill: ${e}`);
   }
 
+  // 让 placeholders[] 反映 fill 后状态：filter 掉真正成功写入的 location（按
+  // `${packPath}|${fieldPath}` 复合 key 匹配，因为同 packPath 内可能多个 fieldName 的 placeholder），
+  // 剩下的就是「仍待手填」的（含 _meta.json env 段、用户跳过的 logical key、写盘失败的 location）。
+  // 不动则 caller 看到的 result.placeholders 是 stale manifest 数据，统计与显示都失真。
+  const remainingPlaceholders = baseResult.placeholders.filter(
+    (ph) => !fillResult.filledLocations.has(`${ph.packPath}|${ph.fieldPath}`),
+  );
+
   return {
     ...baseResult,
+    placeholders: remainingPlaceholders,
     secretsApplied: fillResult.written,
     secretsSkipped: fillResult.skipped,
     secretsUnknown: fillResult.unknown,
