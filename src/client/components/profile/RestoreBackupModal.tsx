@@ -210,7 +210,7 @@ export function RestoreBackupModal({
                 renameError={renameError}
                 onUpdate={updateName}
                 busy={busy}
-                hasSecretsHint={hasSecrets ? secretEntries!.length : 0}
+                secretEntries={secretEntries}
               />
             ) : (
               <RestoreSecretsBody
@@ -266,7 +266,7 @@ export function RestoreBackupModal({
 }
 
 function RestorePreviewBody({
-  manifest, plan, renameMap, renameError, onUpdate, busy, hasSecretsHint,
+  manifest, plan, renameMap, renameError, onUpdate, busy, secretEntries,
 }: {
   manifest: Manifest;
   plan: ApplyBackupResult;
@@ -274,9 +274,11 @@ function RestorePreviewBody({
   renameError: (originalId: string, finalId: string) => string | null;
   onUpdate: (originalId: string, newId: string) => void;
   busy: boolean;
-  /** > 0 时在头部加 banner 预告 step 3 要填几个 secret */
-  hasSecretsHint: number;
+  /** null = 旧 pack / no-placeholder，跳过 step 3；非 null = 显示完整清单预告 */
+  secretEntries: SecretLogicalEntry[] | null;
 }) {
+  const hasSecrets = secretEntries !== null && secretEntries.length > 0;
+  const totalOcc = hasSecrets ? secretEntries!.reduce((s, e) => s + e.count, 0) : 0;
   return (
     <>
       <div className="form-row">
@@ -290,20 +292,34 @@ function RestorePreviewBody({
           </p>
         </div>
       )}
-      {hasSecretsHint > 0 && (
+      {hasSecrets && (
         <div className="form-row form-row-block">
-          <p
-            className="form-hint"
+          <div
             style={{
-              padding: "6px 10px",
+              padding: "8px 12px",
               background: "#dbeafe",
               color: "#1e3a8a",
               borderLeft: "3px solid #3b82f6",
               borderRadius: 2,
             }}
           >
-            🔑 改名确认后下一步将提示填写 {hasSecretsHint} 个去重 secret（自动 fan-out 到所有出现位置）
-          </p>
+            <p className="form-hint" style={{ margin: 0, color: "#1e3a8a" }}>
+              🔑 改名确认后下一步将填写 <strong>{secretEntries!.length}</strong> 个去重 secret（自动 fan-out 到所有 {totalOcc} 处出现位置）
+            </p>
+            <details open style={{ marginTop: 6 }}>
+              <summary className="form-hint" style={{ cursor: "pointer", color: "#1e3a8a" }}>
+                清单（{secretEntries!.length} 个 logical key，按字段名排序）
+              </summary>
+              <div style={{ marginTop: 6, paddingLeft: 12, borderLeft: "2px solid #93c5fd" }}>
+                {secretEntries!.map((e) => (
+                  <p key={e.name} className="form-hint" style={{ margin: "4px 0", color: "#1e3a8a" }}>
+                    <code>{e.name}</code>
+                    <span style={{ color: "#475569" }}> · count={e.count} · {e.hint}</span>
+                  </p>
+                ))}
+              </div>
+            </details>
+          </div>
         </div>
       )}
 

@@ -349,13 +349,17 @@ backup 阶段所有敏感字段被替换为 `<<DCH_PLACEHOLDER:KEY_NAME>>`，并
 
 **1. UI 4 步流程**（推荐桌面用户）
 
-`📥 导入备份` → preview → rename conflicts → **填 K 个 secret**（新增）→ apply+report。step 3 显示：
+`📥 导入备份` → preview → rename conflicts → **填 K 个 secret**（新增）→ apply+report。
+
+step 2（rename）顶部蓝色 banner 同步列出 K 个 logical key 清单（不只是数字），让用户改名前就清楚下一步要填什么；step 3（填写）显示：
 
 - monospace logical key 名（`ANTHROPIC_AUTH_TOKEN-1`）+ count + hint（`13 occurrences across 2 profiles`）
 - password input + 👁 eye icon toggle 显示明文
 - 「跳过」checkbox（保留占位符让用户后续手改）
 - details 折叠 N 个 packPath 出现位置（默认前 3，>3 显「+M more」）
 - 顶部 banner 4 状态：全跳过黄 / 全填绿 / 部分填中性 / 待处理蓝
+
+`📦 导出备份` 完成后 result 区也展示 K 个 unique secret 清单（数字 + 列每个 logical key 名 + count + hint），让用户备份完就知道将来 restore 要填几个、每个长什么样。
 
 **2. CLI 交互模式**（隐藏输入）
 
