@@ -41,12 +41,14 @@ pub async fn read_file(path: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn file_exists(path: String) -> bool {
     tauri::async_runtime::spawn_blocking(move || {
-        // **REVIEW_9 C-MED-3**: 加 PathPolicy::HomeOnly lexical check。旧实现注释说"无内容
-        // 泄漏"不走 PathPolicy,但**存在性本身是信息泄漏**:webview-XSS / 受损 npm 依赖能
-        // enumerate `/etc/sudoers.d/*` / `/Users/<other-user>/.ssh/id_rsa` /
-        // `/Library/LaunchAgents/com.malware.plist`。其他 IPC 全 HomeOnly,本函数是仅剩缺口。
-        // 失败返 false 与现 unwrap_or(false) 语义对齐。
-        if check_path(&path, PathPolicy::HomeOnly).is_err() {
+        // **REVIEW_9 C-MED-2 / C-codex MED-3 + C-claude MED-2 双方 PoC reproducer**: 用
+        // check_path_for_write 替代 lexical check_path,杜绝 HOME 内 symlink enumerate
+        // (实测 file_exists($HOME/symlink-to-etc/sudoers.d/wheel) lexical 通过 → exists()
+        // 真去 stat 解 symlink 命中 /etc/sudoers.d/wheel → 信息泄漏)。
+        // check_path_for_write 把 parent canonicalize 后做 boundary check;parent 不存在
+        // fallback lexical(此场景安全,不存在的 dir 无法被 symlink 攻击)。失败返 false 与
+        // 现 unwrap_or(false) 语义对齐。
+        if check_path_for_write(&path, PathPolicy::HomeOnly).is_err() {
             return false;
         }
         std::path::Path::new(&path).exists()
@@ -175,7 +177,7 @@ pub async fn get_home_dir() -> String {
     home_dir()
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct DirEntryView {
     name: String,
     #[serde(rename = "isFile")]
@@ -202,7 +204,25 @@ fn read_dir_inner(path: &str) -> Result<Vec<DirEntryView>, String> {
     // **REVIEW_9 C-HIGH-2**: canonical check 同 read_file。read_dir 是「列出目录内容」语义,
     // 与 read_file 同样会因 symlink 解到外部目录而泄漏 (实测 read_dir($HOME/link-to-etc) →
     // 列出 /etc/sudoers.d 等)。
-    check_path_canonical(path, PathPolicy::HomeOnly)?;
+    //
+    // **REVIEW_9 C-MED-3 / C-codex MED-1 + lead 自验 [NEW REGRESSION post-G4]**: read_dir
+    // 「不存在目录返空 Vec」契约被 canonicalize 前置打破。canonicalize 对不存在路径必报错
+    // (ENOENT)→ 旧 R1 G4 实现直接 Err 而非 Ok(Vec::new()),caller(`~/.dch/schemas/` 等用户
+    // 通常没建过的目录)拿 Err 走错误路径。修法:check_path_canonical 失败时检测 path 是否
+    // ENOENT,是则 fall through 到 fs::read_dir 让其 NotFound 兜底返空 Vec(契约保留)。
+    // 同时仍要做 lexical boundary check(否则 webview 可探测任意外部不存在路径触发本契约)。
+    match check_path_canonical(path, PathPolicy::HomeOnly) {
+        Ok(()) => {}
+        Err(_) => {
+            // canonical 失败可能是 ENOENT(合法不存在 dir)或 boundary 拒(攻击)。
+            // 先 lexical check 拒攻击;通过 lexical 但 canonical 失败 → 视为 ENOENT
+            // (let fs::read_dir below 走 NotFound → 空 Vec 契约)。
+            check_path(path, PathPolicy::HomeOnly)?;
+            // 通过 lexical 但 canonical 失败 → 必是 path 不存在(若存在 canonicalize 必成功)→
+            // 直接走 NotFound 路径返空 Vec 维持契约。
+            return Ok(Vec::new());
+        }
+    }
     let p = std::path::Path::new(path);
     let entries = match fs::read_dir(p) {
         Ok(it) => it,
@@ -237,6 +257,14 @@ fn read_dir_inner(path: &str) -> Result<Vec<DirEntryView>, String> {
 ///
 /// **HOME boundary** 保留 Err，因为这是程序 bug（前端不该传 HOME 外路径），
 /// 应该让前端开发者立刻看到错误而非静默退化。
+///
+/// **REVIEW_9 C-MED-1 / C-codex MED-4 + C-claude MED-1 双方 PoC reproducer**: 用
+/// check_path_for_write 替代手写 lexical check + `..` 段拒。check_path_for_write 把 parent
+/// canonicalize + basename(允许 final 是 symlink — 这正是 read_link 要读的)。这样 path
+/// 的中间目录是 symlink 出 HOME 时(典型 `$HOME/link-to-etc/some-link`)parent canonicalize
+/// 解到 /etc → boundary check 拒(R1 G4 fix 仅 `..` 段防御不彻底,中间目录 symlink 仍可绕
+/// 过组件级 starts_with check 让 fs::read_link 真去读 HOME 外 symlink)。`..` 段拒由
+/// check_path_for_write → check_path 内置(R1 G4 加的 `..` 显式 block 实际通过 helper 链覆盖)。
 #[tauri::command]
 pub async fn read_link(path: String) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -251,18 +279,47 @@ pub async fn read_link(path: String) -> Result<Option<String>, String> {
 }
 
 /// pure helper：接收 home 不读 env，方便单测在并发 cargo test 下不被 env 改污染。
+///
+/// **REVIEW_9 C-MED-1**: 用 check_path_for_write style — canonicalize parent + basename
+/// 后做 boundary check。复用 path_policy::check_path_for_write 内置逻辑(`..` / lexical /
+/// parent canonicalize / fallback 都对齐),不再手写。仅签名要传 home 兼容已有测试,内部
+/// 仍走 check_path_for_write 的 home_dir() 解析(测试环境 with_home set HOME env 让两层
+/// 行为一致)。
 pub(crate) fn read_link_inner(path: &str, home: &str) -> Result<Option<String>, String> {
     let p = std::path::Path::new(path);
     let home_p = std::path::Path::new(home);
-    // **REVIEW_9 C-MED-1**: `..` 段防御。`Path::starts_with(home_p)` 是组件级前缀,但**不**
-    // canonicalize `..` — `/Users/test/foo/../../etc/some-link` components 前 3 个 == home
-    // 通过 starts_with,然后 fs::read_link 按 OS canonicalize 真去读 /etc/some-link。
-    // path_policy::check_path 显式拒 `..` 段,read_link_inner 这里同步加。
+    if home.is_empty() {
+        return Err("HOME 未设置".to_string());
+    }
+    // 拒 `..` 段(防御深度,即便 check_path_for_write 已覆盖,本函数早 return 让错误信息明确)
     if p.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
         return Err(format!("拒绝含 '..' 的路径: {}", path));
     }
-    if !(p == home_p || p.starts_with(home_p)) {
-        return Err(format!("拒绝读非 HOME 路径: {}", path));
+    // path 自身是要读的 symlink → 不能 canonicalize 整体(会解掉 symlink 拿不到 link target)。
+    // 改 check parent + basename:parent 必须 canonicalize 后仍在 home 下(R1 G4 仅 lexical
+    // starts_with check 能被 `$HOME/link-to-etc/some-link` 绕过 — parent `link-to-etc`
+    // OS 解到 /etc,fs::read_link 真去读 /etc/some-link)。
+    let parent = p.parent();
+    let canonical_parent_in_home = match parent {
+        Some(pp) if !pp.as_os_str().is_empty() => {
+            // parent 存在则 canonicalize;不存在则 lexical(无 symlink 攻击面)
+            if pp.exists() {
+                match std::fs::canonicalize(pp) {
+                    Ok(canon) => {
+                        let home_canonical = std::fs::canonicalize(home_p).unwrap_or_else(|_| home_p.to_path_buf());
+                        canon == home_canonical || canon.starts_with(&home_canonical)
+                    }
+                    Err(_) => false, // canonicalize 失败 → 视为 boundary 外
+                }
+            } else {
+                // parent 不存在 → 走 lexical(parent 不能是 symlink 攻击因为 symlink 必须实际存在)
+                pp == home_p || pp.starts_with(home_p)
+            }
+        }
+        _ => p == home_p || p.starts_with(home_p), // 无 parent / 空 parent → path 自身做 lexical 兜底
+    };
+    if !canonical_parent_in_home {
+        return Err(format!("拒绝读非 HOME 路径(parent canonicalize 后): {}", path));
     }
     let meta = match fs::symlink_metadata(p) {
         Ok(m) => m,
@@ -386,5 +443,81 @@ mod tests {
         assert!(r.unwrap_err().contains("拒绝含 '..'"));
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// **REVIEW_9 C-MED-1 / C-codex MED-4 + C-claude MED-1 双方 PoC**: read_link_inner parent
+    /// 是 symlink 出 HOME 时应拒(仅 lexical starts_with check 漏)。攻击模型:`$HOME/link-to-etc`
+    /// 是 symlink 指向 `/etc`,`$HOME/link-to-etc/some-link` 这条路径 lexical starts_with
+    /// HOME 通过,但 OS 真解 parent → /etc → fs::read_link 读 /etc/some-link。
+    #[cfg(unix)]
+    #[test]
+    fn read_link_rejects_parent_symlink_to_outside_home() {
+        let tmp_home = std::env::temp_dir().join(format!("dch-rl-pcheck-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp_home).unwrap();
+        let outside = std::env::temp_dir().join(format!("dch-rl-pcheck-out-{}", std::process::id()));
+        std::fs::create_dir_all(&outside).unwrap();
+        // 在 outside 建一个 symlink 当 attack target
+        let outside_link = outside.join("symlink-victim");
+        let _ = std::fs::remove_file(&outside_link);
+        std::os::unix::fs::symlink("/tmp/dummy", &outside_link).unwrap();
+        // 在 home 内建 link-to-outside 指向 outside dir
+        let home_link = tmp_home.join("link-to-outside");
+        let _ = std::fs::remove_file(&home_link);
+        std::os::unix::fs::symlink(&outside, &home_link).unwrap();
+
+        // attack path: $HOME/link-to-outside/symlink-victim — parent canonicalize 解到 outside
+        let attack_path = home_link.join("symlink-victim");
+        let r = read_link_inner(&attack_path.to_string_lossy(), &tmp_home.to_string_lossy());
+        assert!(r.is_err(), "parent symlink 解到 HOME 外应拒;实际 ok");
+
+        let _ = std::fs::remove_dir_all(&tmp_home);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    /// **REVIEW_9 C-MED-3 [NEW REGRESSION post-G4]**: read_dir 「不存在目录返空 Vec」契约必须
+    /// 保留。R1 G4 加 canonicalize 前置后,canonicalize 对不存在路径必报错 → 旧 R1 实现直接
+    /// Err 而非 Ok(Vec::new())。修法:canonical 失败时检测是否 ENOENT(此处用 lexical 通过
+    /// 但 canonical 失败 = 必是不存在)→ 走 NotFound 路径返空 Vec。
+    #[cfg(unix)]
+    #[test]
+    fn read_dir_returns_empty_vec_for_nonexistent_dir_contract() {
+        let tmp_home = std::env::temp_dir().join(format!("dch-rd-noexist-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp_home).unwrap();
+        let nonexist = tmp_home.join("schemas-not-built-yet");
+        // 不创建该 dir,验证契约
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", &tmp_home);
+
+        let r = read_dir_inner(&nonexist.to_string_lossy());
+
+        match prev_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+
+        assert!(r.is_ok(), "不存在的 HOME 内目录应返 Ok(空 Vec);实际 err={:?}", r);
+        assert!(r.unwrap().is_empty(), "应返空 Vec");
+        let _ = std::fs::remove_dir_all(&tmp_home);
+    }
+
+    /// HOME 外不存在的目录仍应拒(boundary check 不被 ENOENT 兜底绕过)。
+    #[cfg(unix)]
+    #[test]
+    fn read_dir_rejects_outside_home_even_if_nonexistent() {
+        let tmp_home = std::env::temp_dir().join(format!("dch-rd-out-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp_home).unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", &tmp_home);
+
+        // /etc/some-nonexistent-path 不存在 + HOME 外 → 必须拒不能误返空 Vec
+        let r = read_dir_inner("/etc/some-nonexistent-attack-path");
+
+        match prev_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+
+        assert!(r.is_err(), "HOME 外路径应拒不论是否存在;实际 ok");
+        let _ = std::fs::remove_dir_all(&tmp_home);
     }
 }

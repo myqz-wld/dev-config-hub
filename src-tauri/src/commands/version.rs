@@ -3,16 +3,55 @@
 //! 之前同步 #[tauri::command] 在主线程跑 spawn_with_timeout（含 try_wait + sleep
 //! 50ms 循环），冻 webview 直到所有 4 个 version 一次性返回。loadAllVersions 跑
 //! Promise.all × 4 直接放大效应。AP-19 / CHANGELOG_17 同根问题。
+//!
+//! **REVIEW_9 C-HIGH-1 / C-codex H1 + C-claude 反驳同意**: IPC 入参从 `command: String`
+//! 重构为 `tool: ToolKind` enum,关闭 webview 任意 shell -c 注入面。
+//!
+//! 攻击模型(旧实现):webview XSS / 受损 npm 依赖调
+//! `version("claude --version; rm -rf $HOME/.dch")` → bridge 直传 string 到 Rust →
+//! `spawn_with_timeout` 用 `shell_invocation` 拼 `-c` 一段执行任意命令(凭据偷取 /
+//! profile 全删 / launchd 持久化)。Tauri capability 默认 allow get_tool_version + CSP
+//! 默认 null 不能拦 webview JS 调 IPC。
+//!
+//! 防御:input domain 收紧到 4 个 enum value;后端按 enum 拼**固定**命令字符串(后端
+//! 完全控制,前端没法注入)。攻击面从「任意 string」收缩到「4 个 enum value」。
+//!
+//! **TS 端契约**: `tool` 字段 serde rename_all = camelCase 让 OpenCode → "openCode";
+//! Zsh / Claude / Codex 单词 lowercase。bridge.ts ToolKind type 必须与本 enum 同步。
 
 use crate::commands::shell::{get_user_shell, shell_basename, shell_invocation};
 use crate::proc_timeout::spawn_with_timeout;
+use serde::Deserialize;
 use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+/// **REVIEW_9 C-HIGH-1**: 4 个工具 enum 替代任意 string 命令。后端按 enum 拼固定
+/// 命令字符串,关闭 IPC 直传 shell -c 的注入面。
+#[derive(Deserialize, Debug, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub enum ToolKind {
+    Zsh,
+    Claude,
+    Codex,
+    OpenCode,
+}
+
+impl ToolKind {
+    /// 返回固定的版本检查命令字符串(后端拼接,前端无法注入)。
+    fn version_command(self) -> &'static str {
+        match self {
+            ToolKind::Zsh => "zsh --version",
+            ToolKind::Claude => "claude --version",
+            ToolKind::Codex => "codex --version",
+            ToolKind::OpenCode => "opencode --version",
+        }
+    }
+}
+
 #[tauri::command]
-pub async fn get_tool_version(command: String) -> String {
-    tauri::async_runtime::spawn_blocking(move || get_tool_version_inner(&command))
+pub async fn get_tool_version(tool: ToolKind) -> String {
+    tauri::async_runtime::spawn_blocking(move || get_tool_version_inner(tool.version_command()))
         .await
         .unwrap_or_else(|_| "unknown".to_string())
 }

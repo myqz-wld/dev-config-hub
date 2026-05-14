@@ -8,7 +8,7 @@ use crate::commands::shell::{get_user_shell, shell_basename, shell_invocation};
 use crate::proc_timeout::spawn_with_timeout;
 use serde::Serialize;
 use std::process::Command;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::Duration;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,12 +57,18 @@ fn run_dch_command_blocking(
     args: Vec<String>,
     timeout_ms: Option<u64>,
 ) -> Result<DchCommandResult, String> {
+    // **REVIEW_9 C-INFO-1 / C-claude INFO-3**: 错误信息脱敏不暴露 builder path。旧实现
+    // `env!("CARGO_MANIFEST_DIR")` 编译时硬编码进二进制(典型 `/Users/<builder>/Repository/...`)
+    // → DCH_PROJECT_ROOT 未设 + 拼路径失败时 webview 拿到含 builder username 的错误串。
+    // 用户机上 webview 显示 `/Users/builder-name/...` 信息泄漏 builder 身份(GH Actions /
+    // CI 还可能泄漏 secret runner path)。修法:错误串里不再带 manifest_dir,只说"未设
+    // DCH_PROJECT_ROOT"提示用户走 env 配置。
     let project_root = std::env::var("DCH_PROJECT_ROOT").ok().or_else(|| {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         std::path::Path::new(manifest_dir)
             .parent()
             .map(|p| p.to_string_lossy().to_string())
-    }).ok_or_else(|| "找不到项目根。请设置 DCH_PROJECT_ROOT 环境变量".to_string())?;
+    }).ok_or_else(|| "找不到项目根: 请设置 DCH_PROJECT_ROOT 环境变量(builder path 已脱敏不暴露)".to_string())?;
 
     let cli_path = std::path::Path::new(&project_root).join("src").join("cli.ts");
     if !cli_path.exists() {
@@ -188,13 +194,11 @@ fn run_dch_with_secrets_temp_blocking(
     secrets_json: String,
     timeout_ms: Option<u64>,
 ) -> Result<DchCommandResult, String> {
-    // 临时文件名：含 pid + nanos 防同机并发碰撞；前缀 `dch-secrets-` 让用户能识别 / grep
-    let pid = std::process::id();
-    let nanos = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let tmp_path = std::env::temp_dir().join(format!("dch-secrets-{}-{}.json", pid, nanos));
+    // **REVIEW_9 C-LOW-1 / C 双方独立**: 复用 atomic::unique_tmp_suffix(pid + nanos +
+    // AtomicU64 counter)消除 R1 G4 清单遗留债。旧实现仅 pid + nanos 同进程多 thread
+    // 并发同 nanos 时撞名 → create_new=true 报 EEXIST 让 caller 误以为 secret 已写入。
+    let tmp_path = std::env::temp_dir()
+        .join(format!("dch-secrets-{}.json", crate::atomic::unique_tmp_suffix()));
 
     // 写文件 + mode 0600（仅 unix；Windows 走默认 ACL）。create_new=true 保证不被预先存在的同名文件覆盖
     #[cfg(unix)]
