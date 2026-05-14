@@ -11,7 +11,7 @@ import { defaultEditor } from "./platform.ts";
 import { c } from "./cli-colors.ts";
 import {
   setJsonMode, isJsonMode, flushStdout, jsonOut, writeOut, err, ok, info,
-  parseFlags, readStdinLine,
+  parseFlags, readStdinLine, VALUE_FLAGS,
 } from "./cli-shared.ts";
 import {
   cmdBackup, cmdRestore, cmdBackups, cmdBackupRm, cmdBackupPin,
@@ -19,6 +19,35 @@ import {
 
 // 兼容旧 import 路径（src/profiles/manager.test.ts 等导入 parseFlags / VALUE_FLAGS / readStdinLine）
 export { parseFlags, VALUE_FLAGS } from "./cli-shared.ts";
+
+/**
+ * REVIEW_8 M10 / B5：从 args 中剥离 `--json` 全局 flag，但**不能**误吃其它 flag 的值。
+ *
+ * 旧实现 `args.filter((a) => a !== "--json")` 在场景 `add ... --desc --json` 下把 `--json`
+ * 字面值（作为 desc 的 value）一并 strip → cmdAdd 拿到 desc=undefined（被 parseFlags 当成
+ * boolean true）+ JSON_MODE 错误启用。
+ *
+ * 修复：单 pass 扫描 args，遇到 VALUE_FLAGS 中的 flag 时跳过下一个 arg（视为 value），
+ * 其余位置的 `--json` 标记并 strip。
+ */
+function extractJsonFlag(argv: string[]): { args: string[]; json: boolean } {
+  const out: string[] = [];
+  let json = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    // 已知带值的 flag → 透传 flag 本身 + 下一个 arg（即便它是 "--json"）
+    if (a.startsWith("--") && VALUE_FLAGS.has(a.slice(2)) && argv[i + 1] !== undefined) {
+      out.push(a, argv[++i]!);
+      continue;
+    }
+    if (a === "--json") {
+      json = true;
+      continue;
+    }
+    out.push(a);
+  }
+  return { args: out, json };
+}
 
 const TOOLS: ToolKind[] = ["claude", "codex"];
 
@@ -42,6 +71,10 @@ function fmtProfileLine(p: Profile, isActive: boolean): string {
   const metaStr = meta ? ` ${c.gray}[${meta}]${c.reset}` : "";
   return `  ${star} ${id} ${tag}${def}${metaStr}\n     ${dir}${desc}`;
 }
+
+// REVIEW_8 M11 / B6：每个 cmd 显式 allowed flag 集合（防 `--no-share` 这类 typo 被静默吞）。
+const ADD_ALLOWED = new Set(["dir", "from", "desc", "pre-hook", "post-hook"]);
+const REMOVE_ALLOWED = new Set(["yes"]);
 
 async function cmdList() {
   const store = await listProfiles();
@@ -72,7 +105,7 @@ async function cmdShow(id: string) {
 }
 
 async function cmdAdd(args: string[]) {
-  const { positional, flags, envPairs } = parseFlags(args);
+  const { positional, flags, envPairs } = parseFlags(args, { allowedFlags: ADD_ALLOWED });
   const [toolRaw, id] = positional;
   if (!toolRaw || !id) err("用法: dch profile add <claude|codex> <id> [--dir <path>] [--env K=V ...] [--from <id>] [--desc <text>] [--pre-hook <script>] [--post-hook <script>]");
   if (!TOOLS.includes(toolRaw as ToolKind)) err(`tool 必须是 claude 或 codex (收到 ${toolRaw})`);
@@ -123,11 +156,16 @@ async function cmdEdit(_id: string) {
 }
 
 async function cmdRemove(args: string[]) {
-  const { positional, flags } = parseFlags(args);
+  const { positional, flags } = parseFlags(args, { allowedFlags: REMOVE_ALLOWED });
   const [id] = positional;
   if (!id) err("用法: dch profile remove <id> [--yes]");
   const p = await getProfile(id);
+  // REVIEW_8 H6 / B2：json 模式（Tauri UI / 脚本调用）不允许走 stdin prompt —
+  // 进程没绑 TTY 会 hang 等 EOF；强制要求 --yes 与 cmdBackup --no-placeholder 同款约束。
   if (!flags.yes) {
+    if (isJsonMode()) {
+      err("--json 模式必须配 --yes（无法 stdin prompt）");
+    }
     process.stdout.write(`${c.yellow}确认删除 profile ${c.bold}${id}${c.reset}${c.yellow}? configDir ${p.configDir} 不会被删除。[y/N] ${c.reset}`);
     const line = await readStdinLine();
     if (line.toLowerCase() !== "y" && line.toLowerCase() !== "yes") {
@@ -156,7 +194,15 @@ async function cmdUse(args: string[]) {
   if (!id) err("用法: dch profile use <id>");
 
   const result = await useProfile(id);
-  if (isJsonMode()) return jsonOut(result);
+  if (isJsonMode()) {
+    await jsonOut(result);
+    // REVIEW_8 H6 / B3：useProfile 返回 {ok: false, message} 表 hook 失败 / symlink swap 失败。
+    // 旧路径 jsonOut 后 return → dispatcher 落到 process.exit(0)，Tauri bridge 看到 code=0
+    // + 解析 stdout JSON 拿到 ok:false，但没法和「真 exit 0 + stdout 是别的 JSON」区分 → 误判。
+    // 这里用 exit(1) 让 r.code !== 0 在 bridge 端立即被 throw。
+    if (!result.ok) process.exit(1);
+    return;
+  }
   for (const h of result.hooks) console.log(fmtHookResult(h));
 
   if (!result.ok) {
@@ -295,9 +341,11 @@ ${c.bold}env 变量 (hook 内可用):${c.reset}
 }
 
 export async function runProfileCommand(args: string[]): Promise<void> {
-  if (args.includes("--json")) {
+  // REVIEW_8 M10 / B5：走 VALUE_FLAGS-aware 提取，避免误吃 `--desc --json` 这类的 value。
+  const extracted = extractJsonFlag(args);
+  if (extracted.json) {
     setJsonMode(true);
-    args = args.filter((a) => a !== "--json");
+    args = extracted.args;
   }
   const [sub, ...rest] = args;
 

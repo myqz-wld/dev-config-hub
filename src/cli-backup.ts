@@ -25,10 +25,16 @@ import {
   type BackupSummary,
 } from "./profiles/backup-manage.ts";
 
+// REVIEW_8 M11 / B6：每个 cmd 显式 allowed flag 集合（防 typo 被吞）。
+const BACKUP_ALLOWED = new Set(["out", "profiles", "no-shared", "no-placeholder", "yes", "keep"]);
+const RESTORE_ALLOWED = new Set(["prefix", "rename", "dry-run", "yes"]);
+const BACKUP_RM_ALLOWED = new Set(["yes"]);
+const BACKUP_PIN_ALLOWED = new Set(["unpin"]);
+
 // ─── backup ──────────────────────────────────────────────────────────────
 
 export async function cmdBackup(args: string[]): Promise<void> {
-  const { flags } = parseFlags(args);
+  const { flags } = parseFlags(args, { allowedFlags: BACKUP_ALLOWED });
   const noPlaceholder = flags["no-placeholder"] === true;
   const includeShared = flags["no-shared"] !== true;
   const yes = flags.yes === true;
@@ -79,7 +85,7 @@ export async function cmdBackup(args: string[]): Promise<void> {
 // ─── restore ─────────────────────────────────────────────────────────────
 
 export async function cmdRestore(args: string[]): Promise<void> {
-  const { positional, flags } = parseFlags(args);
+  const { positional, flags } = parseFlags(args, { allowedFlags: RESTORE_ALLOWED });
   const [packFile] = positional;
   if (!packFile) {
     err("用法: dch profile restore <pack> [--prefix <p>] [--rename OLD=NEW,...] [--dry-run] [--yes]");
@@ -112,7 +118,13 @@ export async function cmdRestore(args: string[]): Promise<void> {
     }
 
     const result = await applyBackup({ parsed, prefix, renameMap });
-    if (isJsonMode()) return jsonOut({ ok: result.errors.length === 0, manifest: parsed.manifest, ...result });
+    if (isJsonMode()) {
+      await jsonOut({ ok: result.errors.length === 0, manifest: parsed.manifest, ...result });
+      // REVIEW_8 H6 / B3：applyBackup 把 errors 数组带回但 ok=true 只表示流程没崩；errors.length>0
+      // 表示部分 profile / shared 还原失败。让 exit code 反映出来，Tauri bridge 才能 throw。
+      if (result.errors.length > 0) process.exit(1);
+      return;
+    }
 
     if (result.errors.length > 0) {
       for (const e of result.errors) process.stdout.write(`${c.red}✗ ${e}${c.reset}\n`);
@@ -217,7 +229,7 @@ function printGroup(title: string, items: BackupSummary[]): void {
 // ─── backup-rm ───────────────────────────────────────────────────────────
 
 export async function cmdBackupRm(args: string[]): Promise<void> {
-  const { positional, flags } = parseFlags(args);
+  const { positional, flags } = parseFlags(args, { allowedFlags: BACKUP_RM_ALLOWED });
   const [pathArg] = positional;
   if (!pathArg) err("用法: dch profile backup-rm <file> [--yes]");
 
@@ -238,7 +250,7 @@ export async function cmdBackupRm(args: string[]): Promise<void> {
 // ─── backup-pin ──────────────────────────────────────────────────────────
 
 export async function cmdBackupPin(args: string[]): Promise<void> {
-  const { positional, flags } = parseFlags(args);
+  const { positional, flags } = parseFlags(args, { allowedFlags: BACKUP_PIN_ALLOWED });
   const [pathArg] = positional;
   if (!pathArg) err("用法: dch profile backup-pin <file> [--unpin]");
 
