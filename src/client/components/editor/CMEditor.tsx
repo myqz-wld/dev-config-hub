@@ -77,6 +77,13 @@ export function CMEditor({
   const langCompartment = useRef(new Compartment());
   const readOnlyCompartment = useRef(new Compartment());
   const extraCompartment = useRef(new Compartment());
+  // REVIEW_8 H8 / Group E4：theme + maxHeight 也走 Compartment，让 readOnly / maxHeight prop
+  // 变化能 reconfigure 而不重建 view（旧版 spread 在 mount 数组 → caller 切 readOnly 时
+  // projectTheme 不会重跑，cm-content caretColor 不更新；caller 切 maxHeight 时容器
+  // 高度也不变）。修完后 readOnly 切换会同时触发 readOnlyCompartment + themeCompartment
+  // 两条 reconfigure（前者管 EditorState/EditorView 行为开关、后者管视觉 token），是预期。
+  const themeCompartment = useRef(new Compartment());
+  const maxHeightCompartment = useRef(new Compartment());
   const onChangeRef = useRef(onChange);
 
   // onChange 引用同步：updateListener 闭包总能拿到最新 onChange
@@ -121,13 +128,13 @@ export function CMEditor({
             onChangeRef.current(u.state.doc.toString());
           }
         }),
-        projectTheme({ readOnly }),
-        EditorView.theme({
+        themeCompartment.current.of(projectTheme({ readOnly })),
+        maxHeightCompartment.current.of(EditorView.theme({
           "&": {
             maxHeight: typeof maxHeight === "number" ? `${maxHeight}px` : maxHeight,
           },
           ".cm-scroller": { overflow: "auto" },
-        }),
+        })),
       ],
     });
     const view = new EditorView({ state, parent: hostRef.current });
@@ -185,6 +192,31 @@ export function CMEditor({
       effects: extraCompartment.current.reconfigure(extraExtensions),
     });
   }, [extraExtensions]);
+
+  // REVIEW_8 H8 / Group E4：projectTheme 跟随 readOnly reconfigure
+  // （旧版 spread 在 mount 数组 → caller 切 readOnly 时 caretColor / activeLine 视觉不更新）。
+  useEffect(() => {
+    const v = viewRef.current;
+    if (!v) return;
+    v.dispatch({
+      effects: themeCompartment.current.reconfigure(projectTheme({ readOnly })),
+    });
+  }, [readOnly]);
+
+  // REVIEW_8 H8 / Group E4：maxHeight 跟随 prop reconfigure
+  // （旧版 spread 在 mount 数组 → caller 切 maxHeight 时容器高度不更新）。
+  useEffect(() => {
+    const v = viewRef.current;
+    if (!v) return;
+    v.dispatch({
+      effects: maxHeightCompartment.current.reconfigure(EditorView.theme({
+        "&": {
+          maxHeight: typeof maxHeight === "number" ? `${maxHeight}px` : maxHeight,
+        },
+        ".cm-scroller": { overflow: "auto" },
+      })),
+    });
+  }, [maxHeight]);
 
   return <div ref={hostRef} className="cm-host" />;
 }
