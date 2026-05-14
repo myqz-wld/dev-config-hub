@@ -108,3 +108,33 @@ describe("isSensitiveFile", () => {
     expect(isSensitiveFile(".mcp.json")).toBe(false);
   });
 });
+
+describe("REVIEW_9 B-MED-3: EXCLUDE 子目录段跨深度匹配 (templates/agents/skills 子树内嵌临时目录)", () => {
+  it("`templates/.cache/foo.json` 子树内 `.cache` 命中黑名单", () => {
+    expect(shouldIncludePath("templates/.cache/foo.json")).toBe(false);
+  });
+
+  it("`agents/myagent/.tmp/scratch` 子树内 `.tmp` 命中", () => {
+    expect(shouldIncludePath("agents/myagent/.tmp/scratch")).toBe(false);
+  });
+
+  it("`skills/myskill/sessions/log.json` 子树内 `sessions/` 命中(跨深度)", () => {
+    expect(shouldIncludePath("skills/myskill/sessions/log.json")).toBe(false);
+  });
+
+  it("`plugins/local/foo/debug/x.txt` 子树内 `debug/` 命中(跨深度)", () => {
+    expect(shouldIncludePath("plugins/local/foo/debug/x.txt")).toBe(false);
+  });
+
+  it("`agents/x/log/run.log` 子树内 `log/` 命中(跨深度)", () => {
+    expect(shouldIncludePath("agents/x/log/run.log")).toBe(false);
+  });
+
+  it("`projects/proj/memories/m.json` 子树内 `memories/` 命中(跨深度)", () => {
+    expect(shouldIncludePath("projects/proj/memories/m.json")).toBe(false);
+  });
+
+  it("例外: `plugins/cache/**` 是 INCLUDE 主动允许的 plugin marketplace cache,不被 cache/** 跨深度误伤", () => {
+    expect(shouldIncludePath("plugins/cache/foo/0.1.0/bar.js")).toBe(true);
+  });
+});

@@ -28,6 +28,11 @@ async function fileExists(p: string): Promise<boolean> {
   try { await stat(p); return true; } catch { return false; }
 }
 
+// **REVIEW_9 B-codex M2 / B-MED-1**: deleteBackup / pinBackup 默认 enforce BACKUP_DIR 边界 +
+// `.dchpack` 后缀。单元测试在 mkdtemp tmpDir 下创 fake .dchpack(非真 BACKUP_DIR),传 opt-out
+// 让 test 通过;production caller (CLI cmdBackup* / bridge.backup*)**不**传此 opt 走默认严格。
+const TEST_OPTS = { allowOutsideBackupDir: true };
+
 const FAKE_MANIFEST = {
   format_version: 1,
   created_at: "2026-05-13T08:00:00.000Z",
@@ -93,7 +98,7 @@ describe("deleteBackup（绝对路径）", () => {
   // **REVIEW_9 B-codex M2**: 默认 deleteBackup enforce BACKUP_DIR 边界 + .dchpack 后缀。
   // 单元测试在 mkdtemp tmpDir 下创 fake .dchpack(非真 BACKUP_DIR),传 opt-out 让 test 通过;
   // production caller (cli-backup cmdBackupRm / bridge.backupRm) **不**传此 opt 走默认严格。
-  const TEST_OPTS = { allowOutsideBackupDir: true };
+  // pinBackup 同款约束(REVIEW_9 B-MED-1) — 共用 TEST_OPTS。
 
   it("删 .dchpack + 同名 .pinned sidecar", async () => {
     const pack = join(tmpDir, "test.dchpack");
@@ -140,7 +145,7 @@ describe("pinBackup（绝对路径，非默认位）", () => {
     const pack = join(tmpDir, "history.dchpack");
     await writeFakeDchpack(pack);
 
-    const r = await pinBackup(pack, true);
+    const r = await pinBackup(pack, true, TEST_OPTS);
 
     expect(r.copiedFromLatest).toBe(false);
     expect(r.pinnedPath).toBe(pack);
@@ -152,7 +157,7 @@ describe("pinBackup（绝对路径，非默认位）", () => {
     await writeFakeDchpack(pack);
     await writeFile(`${pack}.pinned`, "");
 
-    const r = await pinBackup(pack, false);
+    const r = await pinBackup(pack, false, TEST_OPTS);
 
     expect(r.copiedFromLatest).toBe(false);
     expect(await fileExists(`${pack}.pinned`)).toBe(false);
@@ -162,10 +167,62 @@ describe("pinBackup（绝对路径，非默认位）", () => {
     const pack = join(tmpDir, "history.dchpack");
     await writeFakeDchpack(pack);
 
-    await expect(pinBackup(pack, false)).resolves.toBeDefined();
+    await expect(pinBackup(pack, false, TEST_OPTS)).resolves.toBeDefined();
   });
 
   it("pin 不存在的 .dchpack → 抛错", async () => {
-    await expect(pinBackup(join(tmpDir, "non-exist.dchpack"), true)).rejects.toThrow("备份不存在");
+    await expect(
+      pinBackup(join(tmpDir, "non-exist.dchpack"), true, TEST_OPTS),
+    ).rejects.toThrow("备份不存在");
+  });
+});
+
+describe("REVIEW_9 B-MED-2 [NEW REG post-G3]: resolveBackupPath / deleteBackup 防 `..` 逃逸", () => {
+  it("resolveBackupPath 把 `..` 段折叠掉(防 startsWith 字符串前缀绕过)", () => {
+    // 攻击 payload: BACKUP_DIR 字符串前缀 + `..` 段实际指向 BACKUP_DIR 外
+    const malicious = `${BACKUP_DIR}/../../etc/passwd`;
+    const r = resolveBackupPath(malicious);
+    // resolve 折叠 `..` → 实际路径不再以 BACKUP_DIR + "/" 开头(escape 出去了)
+    expect(r.startsWith(BACKUP_DIR + "/")).toBe(false);
+    expect(r).not.toContain("..");
+  });
+
+  it("正常 BACKUP_DIR 内绝对路径 normalize 后不变", () => {
+    const inside = `${BACKUP_DIR}/test.dchpack`;
+    expect(resolveBackupPath(inside)).toBe(inside);
+  });
+
+  it("deleteBackup 默认严格模式拒 `..` 逃逸 BACKUP_DIR 边界", async () => {
+    const malicious = `${BACKUP_DIR}/../../etc/passwd.dchpack`;
+    await expect(deleteBackup(malicious)).rejects.toThrow(/BACKUP_DIR 外的文件|BACKUP_DIR 边界/);
+  });
+
+  it("deleteBackup 默认严格模式拒非 .dchpack 后缀", async () => {
+    const nonDchpack = `${BACKUP_DIR}/test.txt`;
+    await expect(deleteBackup(nonDchpack)).rejects.toThrow(/非 .dchpack/);
+  });
+});
+
+describe("REVIEW_9 B-MED-1: pinBackup BACKUP_DIR + .dchpack 边界默认严格", () => {
+  it("pinBackup 默认严格模式拒 BACKUP_DIR 外路径", async () => {
+    const outside = join(tmpDir, "outside.dchpack");
+    await writeFakeDchpack(outside);
+    await expect(pinBackup(outside, true)).rejects.toThrow(/BACKUP_DIR 外的文件|BACKUP_DIR 边界/);
+  });
+
+  it("pinBackup 默认严格模式拒非 .dchpack 后缀", async () => {
+    const nonDchpack = `${BACKUP_DIR}/something.txt`;
+    await expect(pinBackup(nonDchpack, true)).rejects.toThrow(/非 .dchpack/);
+  });
+
+  it("pinBackup 默认严格模式拒 `..` 逃逸 BACKUP_DIR 边界", async () => {
+    const malicious = `${BACKUP_DIR}/../../etc/passwd.dchpack`;
+    await expect(pinBackup(malicious, true)).rejects.toThrow(/BACKUP_DIR 外的文件|BACKUP_DIR 边界/);
+  });
+
+  it("pinBackup allowOutsideBackupDir opt-in 时绕过边界(test 用)", async () => {
+    const outside = join(tmpDir, "outside.dchpack");
+    await writeFakeDchpack(outside);
+    await expect(pinBackup(outside, true, TEST_OPTS)).resolves.toBeDefined();
   });
 });
