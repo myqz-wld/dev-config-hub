@@ -99,10 +99,14 @@ export async function writeProfileConfigFile(configDir: string, filename: string
  * **REVIEW_9 C-HIGH-1 / C-codex H1**: tool 字段映射 Rust 端 ToolKind enum
  * (commands/version.rs)。serde rename_all = camelCase 让 OpenCode → "openCode";
  * 其他 lowercase。前端直接传 enum value 而非任意 string,关闭 IPC 直传 shell -c 的注入面。
+ *
+ * 命名 `VersionToolKind` 避免与 profiles/types.ts ToolKind ("claude" | "codex") 冲突 —
+ * profiles 端的 ToolKind 不含 "zsh" / "openCode" (那俩不是可切换的 dch profile,只是
+ * version IPC 多包含的工具),两个 type 语义不同不能合并。
  */
-type ToolKind = "zsh" | "claude" | "codex" | "openCode";
+type VersionToolKind = "zsh" | "claude" | "codex" | "openCode";
 
-async function version(tool: ToolKind): Promise<string> {
+async function version(tool: VersionToolKind): Promise<string> {
   return call<string>("get_tool_version", { tool });
 }
 

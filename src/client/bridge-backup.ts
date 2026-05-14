@@ -19,7 +19,7 @@ import type {
 } from "../profiles/backup-manage.ts";
 import type {
   ApplyBackupWithSecretsResult,
-} from "../profiles/backup-restore.ts";
+} from "../profiles/backup-restore-secrets.ts";
 import type {
   SecretLogicalEntry, SecretLocation, SecretsIndex,
 } from "../profiles/secrets-index.ts";
@@ -56,6 +56,22 @@ export class PartialRestoreError<R extends ApplyBackupResult | ApplyBackupWithSe
 }
 
 /**
+ * **REVIEW_9 D-LOW-4 / D-claude L2**: 把 timeout ms 转人类可读 "5 分钟" / "30 秒"。
+ * 用户在 toast 里看 "300000ms" 没法快速理解,显示 "5 分钟" 直观。
+ */
+function humanizeTimeout(ms: number): string {
+  if (ms >= 60_000) {
+    const min = Math.round(ms / 60_000);
+    return `${min} 分钟`;
+  }
+  if (ms >= 1_000) {
+    const sec = Math.round(ms / 1_000);
+    return `${sec} 秒`;
+  }
+  return `${ms}ms`;
+}
+
+/**
  * 收 DchCommandResult,识别 partial restore + truncated + 普通 error,返回完整 restore result
  * (含 manifest)。供 restoreApply / restoreApplyWithSecrets 共用,避免重复维护两套错误处理。
  *
@@ -66,27 +82,49 @@ export class PartialRestoreError<R extends ApplyBackupResult | ApplyBackupWithSe
  *   4. parsed.errors 是 array (非空 → partial; 空 → CLI 出 bug 也按 partial 处理)
  *
  * 任一不满足 → 抛 plain Error(走旧 jsonErr / stderr 路径)。
+ *
+ * **REVIEW_9 D-LOW-2 / D-codex L2**: PartialRestoreError 构造函数访问 result.appliedProfiles
+ * .length / sharedActions.length,parsed 缺这俩字段时抛 TypeError 掩盖原始错误(用户看
+ * `Cannot read properties of undefined (reading 'length')` 不知所云)。进入 PartialRestoreError
+ * 前显式验证两个 array 完整,失败走 plain Error 含描述信息。
+ *
+ * **REVIEW_9 D-LOW-4**: timeout 错误信息走 humanizeTimeout helper。
  */
 function consumeRestoreResult<R extends ApplyBackupResult | ApplyBackupWithSecretsResult>(
   r: DchCommandResult,
   timeoutLabel: string,
 ): { manifest: Manifest } & R {
   if (r.code === -2) {
-    throw new Error(`命令超时被强制终止 (timeout=${timeoutLabel}ms)。检查 hook 脚本是否阻塞`);
+    throw new Error(`命令超时被强制终止 (${humanizeTimeout(parseInt(timeoutLabel, 10))})。检查 hook 脚本是否阻塞`);
   }
   if (r.truncated) {
     throw new Error(
-      `dch 输出超 5MB 上限被截断 (timeout=${timeoutLabel}ms)，无法完整解析 JSON。请缩减 restore scope / 拆批操作`,
+      `dch 输出超 5MB 上限被截断 (timeout=${humanizeTimeout(parseInt(timeoutLabel, 10))})，无法完整解析 JSON。请缩减 restore scope / 拆批操作`,
     );
   }
 
-  let parsed: Partial<{ manifest: Manifest; errors: string[]; error: string }> & Record<string, unknown> = {};
+  let parsed: Partial<{
+    manifest: Manifest;
+    errors: string[];
+    error: string;
+    appliedProfiles: AppliedProfile[];
+    sharedActions: SharedAction[];
+  }> & Record<string, unknown> = {};
   if (r.stdout.trim()) {
     try { parsed = JSON.parse(r.stdout) as typeof parsed; } catch {}
   }
 
   // partial restore: code !== 0 + stdout 是含 manifest + errors 的 result JSON
   if (r.code !== 0 && parsed.manifest && Array.isArray(parsed.errors)) {
+    // **REVIEW_9 D-LOW-2**: 验证 PartialRestoreError 构造需要的 array 字段完整,缺失走 plain
+    // Error(避免抛 TypeError 掩盖原 partial restore 信号让 caller 困惑)。
+    if (!Array.isArray(parsed.appliedProfiles) || !Array.isArray(parsed.sharedActions)) {
+      throw new Error(
+        `partial restore stdout 缺 appliedProfiles / sharedActions 字段(CLI 协议出错): ${
+          parsed.errors.join("; ") || "(无 errors)"
+        }`,
+      );
+    }
     throw new PartialRestoreError(parsed as unknown as R, parsed.manifest);
   }
 

@@ -234,9 +234,6 @@ export async function readStdinSecret(): Promise<string | null> {
   });
 }
 
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)}GB`;
-}
+// **REVIEW_9 D-LOW-3 / D-claude L1**: formatBytes 抽到项目根 `src/format-bytes.ts` 中立位置
+// (client/format-bytes.ts re-export 同款),避免本文件与 client 端两份完全重复维护。
+export { formatBytes } from "./format-bytes.ts";
