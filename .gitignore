@@ -36,3 +36,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Rust / Tauri build artifacts
 src-tauri/target
 src-tauri/gen
+
+# Claude Code agent local state（plans 是跨会话草稿、worktrees 是 plan 隔离区，都不入项目 git）
+.claude/plans/
+.claude/worktrees/

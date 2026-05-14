@@ -11,8 +11,13 @@
  * 由 caller 决定是否记 warning（避免备份因为单文件解析失败而整体失败）。
  *
  * Placeholder 格式：`<<DCH_PLACEHOLDER:KEY_NAME>>`。manifest 单独记录精确路径让 UI 可定位。
+ *
+ * `valueHash` 字段：CHANGELOG_18 加。仅 backup 内存阶段用作 group key 给 secrets-index 去重；
+ * 分配 logical key 后立即丢弃，**绝不写到 manifest / dchpack**。`redactWholeFile` 不带
+ * valueHash（整文件场景内容是 OAuth 整体，跨 profile 几乎必然不同；下游识别 undefined 跳过 dedup）。
  */
 
+import { CryptoHasher } from "bun";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { isSensitiveKey, isSensitiveFile } from "./backup-rules.ts";
 
@@ -21,6 +26,11 @@ export interface PlaceholderHit {
   fieldPath: string;
   /** 字段名本体（用于占位符内嵌 + UI 提示） */
   fieldName: string;
+  /**
+   * sha256(rawValue) 前 16 字符 hex 短串。仅 backup 内存阶段做 dedup group key，
+   * 分配 logical key 后立即丢弃；wholeFile / 空值不携带（undefined 表示「不参与 dedup」）。
+   */
+  valueHash?: string;
 }
 
 const PLACEHOLDER_PREFIX = "<<DCH_PLACEHOLDER:";
@@ -36,6 +46,18 @@ const PLACEHOLDER_RE = /<<DCH_PLACEHOLDER:[^>]+>>/g;
 export function placeholderCount(content: string): number {
   const m = content.match(PLACEHOLDER_RE);
   return m ? m.length : 0;
+}
+
+/**
+ * sha256(value) 前 16 字符 hex 短串。Bun 内置 CryptoHasher 是 sync API，不破坏
+ * walkAndRedact 的 sync 签名，避免 cascade 上层 async 改动。
+ *
+ * 16 字符 = 64 bit 抗碰撞，对 backup dedup 场景（单次备份 < 1000 条 secret）足够；
+ * 不暴露给用户也不写 manifest，仅内存比较。空字符串也算合法值（依然命中 sensitive key），
+ * 但下游 buildSecretsIndex 会把空 value hash 当 valid hash 计入 group。
+ */
+function shortHash(value: string): string {
+  return new CryptoHasher("sha256").update(value).digest("hex").slice(0, 16);
 }
 
 /**
@@ -55,7 +77,7 @@ function walkAndRedact(
     for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
       const fieldPath = pathPrefix ? `${pathPrefix}.${k}` : k;
       if (typeof v === "string" && isSensitiveKey(k)) {
-        hits.push({ fieldPath, fieldName: k });
+        hits.push({ fieldPath, fieldName: k, valueHash: shortHash(v) });
         out[k] = makePlaceholder(k);
       } else {
         out[k] = walkAndRedact(v, fieldPath, hits);
@@ -125,6 +147,9 @@ export function redactTomlContent(content: string): RedactResult {
  *
  * 用例：~/.claude/credentials.json / ~/.codex/auth.json — 整个文件就是 OAuth payload，
  * 字段名不一定命中 SENSITIVE_KEY_PATTERNS 但整体是凭据，必须整体替换。
+ *
+ * 不带 valueHash：跨 profile 内容几乎必然不同（OAuth 是 per-account），下游 secrets-index
+ * 识别 undefined 跳过 dedup，每个 location 独立一个 logical key。
  */
 export function redactWholeFile(_content: string, filename: string): RedactResult {
   const fieldName = filename.replace(/\.[^.]+$/, "").toUpperCase();
@@ -147,7 +172,7 @@ export function redactProfileEnv(
   for (const [k, v] of Object.entries(env)) {
     if (isSensitiveKey(k)) {
       out[k] = makePlaceholder(k);
-      hits.push({ fieldPath: `env.${k}`, fieldName: k });
+      hits.push({ fieldPath: `env.${k}`, fieldName: k, valueHash: shortHash(v) });
     } else {
       out[k] = v;
     }
