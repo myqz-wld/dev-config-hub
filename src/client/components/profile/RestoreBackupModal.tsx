@@ -287,7 +287,7 @@ function RestorePreviewBody({
       </div>
       {manifest.options.no_placeholder && (
         <div className="form-row form-row-block">
-          <p className="form-hint" style={{ color: "#c00" }}>
+          <p className="form-hint" style={{ color: "var(--red)" }}>
             ⚠️ 此包含明文凭据（来源 --no-placeholder 模式）
           </p>
         </div>
@@ -297,24 +297,24 @@ function RestorePreviewBody({
           <div
             style={{
               padding: "8px 12px",
-              background: "#dbeafe",
-              color: "#1e3a8a",
-              borderLeft: "3px solid #3b82f6",
+              background: "rgba(88,166,255,.08)",
+              color: "var(--blue)",
+              borderLeft: "3px solid var(--blue)",
               borderRadius: 2,
             }}
           >
-            <p className="form-hint" style={{ margin: 0, color: "#1e3a8a" }}>
+            <p className="form-hint" style={{ margin: 0, color: "var(--blue)" }}>
               🔑 改名确认后下一步将填写 <strong>{secretEntries!.length}</strong> 个去重 secret（自动 fan-out 到所有 {totalOcc} 处出现位置）
             </p>
             <details open style={{ marginTop: 6 }}>
-              <summary className="form-hint" style={{ cursor: "pointer", color: "#1e3a8a" }}>
+              <summary className="form-hint" style={{ cursor: "pointer", color: "var(--blue)" }}>
                 清单（{secretEntries!.length} 个 logical key，按字段名排序）
               </summary>
-              <div style={{ marginTop: 6, paddingLeft: 12, borderLeft: "2px solid #93c5fd" }}>
+              <div style={{ marginTop: 6, paddingLeft: 12, borderLeft: "2px solid rgba(88,166,255,.25)" }}>
                 {secretEntries!.map((e) => (
-                  <p key={e.name} className="form-hint" style={{ margin: "4px 0", color: "#1e3a8a" }}>
+                  <p key={e.name} className="form-hint" style={{ margin: "4px 0", color: "var(--fg1)" }}>
                     <code>{e.name}</code>
-                    <span style={{ color: "#475569" }}> · count={e.count} · {e.hint}</span>
+                    <span style={{ color: "var(--fg2)" }}> · count={e.count} · {e.hint}</span>
                   </p>
                 ))}
               </div>
@@ -339,9 +339,9 @@ function RestorePreviewBody({
               onChange={(e) => onUpdate(ap.originalId, e.target.value)}
               disabled={busy}
               spellCheck={false}
-              style={errMsg ? { borderColor: "#c00" } : undefined}
+              style={errMsg ? { borderColor: "var(--red)" } : undefined}
             />
-            {errMsg && <p className="form-hint" style={{ color: "#c00" }}>{errMsg}</p>}
+            {errMsg && <p className="form-hint" style={{ color: "var(--red)" }}>{errMsg}</p>}
             <p className="form-hint">configDir → <code>{ap.configDir}</code></p>
           </div>
         );
@@ -367,8 +367,8 @@ function RestorePreviewBody({
 
       {plan.errors.length > 0 && (
         <div className="form-row form-row-block">
-          <p className="form-hint" style={{ color: "#c00" }}>错误：</p>
-          {plan.errors.map((e, i) => <p key={i} className="form-hint" style={{ color: "#c00" }}>• {e}</p>)}
+          <p className="form-hint" style={{ color: "var(--red)" }}>错误：</p>
+          {plan.errors.map((e, i) => <p key={i} className="form-hint" style={{ color: "var(--red)" }}>• {e}</p>)}
         </div>
       )}
     </>
@@ -393,7 +393,7 @@ function RestoreReportBody({
       <div className="form-row form-row-block">
         <p className="form-hint">✓ 已还原 {result.appliedProfiles.length} 个 profile（共享资源 {result.sharedActions.length} 项）。</p>
         {secretsMetrics && (
-          <p className="form-hint" style={{ color: secretsMetrics.applied > 0 ? "#059669" : "#6b7280" }}>
+          <p className="form-hint" style={{ color: secretsMetrics.applied > 0 ? "var(--green)" : "var(--fg2)" }}>
             🔑 填值 {secretsMetrics.applied} 处 · 跳过 {secretsMetrics.skipped.length} 个 logical key
             {secretsMetrics.unknown.length > 0 && ` · 未知 key ${secretsMetrics.unknown.length} 个（已忽略）`}
           </p>
@@ -442,8 +442,8 @@ function RestoreReportBody({
 
       {result.errors.length > 0 && (
         <div className="form-row form-row-block">
-          <p className="form-hint" style={{ color: "#c00" }}>错误（{result.errors.length}）：</p>
-          {result.errors.map((e, i) => <p key={i} className="form-hint" style={{ color: "#c00" }}>• {e}</p>)}
+          <p className="form-hint" style={{ color: "var(--red)" }}>错误（{result.errors.length}）：</p>
+          {result.errors.map((e, i) => <p key={i} className="form-hint" style={{ color: "var(--red)" }}>• {e}</p>)}
         </div>
       )}
     </>
@@ -476,7 +476,7 @@ function PlaceholdersList({ items }: { items: PlaceholderEntry[] }) {
       {items.map((p, i) => (
         <p key={i} className="form-hint" style={{ marginLeft: 16, marginTop: 4 }}>
           <code>{p.fieldName}</code> — {p.hint}<br />
-          <span style={{ color: "#888" }}>{p.hostPath ?? p.packPath}</span>
+          <span style={{ color: "var(--fg3)" }}>{p.hostPath ?? p.packPath}</span>
         </p>
       ))}
     </details>
