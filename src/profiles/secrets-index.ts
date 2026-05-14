@@ -174,9 +174,13 @@ export function buildSecretsIndex(
     groupsForField.forEach((g, i) => {
       const idx = i + 1;
       const sortedLocations = [...g.locations].sort((x, y) => x.packPath.localeCompare(y.packPath));
+      // **REVIEW_9 A-INFO-2**: empty fieldName(边角:redactWholeFile filename = `.json` 仅
+      // 扩展名时 fieldName 退化为 `""`)→ logical key 退化成 `-1`,UI 渲染奇怪。fallback
+      // `UNNAMED` 让 logical key 仍可读 + 不破坏 fan-out 寻址(loc.fieldPath 与 fieldName 解耦)。
+      const safeName = fn || "UNNAMED";
       entries.push({
-        name: `${fn}-${idx}`,
-        fieldName: fn,
+        name: `${safeName}-${idx}`,
+        fieldName: safeName,
         fieldNames: g.fieldNames,
         count: g.locations.length,
         hint: hintForGroup(g.locations.length, g.profileSet, g.isWhole, g.fieldNames),
