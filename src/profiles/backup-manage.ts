@@ -128,7 +128,11 @@ export async function listBackups(): Promise<BackupSummary[]> {
 
   // 并发处理每个 pack：stat + tar -xzOf manifest 一起跑（N 个备份 N 次 tar，从串行 N×100ms
   // → 并发 ~100ms 总和）。listBackups 是 UI 备份历史 modal 的 hot path，必须并发。
-  const results = await Promise.all(packs.map(async (name) => {
+  //
+  // **REVIEW_9 B-codex L1**: 不无脑 Promise.all(packs.map(...)) — N=200 备份会 spawn 200 个
+  // tar 子进程,fd 耗尽 / spawn 风暴。用 mapWithConcurrency 限并发上限 8 (4 并发 ~25ms /
+  // 200 packs 6 批 ~150ms 仍快;200 并发拉爆 fd 有 EMFILE 风险)。
+  const results = await mapWithConcurrency(packs, 8, async (name) => {
     const path = join(BACKUP_DIR, name);
     const s = await stat(path).catch(() => null);
     if (!s) return null;
@@ -147,7 +151,7 @@ export async function listBackups(): Promise<BackupSummary[]> {
       manifest,
       manifestError,
     } as BackupSummary;
-  }));
+  });
 
   const out = results.filter((x): x is BackupSummary => x !== null);
   // 排序：default 永远第一；其后 pinned 按 mtime 倒序；history 按 mtime 倒序
@@ -157,6 +161,33 @@ export async function listBackups(): Promise<BackupSummary[]> {
     return b.mtimeMs - a.mtimeMs;
   });
   return out;
+}
+
+/**
+ * 并发上限 N 的 map(worker pool 模式)。N 个 worker 同时跑,每个 worker 取下一个 item 处理直到
+ * items 跑完。比 Promise.all(items.map) 更克制 — items.length 大时不会一次 spawn N 个并发。
+ *
+ * REVIEW_9 B-codex L1: listBackups 用 8 个 worker 上限 (避免 N=200 备份一次 spawn 200 tar)。
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (true) {
+        const i = next++;
+        if (i >= items.length) return;
+        results[i] = await fn(items[i]!);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 /**
