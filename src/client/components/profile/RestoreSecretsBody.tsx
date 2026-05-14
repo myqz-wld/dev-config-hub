@@ -82,6 +82,23 @@ export function RestoreSecretsBody({
         </div>
       </div>
 
+      {/* REVIEW_9 D-claude INFO 3: dev mode 时 React DevTools 可 attach 读 secret state；
+          提示用户关闭浏览器/Tauri 开发者工具,减少明文暴露面 */}
+      <div className="form-row form-row-block">
+        <p
+          className="form-hint"
+          style={{
+            color: "var(--fg2)",
+            fontSize: 12,
+            padding: "4px 8px",
+            background: "rgba(125,133,144,.10)",
+            borderRadius: 2,
+          }}
+        >
+          🔒 提示: 填写期间请关闭浏览器 / Tauri 开发者工具(React DevTools 可读 form state)
+        </p>
+      </div>
+
       <div className="form-section-title">
         填 {total} 个去重 secret(共 {totalOccurrences} 处占位符将被 fan-out)
       </div>
