@@ -26,10 +26,16 @@ import {
   type BackupSummary,
 } from "./profiles/backup-manage.ts";
 
+// REVIEW_8 M11 / B6：每个 cmd 显式 allowed flag 集合（防 typo 被吞）。
+const BACKUP_ALLOWED = new Set(["out", "profiles", "no-shared", "no-placeholder", "yes", "keep"]);
+const RESTORE_ALLOWED = new Set(["prefix", "rename", "dry-run", "yes", "allow-original-path", "fill-secrets", "secrets-json"]);
+const BACKUP_RM_ALLOWED = new Set(["yes"]);
+const BACKUP_PIN_ALLOWED = new Set(["unpin"]);
+
 // ─── backup ──────────────────────────────────────────────────────────────
 
 export async function cmdBackup(args: string[]): Promise<void> {
-  const { flags } = parseFlags(args);
+  const { flags } = parseFlags(args, { allowedFlags: BACKUP_ALLOWED });
   const noPlaceholder = flags["no-placeholder"] === true;
   const includeShared = flags["no-shared"] !== true;
   const yes = flags.yes === true;
@@ -80,7 +86,7 @@ export async function cmdBackup(args: string[]): Promise<void> {
 // ─── restore ─────────────────────────────────────────────────────────────
 
 export async function cmdRestore(args: string[]): Promise<void> {
-  const { positional, flags } = parseFlags(args);
+  const { positional, flags } = parseFlags(args, { allowedFlags: RESTORE_ALLOWED });
   const [packFile] = positional;
   if (!packFile) {
     err("用法: dch profile restore <pack> [--prefix <p>] [--rename OLD=NEW,...] [--dry-run] [--yes] [--fill-secrets | --secrets-json <file>]");
@@ -99,6 +105,9 @@ export async function cmdRestore(args: string[]): Promise<void> {
     err("--fill-secrets 是交互式输入，不能与 --json 同用；自动化场景请用 --secrets-json <file>");
   }
   const prefix = typeof flags.prefix === "string" ? flags.prefix : undefined;
+  // REVIEW_8 H5 / D3：opt-in 才允许尊重 manifest 携带的 configDir_original，否则一律落
+  // ~/.dch-restored/<finalId>/。即使 opt-in 也走 validateRestorePath 二道防线（拒非 HOME / .. / 黑名单）。
+  const allowOriginalPath = flags["allow-original-path"] === true;
   const renameMap: Record<string, string> = {};
   if (typeof flags.rename === "string") {
     for (const pair of flags.rename.split(",")) {
@@ -115,7 +124,7 @@ export async function cmdRestore(args: string[]): Promise<void> {
 
   const parsed = await parseBackup(packFile);
   try {
-    const dryPlan = await applyBackup({ parsed, prefix, renameMap, dryRun: true });
+    const dryPlan = await applyBackup({ parsed, prefix, renameMap, allowOriginalPath, dryRun: true });
 
     if (dryRun) {
       if (isJsonMode()) return jsonOut({ ok: true, dryRun: true, manifest: parsed.manifest, plan: dryPlan });
@@ -132,7 +141,7 @@ export async function cmdRestore(args: string[]): Promise<void> {
       if (!hasSecretsIndex) {
         info("备份内无 secrets_index（旧 pack / no-placeholder），--secrets-json 被忽略走普通 restore");
       }
-      const result = await applyBackupWithSecrets({ parsed, prefix, renameMap, secretsMap });
+      const result = await applyBackupWithSecrets({ parsed, prefix, renameMap, allowOriginalPath, secretsMap });
       await printRestoreResult(parsed.manifest, result);
       return;
     }
@@ -141,7 +150,7 @@ export async function cmdRestore(args: string[]): Promise<void> {
     if (fillSecrets) {
       if (!hasSecretsIndex) {
         info("备份内无 secrets_index（旧 pack / no-placeholder），--fill-secrets 无意义，走普通 restore");
-        const result = await applyBackup({ parsed, prefix, renameMap });
+        const result = await applyBackup({ parsed, prefix, renameMap, allowOriginalPath });
         await printRestoreResult(parsed.manifest, result);
         return;
       }
@@ -150,13 +159,13 @@ export async function cmdRestore(args: string[]): Promise<void> {
         info("已中止（Ctrl+C），未写盘");
         return;
       }
-      const result = await applyBackupWithSecrets({ parsed, prefix, renameMap, secretsMap });
+      const result = await applyBackupWithSecrets({ parsed, prefix, renameMap, allowOriginalPath, secretsMap });
       await printRestoreResult(parsed.manifest, result);
       return;
     }
 
     // 分支 C：都不传 → 现状走 applyBackup + 尾部加提示
-    const result = await applyBackup({ parsed, prefix, renameMap });
+    const result = await applyBackup({ parsed, prefix, renameMap, allowOriginalPath });
     await printRestoreResult(parsed.manifest, result);
     if (hasSecretsIndex && !isJsonMode()) {
       info(`💡 备份内含 ${idx.total_logical_keys} 个唯一凭据；下次可用 --fill-secrets 交互填入或 --secrets-json <file> 自动化`);
@@ -235,7 +244,10 @@ async function printRestoreResult(
   result: ApplyBackupResult | ApplyBackupWithSecretsResult,
 ): Promise<void> {
   if (isJsonMode()) {
-    return jsonOut({ ok: result.errors.length === 0, manifest, ...result });
+    await jsonOut({ ok: result.errors.length === 0, manifest, ...result });
+    // REVIEW_8 H6 / B3：errors.length>0 让 exit code 反映出来，Tauri bridge 才能 throw。
+    if (result.errors.length > 0) process.exit(1);
+    return;
   }
 
   if (result.errors.length > 0) {
@@ -376,7 +388,7 @@ function printGroup(title: string, items: BackupSummary[]): void {
 // ─── backup-rm ───────────────────────────────────────────────────────────
 
 export async function cmdBackupRm(args: string[]): Promise<void> {
-  const { positional, flags } = parseFlags(args);
+  const { positional, flags } = parseFlags(args, { allowedFlags: BACKUP_RM_ALLOWED });
   const [pathArg] = positional;
   if (!pathArg) err("用法: dch profile backup-rm <file> [--yes]");
 
@@ -397,7 +409,7 @@ export async function cmdBackupRm(args: string[]): Promise<void> {
 // ─── backup-pin ──────────────────────────────────────────────────────────
 
 export async function cmdBackupPin(args: string[]): Promise<void> {
-  const { positional, flags } = parseFlags(args);
+  const { positional, flags } = parseFlags(args, { allowedFlags: BACKUP_PIN_ALLOWED });
   const [pathArg] = positional;
   if (!pathArg) err("用法: dch profile backup-pin <file> [--unpin]");
 

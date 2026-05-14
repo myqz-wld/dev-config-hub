@@ -108,9 +108,38 @@ describe("parseFlags (REVIEW_2 PR-1 回归保护)", () => {
     expect(VALUE_FLAGS.has("secrets-json")).toBe(true);
   });
 
-  it("VALUE_FLAGS 末尾缺 value → 静默变 boolean true（已知 LOW，REVIEW_2 R1-L5/R2-L1）", () => {
-    // 此为 lock 当前行为：未来若加 missing-value 报错，需把 expect 改成 toThrow
-    const r = parseFlags(["--pre-hook"]);
-    expect(r.flags["pre-hook"]).toBe(true);
+  it("VALUE_FLAGS 末尾缺 value → throw（REVIEW_8 M11/B6 升级 LOW→ERR）", () => {
+    // REVIEW_8 升级：旧实现静默变 boolean true 让 backup --out 写到 undefined / cmdAdd --pre-hook
+    // 缺 hook 内容这种沉默错误难定位。现在直接 throw，外层 main().catch 在 json 模式 jsonOut 错。
+    expect(() => parseFlags(["--pre-hook"])).toThrow(/--pre-hook 需要 value/);
+    expect(() => parseFlags(["claude", "id", "--dir"])).toThrow(/--dir 需要 value/);
+  });
+
+  it("--env 缺 = → throw（REVIEW_8 M11/B6）", () => {
+    expect(() => parseFlags(["--env", "BADFORMAT"])).toThrow(/KEY=VALUE/);
+  });
+
+  it("--env 缺 value → throw（REVIEW_8 M11/B6 — 旧 falsy guard 漏判）", () => {
+    expect(() => parseFlags(["--env"])).toThrow(/缺 value/);
+  });
+
+  it("allowedFlags 设置 → 未知 flag throw（REVIEW_8 M11/B6 防 typo）", () => {
+    const allowed = new Set(["dir", "from", "desc", "pre-hook", "post-hook"]);
+    // 典型 typo: --no-share vs --no-shared（虽然不在 add 集合，借此演示）
+    expect(() => parseFlags(["--unknown"], { allowedFlags: allowed })).toThrow(/未知 flag --unknown/);
+    expect(() => parseFlags(["--no-share"], { allowedFlags: new Set(["no-shared", "yes"]) }))
+      .toThrow(/未知 flag --no-share/);
+  });
+
+  it("allowedFlags 不设 → 未知 flag 仍宽松收下（保后向兼容）", () => {
+    const r = parseFlags(["--xyz", "value"]);
+    expect(r.flags.xyz).toBe("value");
+  });
+
+  it("allowedFlags + 已知 flag → OK", () => {
+    const allowed = new Set(["dir", "from", "desc", "pre-hook", "post-hook"]);
+    const r = parseFlags(["claude", "id", "--dir", "/tmp", "--desc", "x"], { allowedFlags: allowed });
+    expect(r.flags.dir).toBe("/tmp");
+    expect(r.flags.desc).toBe("x");
   });
 });

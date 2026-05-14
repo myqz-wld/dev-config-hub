@@ -102,10 +102,10 @@ async function version(cmd: string): Promise<string> {
 async function readScope(
   path: string, level: ConfigScope["level"], label: string, format: ConfigScope["format"],
 ): Promise<ConfigScope> {
-  // 单次 IPC 拿 exists + content（不消费 mtime；ConfigPanel 当前展示模式不做 TOCTOU
-  // 比对，去掉双 IPC race + 减半 IPC 顺手收益）。
-  const { exists, content } = await readFileWithMtime(path);
-  return { level, label, filePath: path, exists, format, content };
+  // REVIEW_8 H7 / E2：灌入 mtimeUs 给 ConfigPanel edit 模式做 TOCTOU CAS。
+  // 单次 IPC 同步拿 exists + content + mtime（消除 file_exists/read_file 双 IPC race）。
+  const { exists, content, mtimeUs } = await readFileWithMtime(path);
+  return { level, label, filePath: path, exists, format, content, loadedMtimeUs: mtimeUs };
 }
 
 export interface ToolVersions {
@@ -175,12 +175,60 @@ export async function saveFile(filePath: string, content: string): Promise<void>
   await call("save_file", { path: filePath, content });
 }
 
+/**
+ * REVIEW_8 H7 (Group E1) / R3 G5：原子写 + mtime CAS（compare-and-swap）。
+ *
+ * 后端 Tauri command `save_file_if_mtime` 在写盘前 stat 比对 expectedMtimeUs：
+ * - `expectedMtimeUs = number` → 不一致直接 reject（原子，避免 silent overwrite）
+ * - `expectedMtimeUs = null` → 跳过 CAS（首次创建 / caller 显式不 care）
+ *
+ * 错误前缀（atomic.rs:write_atomic_check_mtime）：
+ * - `MTIME_MISMATCH:<expected>:<actual>` → throw `MtimeMismatchError`（含 expected/actual）
+ * - `MTIME_MISSING:<expected>`           → throw `MtimeMissingError`（caller 期望存在但已删）
+ * - 其他 IO / boundary 失败 → 原始 Error 透传
+ *
+ * **返回新 mtime（us）** 让 caller 更新 loadedMtimeUs，避免再发 readFileWithMtime
+ * 拿一次 IPC 才能继续 edit。
+ *
+ * R3 G5 拆分：mtime CAS 错误类型 + classifier 抽到 `bridge-mtime.ts`（self-contained pure
+ * 类型 + 字符串解析），bridge.ts 落回 ≤500 LOC 护栏。re-export 让既有 caller
+ * `import { MtimeMismatchError } from "./bridge.ts"` 仍可用，无 break change。
+ */
+export {
+  MtimeMismatchError, MtimeMissingError,
+  isMtimeMismatch, isMtimeMissing,
+  classifySaveError,
+} from "./bridge-mtime.ts";
+
+import { classifySaveError } from "./bridge-mtime.ts";
+
+export async function saveFileIfMtime(
+  filePath: string,
+  content: string,
+  expectedMtimeUs: number | null,
+): Promise<number> {
+  try {
+    return await call<number>("save_file_if_mtime", {
+      path: filePath,
+      content,
+      // Tauri 2 自动 camelCase ↔ snake_case 转换，匹配 Rust 端 expected_mtime_us: Option<u64>
+      expectedMtimeUs,
+    });
+  } catch (e) {
+    throw classifySaveError(e);
+  }
+}
+
 // ── Profile bridge: 通过 Tauri 调 dch CLI（--json 模式），结果统一 JSON ─────
 
 export interface DchCommandResult {
   stdout: string;
   stderr: string;
   code: number;
+  /** REVIEW_8 R2 R2-12 / R3 G6：proc_timeout reader 触 5MB cap 时为 true。
+   * UI 侧拿到 `truncated=true` 应警示用户「输出过大已截断」，避免按截断 stdout
+   * parse JSON 误以为完整。Rust DchCommandResult 同字段，通过 `serde(rename_all = "camelCase")` 同步。 */
+  truncated: boolean;
 }
 
 /**

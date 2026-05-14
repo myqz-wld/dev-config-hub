@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import type { ToolConfig, ConfigScope } from "../../types.ts";
 import { CMEditor } from "./editor/CMEditor.tsx";
 import { languageExtensionFor } from "./editor/languages.ts";
 import { MarkdownView } from "./markdown/MarkdownView.tsx";
+import { isMtimeMismatch, isMtimeMissing } from "../bridge.ts";
 
 const Chev = ({ open }: { open: boolean }) => (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className={`chev${open ? " open" : ""}`}>
@@ -22,7 +23,7 @@ function Scope({
   onToast: _onToast,
 }: {
   scope: ConfigScope;
-  onSave: (p: string, c: string) => Promise<void>;
+  onSave: (p: string, c: string, expectedMtimeUs?: number | null) => Promise<void>;
   onToast: (msg: string, ok: boolean) => void;
 }) {
   const [open, setOpen] = useState(true);
@@ -39,15 +40,22 @@ function Scope({
   // externalChanged=true → banner 让用户决策 [重新加载 / 保留改动 / 取消编辑]。
   const [externalChanged, setExternalChanged] = useState(false);
   const enterEditRef = useRef<string | null>(null);
+  // REVIEW_8 H7 / Group E2：进 edit 时 snapshot 当时的 mtime；save 时透传给后端做 CAS。
+  // - undefined：旧 reader 路径（loadedMtimeUs 字段没填） → 跳过 CAS（向后兼容）
+  // - null：CAS 弃权（用户主动「保留我的改动」点击 → 后续 save 强制覆盖）
+  // - number：正常 CAS，后端 stat 比对失败抛 MtimeMismatchError
+  const enterEditMtimeRef = useRef<number | null | undefined>(undefined);
 
   useEffect(() => {
     if (mode !== "edit") {
       enterEditRef.current = null;
+      enterEditMtimeRef.current = undefined;
       setExternalChanged(false);
       return;
     }
     if (enterEditRef.current === null) {
       enterEditRef.current = scope.content;
+      enterEditMtimeRef.current = scope.loadedMtimeUs;
     } else if (scope.content !== enterEditRef.current) {
       setExternalChanged(true);
     } else {
@@ -55,10 +63,21 @@ function Scope({
       // 外部改了 → banner 弹 → 外部又撤销回基线 → scope.content === enterEditRef.current
       // 漏 else 分支会让 externalChanged 永久 true → banner 虚假残留
       setExternalChanged(false);
+      // REVIEW_8 R2 R2-8 / R3 G4：touch-only 修复 — 外部 `touch` 推 mtime 变化但 content 不变时
+      // 必须同步最新 mtime 到 enterEditMtimeRef，否则下次 save 透传 stale enterEditMtime
+      // → 后端 CAS stat 拿到新 mtime → 抛 MtimeMismatchError → 用户莫名其妙看到 banner
+      // (用户认知：「我没看到任何外部内容变化，为什么提示外部修改？」)
+      // 修：content 与基线一致时 mtime 基线 follow 最新值（与「重新加载」按钮 line 132 同款语义）
+      enterEditMtimeRef.current = scope.loadedMtimeUs;
     }
-  }, [mode, scope.content]);
+  }, [mode, scope.content, scope.loadedMtimeUs]);
 
   const fallbackMode: Mode = defaultModeFor(scope.format);
+
+  // REVIEW_8 H8 / Group E5：caller 必须 useMemo 稳定 language Extension 引用，否则
+  // CMEditor extraCompartment / langCompartment 每次 render 收到新引用都 reconfigure
+  // 一次（哪怕内容相同），大文件性能差。
+  const langExt = useMemo(() => languageExtensionFor(scope.format), [scope.format]);
 
   const renderMarkdownToggleLabel = mode === "render" ? "源文件" : "渲染";
   const renderMarkdownToggleNext: Mode = mode === "render" ? "view" : "render";
@@ -107,6 +126,9 @@ function Scope({
                       onClick={() => {
                         setBuf(scope.content);
                         enterEditRef.current = scope.content;
+                        // REVIEW_8 H7 / Group E2：拿父级 reload 推下来的最新 mtime 当基线，
+                        // 让下次 save 用新 mtime 做 CAS（一致 → 通过；外部又改一次 → 再撞 mismatch）
+                        enterEditMtimeRef.current = scope.loadedMtimeUs;
                         setExternalChanged(false);
                       }}
                     >重新加载（放弃我的改动）</button>
@@ -118,6 +140,9 @@ function Scope({
                       onClick={() => {
                         // 用户主动接受「保存覆盖」语义；重置基线避免反复弹
                         enterEditRef.current = scope.content;
+                        // REVIEW_8 H7 / Group E2：用户主动放弃 CAS（强制覆盖语义） →
+                        // 后续 save 传 null 跳过后端 mtime 校验
+                        enterEditMtimeRef.current = null;
                         setExternalChanged(false);
                       }}
                     >保留我的改动（保存会覆盖）</button>
@@ -132,7 +157,7 @@ function Scope({
               <CMEditor
                 value={buf}
                 onChange={setBuf}
-                language={languageExtensionFor(scope.format)}
+                language={langExt}
                 readOnly={saving}
                 maxHeight={500}
               />
@@ -144,8 +169,24 @@ function Scope({
                   disabled={saving || externalChanged}
                   onClick={async () => {
                     setSaving(true);
-                    try { await onSave(scope.filePath, buf); setMode(fallbackMode); }
-                    catch { /* App.tsx onSave 内已 flash 错误 toast；保留 edit 模式 */ }
+                    try {
+                      // REVIEW_8 H7 / Group E2：透传 enter-edit 时 snapshot 的 mtime 给后端 CAS。
+                      // undefined（旧 reader 没填 loadedMtimeUs） → App.onSave 走旧 saveFile，跳过 CAS。
+                      // null（用户「保留我的改动」点击后） → 走 saveFileIfMtime 但传 null 跳 CAS。
+                      // number → 走 saveFileIfMtime 真做 CAS。
+                      await onSave(scope.filePath, buf, enterEditMtimeRef.current);
+                      setMode(fallbackMode);
+                    } catch (e) {
+                      // App.tsx onSave 内已 flash 错误 toast；保留 edit 模式
+                      // REVIEW_8 H7 / Group E2：mtime CAS 失败 → 弹 banner 走「重新加载/保留改动/取消」三按钮
+                      // 路径，与父级 reload 推 scope.content 变化触发的 banner 同款 UX
+                      // （走 isMtimeMismatch / isMtimeMissing helper 而非 instanceof：
+                      //  bun mock.module 替换 module exports 后 class identity 跨 module 不一致，
+                      //  instanceof 在测试 mock 场景会 false-negative；改用 e.name 字符串判断兜底）
+                      if (isMtimeMismatch(e) || isMtimeMissing(e)) {
+                        setExternalChanged(true);
+                      }
+                    }
                     finally { setSaving(false); }
                   }}
                 >{saving ? "保存中…" : "保存"}</button>
@@ -160,7 +201,7 @@ function Scope({
             <CMEditor
               value={scope.content}
               readOnly
-              language={languageExtensionFor(scope.format)}
+              language={langExt}
               maxHeight={500}
             />
           )}
@@ -176,7 +217,7 @@ export function ConfigPanel({
   onToast,
 }: {
   tool: ToolConfig;
-  onSave: (p: string, c: string) => Promise<void>;
+  onSave: (p: string, c: string, expectedMtimeUs?: number | null) => Promise<void>;
   onToast: (msg: string, ok: boolean) => void;
 }) {
   return (
