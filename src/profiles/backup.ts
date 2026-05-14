@@ -183,6 +183,7 @@ async function copyOrRedactFile(
   filename: string,
   opts: { noPlaceholder: boolean; packPath: string },
   hashByEntry: Map<PlaceholderEntry, string | undefined>,
+  warnings: string[],
 ): Promise<PlaceholderEntry[]> {
   await mkdir(dirname(dst), { recursive: true });
   const file = Bun.file(src);
@@ -205,6 +206,12 @@ async function copyOrRedactFile(
   }
   const r = redactByFilename(text, filename);
   await Bun.write(dst, r.content);
+  // **REVIEW_9 A-HIGH-2 / B-HIGH-2 跨批**: parse 失败 fall back 到 plain-text regex 时
+  // redactByFilename 会返 warnings,带上 packPath 让 manifest.security_warnings 显式告知用户
+  // 哪个文件走了兜底路径(可能漏脱敏不规范字段)。
+  if (r.warnings && r.warnings.length > 0) {
+    for (const w of r.warnings) warnings.push(`${opts.packPath}: ${w}`);
+  }
   return r.placeholders.map((h) => {
     const entry = entryFromHit(h, opts.packPath);
     hashByEntry.set(entry, h.valueHash);
@@ -296,6 +303,10 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
     // redactWholeFile（整文件场景，每条独立 logical key 不参与 dedup）。仅 backup 内存
     // 阶段用作 group key，分配 logical key 后立即丢弃，绝不写到 manifest / dchpack。
     const hashByEntry = new Map<PlaceholderEntry, string | undefined>();
+    // **REVIEW_9 A-HIGH-2 / B-HIGH-2 跨批**: 累加每文件 redactByFilename fallback warnings,
+    // 最终拼到 manifest.security_warnings 让用户感知备份内有「parse 失败已走 plain-text 兜底」
+    // 的文件,可能漏脱敏不规范字段。
+    const fileLevelWarnings: string[] = [];
     const manifestProfiles: ManifestProfile[] = [];
     for (const p of wanted) {
       const profileBase = join(tmpDir, "profiles", p.id);
@@ -332,7 +343,7 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
         const hits = await copyOrRedactFile(f.absPath, dst, filename, {
           noPlaceholder,
           packPath: `profiles/${p.id}/configDir/${f.relPath}`,
-        }, hashByEntry);
+        }, hashByEntry, fileLevelWarnings);
         placeholders.push(...hits);
       }
 
@@ -371,7 +382,10 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
       shared: { dch_scripts: sharedScripts, agents_paths: agentsPaths },
       placeholders,
       ...(secretsIndex ? { secrets_index: secretsIndex } : {}),
-      security_warnings: noPlaceholder ? ["raw_credentials: 此包包含明文凭据，仅限本地加密迁移"] : [],
+      security_warnings: [
+        ...(noPlaceholder ? ["raw_credentials: 此包包含明文凭据，仅限本地加密迁移"] : []),
+        ...fileLevelWarnings,
+      ],
     };
     await writeJson(join(tmpDir, "manifest.json"), manifest);
     await Bun.write(join(tmpDir, "README.md"), readmeText(manifest));

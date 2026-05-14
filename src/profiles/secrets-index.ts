@@ -33,6 +33,7 @@
  */
 
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
+import { rename, rm } from "node:fs/promises";
 import type { PlaceholderEntry } from "./backup.ts";
 
 // ─── manifest 写入用类型 ──────────────────────────────────────
@@ -243,30 +244,41 @@ export interface ParsedFieldPath {
 /**
  * 解析 fieldPath 字符串：
  * - **JSON 形式**：`$.a.b[0].c` / `$.env.OPENAI_API_KEY` / `$.placeholder`
- * - **TOML 形式**：`a.b.c`（smol-toml dot-path，无 `$.` 前缀）
+ * - **TOML 形式**：`a.b.c` / `a.b[0].c`（**REVIEW_9 A-HIGH-1**: 也识别 `key[i]` 段——TOML
+ *   array-of-tables 备份后 fieldPath 含 `[i]` 但旧 parseDotPath 只 `s.split(".")` 拆,导致
+ *   secrets-fill 寻址失败,真凭据无法回填到 array-of-tables。新版与 parseJsonPath 共享
+ *   tokenizer)
  *
  * env 形式（如 `env.K`，redact.ts:175 内部生成）实际不会进 manifest（backup.ts:300 已重写为
  * `$.env.K`），但仍按 TOML dot-path 兼容处理以防御未来变动。
+ *
+ * **REVIEW_9 A-codex M2**: tokenizer 识别 backslash 转义 `\\` `\.` `\[` `\]`(让含特殊字符
+ * 的 key 名能正确还原成单段;walkAndRedact 已对 key 做 escapeKey 转义)。
  *
  * 解析失败抛 Error（caller 应捕获并记入 errors[]）。
  */
 export function parseFieldPath(fp: string): ParsedFieldPath {
   if (fp.startsWith("$.")) {
-    return { kind: "json", segments: parseJsonPath(fp.slice(2)) };
+    return { kind: "json", segments: parsePathTokens(fp.slice(2)) };
   }
   if (fp === "$") {
     return { kind: "json", segments: [] };
   }
-  return { kind: "toml", segments: parseDotPath(fp) };
+  return { kind: "toml", segments: parsePathTokens(fp) };
 }
 
 /**
- * 拆 JSON-path 主体（去掉 `$.` 前缀后的部分）。
+ * 通用路径 tokenizer:JSON / TOML 共用。
  *
- * 支持：`a.b.c` / `a[0].b` / `a[0][1]` / `a-b.c`（key 含 `-`/数字字符）。
- * 不支持：key 含 `.` 或 `[` 字面量（walkAndRedact 固有限制）。
+ * 支持:
+ * - dot 段: `a.b.c` → 三段 key
+ * - bracket 段: `a[0].b` / `a[0][1]` → key + index 混排
+ * - escape 段: `a\.b.c` → key=`a.b` + key=`c`(`\.` 表字面 `.`,`\[` `\]` `\\` 同理)
+ *
+ * 不支持: 其他正则字符;空 key;非整数 index。
  */
-function parseJsonPath(s: string): PathSegment[] {
+function parsePathTokens(s: string): PathSegment[] {
+  if (!s) return [];
   const segs: PathSegment[] = [];
   let i = 0;
   while (i < s.length) {
@@ -280,21 +292,26 @@ function parseJsonPath(s: string): PathSegment[] {
       segs.push({ type: "index", index: idx });
       i = end + 1;
       if (s[i] === ".") i++;
-    } else {
-      let j = i;
-      while (j < s.length && s[j] !== "." && s[j] !== "[") j++;
-      const key = s.slice(i, j);
-      if (key) segs.push({ type: "key", key });
-      i = j;
-      if (s[i] === ".") i++;
+      continue;
     }
+    // 收集 key 字符直到 unescape 的 `.` / `[`(支持 `\\` `\.` `\[` `\]` 转义)
+    let buf = "";
+    while (i < s.length) {
+      const ch = s[i]!;
+      if (ch === "\\" && i + 1 < s.length) {
+        // 任意被 escape 的字符按字面取(覆盖 `\\` `\.` `\[` `\]`)
+        buf += s[i + 1];
+        i += 2;
+        continue;
+      }
+      if (ch === "." || ch === "[") break;
+      buf += ch;
+      i++;
+    }
+    if (buf) segs.push({ type: "key", key: buf });
+    if (s[i] === ".") i++;
   }
   return segs;
-}
-
-function parseDotPath(s: string): PathSegment[] {
-  if (!s) return [];
-  return s.split(".").map((k) => ({ type: "key", key: k }));
 }
 
 /**
@@ -488,10 +505,21 @@ async function fillSingleFile(
     errors.push(`${hostPath}: stringify 失败: ${e instanceof Error ? e.message : String(e)}`);
     return 0;
   }
+  // **REVIEW_9 A-claude M2**: 原子写。旧实现 `Bun.write(hostPath, out)` 半写时会留破坏后的
+  // 配置(JSON / TOML 解析失败让 Claude / codex 启动崩溃)。三步原子:写 tmp → mv → rename。
+  // 同 fs 内 mv = rename(2) 原子,半写时 hostPath 仍指向上次内容。
+  const tmpPath = `${hostPath}.dch-fill-tmp-${process.pid}`;
   try {
-    await Bun.write(hostPath, out);
+    await Bun.write(tmpPath, out);
   } catch (e) {
-    errors.push(`${hostPath}: 写入失败: ${e instanceof Error ? e.message : String(e)}`);
+    errors.push(`${hostPath}: 写临时文件失败: ${e instanceof Error ? e.message : String(e)}`);
+    return 0;
+  }
+  try {
+    await rename(tmpPath, hostPath);
+  } catch (e) {
+    try { await rm(tmpPath, { force: true }); } catch {}
+    errors.push(`${hostPath}: rename 失败: ${e instanceof Error ? e.message : String(e)}`);
     return 0;
   }
   // write 成功才 commit tentative → filledLocations（避免 stringify/write fail 时虚报已填）
