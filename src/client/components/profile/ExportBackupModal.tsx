@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { dchProfile, type Profile, type Manifest } from "../../bridge.ts";
+import { dchProfile, type Profile, type Manifest, type SecretsIndex } from "../../bridge.ts";
 import { backupCache } from "../../backup-cache.ts";
 
 /**
@@ -107,10 +107,17 @@ export function ExportBackupModal({
               <p className="form-hint">✓ 备份完成（{formatBytes(result.bytes)}）</p>
               <pre className="raw">{result.outFile}</pre>
               <p className="form-hint">
-                {keep ? "已保留为历史副本" : "已覆盖默认位 latest.dchpack"} · 包含 {result.manifest.profiles.length} 个 profile，{result.manifest.placeholders.length} 处脱敏。
+                {keep ? "已保留为历史副本" : "已覆盖默认位 latest.dchpack"} · 包含 {result.manifest.profiles.length} 个 profile
+                {result.manifest.secrets_index && result.manifest.secrets_index.entries.length > 0
+                  ? <> · 🔑 <strong>{result.manifest.secrets_index.total_logical_keys}</strong> 个 unique secret（合并自 {result.manifest.secrets_index.total_occurrences} 处占位符）</>
+                  : <>，{result.manifest.placeholders.length} 处脱敏</>}
+                。
                 <br />
                 还原方式：CLI 跑 <code>dch profile restore &lt;path&gt;</code>，或 ProfilePanel → 📥 导入备份。
               </p>
+              {result.manifest.secrets_index && result.manifest.secrets_index.entries.length > 0 && (
+                <SecretsSummaryList idx={result.manifest.secrets_index} />
+              )}
             </div>
           ) : (
             <>
@@ -265,4 +272,30 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)}GB`;
+}
+
+/**
+ * 备份完展示去重后的 unique secret 清单（CHANGELOG_19）。让用户立刻知道
+ * 还原时只需填 K 次（而不是 placeholders.length 次），且每个 logical key
+ * 是哪个字段、聚合了多少处、跨几个 profile。
+ */
+function SecretsSummaryList({ idx }: { idx: SecretsIndex }) {
+  return (
+    <details open style={{ marginTop: 8 }}>
+      <summary className="form-hint" style={{ cursor: "pointer", color: "#1e3a8a" }}>
+        🔑 unique secret 清单（{idx.total_logical_keys} 个，按字段名排序）
+      </summary>
+      <div style={{ marginTop: 6, paddingLeft: 12, borderLeft: "2px solid #dbeafe" }}>
+        {idx.entries.map((e) => (
+          <p key={e.name} className="form-hint" style={{ margin: "4px 0" }}>
+            <code>{e.name}</code>
+            <span style={{ color: "#888" }}> · count={e.count} · {e.hint}</span>
+          </p>
+        ))}
+        <p className="form-hint" style={{ margin: "8px 0 0", color: "#6b7280" }}>
+          还原时只需填这 {idx.total_logical_keys} 个值（自动 fan-out 到所有 {idx.total_occurrences} 处出现位置）。
+        </p>
+      </div>
+    </details>
+  );
 }
