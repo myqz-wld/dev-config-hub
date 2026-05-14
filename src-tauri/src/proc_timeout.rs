@@ -312,4 +312,30 @@ mod tests {
         assert!(!r.truncated, "小输出不应标 truncated");
         assert_eq!(r.code, 0);
     }
+
+    /// REVIEW_8 R3 G7 / B-claude-L1：stderr 单独超 5MB 也走 cap + truncated=true（与 stdout 同款）。
+    /// 旧测试只覆盖 stdout 单流，stderr cap 路径没回归保护 — 万一 reader 实现拆分 stdout/stderr
+    /// 走不同 buf 但 truncated_flag 共享时，stderr 单独超 cap 仍应标 truncated。
+    #[test]
+    #[cfg(unix)]
+    fn buffer_cap_truncates_oversize_stderr() {
+        let mut cmd = Command::new("/bin/sh");
+        // 把 dd 输出重定向到 stderr（1>&2）；6MB 超 5MB cap
+        cmd.args(["-c", "dd if=/dev/zero bs=4096 count=1536 1>&2 2>/dev/null; exit 0"]);
+        let start = Instant::now();
+        // 给足够时间，且 cap 后必须继续 drain pipe
+        let r = spawn_with_timeout(cmd, Duration::from_secs(15)).unwrap();
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "stderr cap 后也应继续 drain，不让 child hang。实际 elapsed={:?}",
+            elapsed
+        );
+        assert_eq!(r.code, 0, "child 应正常 exit 0");
+        assert!(!r.timed_out);
+        assert!(r.truncated, "stderr 超 5MB 应标 truncated=true");
+        assert_eq!(r.stderr.len(), MAX_BUF_BYTES, "stderr buffer 应正好 cap 到 MAX_BUF_BYTES");
+        // stdout 应该是空（dd 输出全到 stderr 了）
+        assert_eq!(r.stdout.len(), 0, "stdout 应为空");
+    }
 }

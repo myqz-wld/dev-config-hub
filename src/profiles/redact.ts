@@ -198,10 +198,12 @@ const KEY_VALUE_PATTERNS: Array<{ name: string; re: RegExp }> = [
 ];
 
 // Authorization: Bearer xxx / Basic xxx / Token xxx
+// REVIEW_8 R2 R2-11 / R3 G2：加 `i` flag 大小写不敏感（lowercase `authorization:` /
+// scheme `bearer` 都常见于 HTTP request log / curl 例子，原 `/g` 漏脱敏）
 const HTTP_AUTH_PATTERNS: Array<{ name: string; re: RegExp }> = [
   {
     name: "HTTP_AUTH",
-    re: /\b(Authorization|X-Api-Key|X-Auth-Token)\s*:\s*(Bearer|Basic|Token)?\s*([A-Za-z0-9_+./=-]{16,})/g,
+    re: /\b(Authorization|X-Api-Key|X-Auth-Token)\s*:\s*(Bearer|Basic|Token)?\s*([A-Za-z0-9_+./=-]{16,})/gi,
   },
 ];
 

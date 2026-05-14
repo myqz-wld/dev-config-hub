@@ -63,6 +63,12 @@ function Scope({
       // 外部改了 → banner 弹 → 外部又撤销回基线 → scope.content === enterEditRef.current
       // 漏 else 分支会让 externalChanged 永久 true → banner 虚假残留
       setExternalChanged(false);
+      // REVIEW_8 R2 R2-8 / R3 G4：touch-only 修复 — 外部 `touch` 推 mtime 变化但 content 不变时
+      // 必须同步最新 mtime 到 enterEditMtimeRef，否则下次 save 透传 stale enterEditMtime
+      // → 后端 CAS stat 拿到新 mtime → 抛 MtimeMismatchError → 用户莫名其妙看到 banner
+      // (用户认知：「我没看到任何外部内容变化，为什么提示外部修改？」)
+      // 修：content 与基线一致时 mtime 基线 follow 最新值（与「重新加载」按钮 line 132 同款语义）
+      enterEditMtimeRef.current = scope.loadedMtimeUs;
     }
   }, [mode, scope.content, scope.loadedMtimeUs]);
 
