@@ -13,22 +13,7 @@
  * - 还原**不**整体覆盖 ~/.dch/profiles.json（按单条 addProfile，复用 manager 的撞名校验）
  * - shared/dch/scripts/* 与 shared/agents/** 按文件 sha256 比对决定 skip / overwrite / backup-then-overwrite
  * - 占位符位置精准记录，UI 可定位到 final configDir 的 host 路径
- */
-
-import { mkdir, mkdtemp, rm, copyFile } from "node:fs/promises";
-import { join, dirname, isAbsolute } from "node:path";
-import { tmpdir } from "node:os";
-import type { Profile } from "./types.ts";
-import { loadStore, expandHome, collapseHome, HOME, DCH_DIR, STORE_PATH } from "./store.ts";
-import { addProfile, ID_RE } from "./manager.ts";
-import {
-  FORMAT_VERSION,
-  walkFiles, fileExists, tsForFilename, spawnSimple,
-  type Manifest, type PlaceholderEntry,
-} from "./backup.ts";
-import { applyFilledSecrets } from "./secrets-index.ts";
-
-/**
+ *
  * REVIEW_8 H5 / Group D3：默认强制把还原写到 `~/.dch-restored/<finalId>/` 下，忽略 manifest
  * 携带的 configDir_original。
  *
@@ -50,80 +35,34 @@ import { applyFilledSecrets } from "./secrets-index.ts";
  * - validateRestorePath 大小写不敏感（macOS APFS / HFS+ 默认 case-insensitive，`.SSH` == `.ssh`）
  * - addProfile 失败 rm rollback pre-stat：finalDirAbs 在 restore 之前已存在时**不**rm，避免
  *   --allow-original-path 撞已有非备份目录误删用户数据
+ *
+ * **REVIEW_9 G6 拆模块**: path safety helpers (RESTORED_BASE / RESTORE_BLACKLIST /
+ * safeJoinUnderRoot / validateRestorePath / normalizePath) 抽出 `backup-restore-paths.ts`,
+ * 让 backup-restore.ts 顶 500 LOC 护栏。caller 仍 `import {validateRestorePath} from
+ * "./backup-restore.ts"` 不变 — 本文件 re-export 透传。
  */
-const RESTORED_BASE = join(HOME, ".dch-restored");
-const RESTORE_BLACKLIST = [
-  ".ssh",
-  ".gnupg",
-  "Library/LaunchAgents",
-  "Library/LaunchDaemons",
-  "Library/Application Support/com.apple.TCC", // 隐私权限 DB
-];
-// macOS APFS / HFS+ 默认 case-insensitive：`.SSH/authorized_keys` 与 `.ssh/authorized_keys`
-// 是同一文件。预先 lowercase 一次避免 hot path 重算。
-const RESTORE_BLACKLIST_LC = RESTORE_BLACKLIST.map((s) => s.toLowerCase());
 
-/**
- * REVIEW_8 R2 R2-3/R2-4 / R3 G1：把 rel join 到 rootAbs 下，**保证不逃逸 rootAbs 子树**。
- *
- * 用途：恶意 .dchpack 携带的 `manifest.shared.dch_scripts[i] = "../../.ssh/authorized_keys"`
- * 走 `join("$HOME/.dch/scripts", rel) = "$HOME/.ssh/authorized_keys"` 真能逃逸到敏感路径。
- * 本 helper 用四道防线拒：null byte / 绝对路径 / `..` 段 / startsWith rootAbs 二道校验。
- *
- * 返回 null = rel 不安全；返回 string = 安全 join 后的绝对路径。
- *
- * **case-insensitive note**：startsWith 用原始 case 比较；rootAbs 由 caller 控制（固定 const
- * 不来自外部输入），rel 来自 manifest（attacker controlled）但前面 `..` 校验已挡。极端 case
- * insensitive APFS 上同名 dir 不同 case 不影响安全（仍指同 inode），仅影响日志可读性。
- */
-function safeJoinUnderRoot(rootAbs: string, rel: string): string | null {
-  if (!rel || rel.includes("\0")) return null;
-  if (isAbsolute(rel)) return null;
-  if (rel.split(/[/\\]/).some((s) => s === "..")) return null;
-  const joined = join(rootAbs, rel);
-  if (joined !== rootAbs && !joined.startsWith(rootAbs + "/")) return null;
-  return joined;
-}
+import { mkdir, mkdtemp, rm, copyFile } from "node:fs/promises";
+import { join, dirname } from "node:path";
+import { tmpdir } from "node:os";
+import type { Profile } from "./types.ts";
+import { loadStore, expandHome, collapseHome, HOME, DCH_DIR, STORE_PATH } from "./store.ts";
+import { addProfile, ID_RE } from "./manager.ts";
+import {
+  FORMAT_VERSION,
+  walkFiles, fileExists, tsForFilename, spawnSimple,
+  type Manifest, type PlaceholderEntry,
+} from "./backup.ts";
+import {
+  RESTORED_BASE,
+  safeJoinUnderRoot,
+  validateRestorePath,
+  normalizePath,
+} from "./backup-restore-paths.ts";
 
-/**
- * 校验 path 是否允许写入。返回 null = 允许；返回 string = reject 原因。
- *
- * 1. 必须绝对路径（caller 应该已 expandHome 过）
- * 2. 必须 startsWith HOME（拒 /etc/* /tmp/* /System/* 等）
- * 3. 不含 `..` 段（防 `~/foo/../../etc` 字符串绕过）
- * 4. 不能在 RESTORE_BLACKLIST 任何子树下（即便在 HOME 内）
- * 5. **不能是 RESTORE_BLACKLIST 任一段的祖先**（R2-6 修复：`$HOME/Library` 是
- *    `Library/LaunchAgents` 的祖先，opt-in 模式下 .dchpack 内 `LaunchAgents/x.plist`
- *    会落到 `$HOME/Library/LaunchAgents/x.plist` 黑名单子树）
- * 6. **大小写不敏感**比较（R2-10 修复：macOS APFS / HFS+ 默认 case-insensitive，
- *    `.SSH/authorized_keys` 与 `.ssh/authorized_keys` 同 inode）
- */
-export function validateRestorePath(absPath: string): string | null {
-  if (!absPath || !isAbsolute(absPath)) return `路径不是绝对路径: ${absPath}`;
-  // 字符串子串扫描 .. 段（跨 / 与 \ 分隔，覆盖 fs 拼接 corner case）
-  if (absPath.split(/[/\\]/).some((seg) => seg === "..")) {
-    return `路径含 '..' 段: ${absPath}`;
-  }
-  const absLc = absPath.toLowerCase();
-  const homeLc = HOME.toLowerCase();
-  if (!(absLc === homeLc || absLc.startsWith(homeLc + "/"))) {
-    return `路径不在 HOME 下: ${absPath}`;
-  }
-  const relLc = absLc === homeLc ? "" : absLc.slice(homeLc.length + 1); // strip "HOME/"
-  for (const badLc of RESTORE_BLACKLIST_LC) {
-    // a. absPath 在黑名单本身或其子树（既有逻辑）
-    if (relLc === badLc || relLc.startsWith(badLc + "/")) {
-      return `路径在 RESTORE_BLACKLIST 内: ${absPath}（黑名单段: ${badLc}）`;
-    }
-    // b. R2-6 修复：absPath 是黑名单的祖先（写入时 mkdir/copyDirRecursive 会创建黑名单子树）
-    //    relLc === "" → absPath == HOME 是任何 bad 的祖先；显式拒
-    //    badLc.startsWith(relLc + "/") → relLc 是 badLc 的真前缀（祖先）
-    if (relLc === "" || badLc.startsWith(relLc + "/")) {
-      return `路径是 RESTORE_BLACKLIST 祖先: ${absPath}（黑名单段: ${badLc}，写入会创建敏感子树）`;
-    }
-  }
-  return null;
-}
+// caller 仍 `import { validateRestorePath } from "./backup-restore.ts"` 不变
+// (e.g. backup-safety.test.ts)
+export { validateRestorePath } from "./backup-restore-paths.ts";
 
 export interface ParseBackupResult {
   manifest: Manifest;
@@ -231,13 +170,6 @@ async function copyDirRecursive(srcDir: string, dstDir: string): Promise<void> {
     await mkdir(dirname(dst), { recursive: true });
     await copyFile(f.absPath, dst);
   }
-}
-
-function normalizePath(p: string): string {
-  if (!p) return "";
-  let abs = p;
-  if (!isAbsolute(abs)) abs = expandHome(abs);
-  return abs.replace(/\/+/g, "/").replace(/\/+$/, "") || "/";
 }
 
 export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackupResult> {
@@ -516,95 +448,12 @@ async function applySharedFile(
 // CHANGELOG_18：在原 applyBackup 写盘后追加一步，按 manifest.secrets_index 把
 // 用户填的真值 fan-out 到所有 location 的 host fs 路径。原 applyBackup 路径不变，
 // 旧 dchpack（无 secrets_index）/ 没传 secretsMap → 走 fall back 等价 applyBackup。
-
-export interface ApplyBackupWithSecretsOptions extends ApplyBackupOptions {
-  /**
-   * logical_key → realValue 映射（来自 `manifest.secrets_index.entries[].name`，
-   * 形如 `ANTHROPIC_AUTH_TOKEN-1`）。
-   *
-   * - **缺 key**：跳过，记入 `secretsSkipped`（user-skip 语义，对应位置仍是占位符）
-   * - **多 key**（map 里有但 index 里没有）：记入 `secretsUnknown`，warn 不 fail
-   * - **空 map** / **manifest 无 secrets_index**：跳过 fill 阶段（等价 applyBackup）
-   */
-  secretsMap: Record<string, string>;
-}
-
-export interface ApplyBackupWithSecretsResult extends ApplyBackupResult {
-  /** 实际成功 fan-out 写入的 location 总数（≤ manifest.secrets_index.total_occurrences） */
-  secretsApplied: number;
-  /** 用户没填值的 logical_key（map 里 key 不存在 / value === undefined） */
-  secretsSkipped: string[];
-  /** secretsMap 里有但 manifest.secrets_index 没有的 key（warn 不 fail） */
-  secretsUnknown: string[];
-  /**
-   * secrets fill 阶段的 IO / parse / 寻址 errors（warn 不 fail）。
-   * 同时**镜像** push 到 `errors[]` 加前缀 `secrets-fill: `，让 single-error-view caller
-   * 直接读 `errors`，细分 caller 读 `secretsErrors`。
-   */
-  secretsErrors: string[];
-}
-
-/**
- * 还原备份并自动 fan-out 用户填的 secrets。
- *
- * 流程：
- * 1. 调原 `applyBackup(opts)` 完成 configDir 拷贝 + addProfile + shared 资源（含 placeholders 的 hostPath 重写）
- * 2. 取 `manifest.secrets_index`（无 → 直接返回 base result + secretsApplied: 0）
- * 3. 用 `baseResult.placeholders` 构建 `packPath → hostPath` Map（**排除 _meta.json 段** ——
- *    详 `secrets-index.ts:28-32` docstring：env 段 fieldPath `$.env.K` 与 profiles.json 顶层结构
- *    不对齐，强行 set 必失败；让它们保留为占位符，用户后续手改 profiles.json）
- * 4. 调 `applyFilledSecrets(idx, secretsMap, resolveHostPath)` 按文件 batch 写盘
- * 5. fillResult.errors 镜像 push 到 baseResult.errors，加前缀 `secrets-fill: ` 区分来源
- *
- * `dryRun: true` → 完全跳过 fill 阶段（语义：dryRun 不写 fs）。
- */
-export async function applyBackupWithSecrets(
-  opts: ApplyBackupWithSecretsOptions,
-): Promise<ApplyBackupWithSecretsResult> {
-  const baseResult = await applyBackup(opts);
-  const empty = { secretsApplied: 0, secretsSkipped: [], secretsUnknown: [], secretsErrors: [] };
-
-  if (opts.dryRun) {
-    return { ...baseResult, ...empty };
-  }
-
-  const idx = opts.parsed.manifest.secrets_index;
-  if (!idx || idx.entries.length === 0) {
-    return { ...baseResult, ...empty };
-  }
-
-  // packPath → hostPath 映射；_meta.json 段排除（双保险：build + resolve 都 check）
-  const packToHost = new Map<string, string>();
-  for (const ph of baseResult.placeholders) {
-    if (!ph.hostPath) continue;
-    if (ph.packPath.endsWith("/_meta.json")) continue;
-    packToHost.set(ph.packPath, ph.hostPath);
-  }
-  const resolveHostPath = (packPath: string): string | undefined => {
-    if (packPath.endsWith("/_meta.json")) return undefined;
-    return packToHost.get(packPath);
-  };
-
-  const fillResult = await applyFilledSecrets(idx, opts.secretsMap, resolveHostPath);
-
-  for (const e of fillResult.errors) {
-    baseResult.errors.push(`secrets-fill: ${e}`);
-  }
-
-  // 让 placeholders[] 反映 fill 后状态：filter 掉真正成功写入的 location（按
-  // `${packPath}|${fieldPath}` 复合 key 匹配，因为同 packPath 内可能多个 fieldName 的 placeholder），
-  // 剩下的就是「仍待手填」的（含 _meta.json env 段、用户跳过的 logical key、写盘失败的 location）。
-  // 不动则 caller 看到的 result.placeholders 是 stale manifest 数据，统计与显示都失真。
-  const remainingPlaceholders = baseResult.placeholders.filter(
-    (ph) => !fillResult.filledLocations.has(`${ph.packPath}|${ph.fieldPath}`),
-  );
-
-  return {
-    ...baseResult,
-    placeholders: remainingPlaceholders,
-    secretsApplied: fillResult.written,
-    secretsSkipped: fillResult.skipped,
-    secretsUnknown: fillResult.unknown,
-    secretsErrors: fillResult.errors,
-  };
-}
+//
+// REVIEW_9 G6 拆模块: 实现挪到 backup-restore-secrets.ts(让本文件 ≤ 500 LOC)。
+// caller 仍 `import {applyBackupWithSecrets / ApplyBackupWithSecretsOptions / Result}
+// from "./backup-restore.ts"` 不变。
+export type {
+  ApplyBackupWithSecretsOptions,
+  ApplyBackupWithSecretsResult,
+} from "./backup-restore-secrets.ts";
+export { applyBackupWithSecrets } from "./backup-restore-secrets.ts";
