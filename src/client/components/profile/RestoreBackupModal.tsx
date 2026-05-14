@@ -3,9 +3,10 @@ import {
   dchProfile, type Profile, type Manifest, type AppliedProfile,
   type ApplyBackupResult, type SharedAction, type PlaceholderEntry,
   type SecretLogicalEntry, type ApplyBackupWithSecretsResult,
-  type ToolKind,
+  type ToolKind, PartialRestoreError,
 } from "../../bridge.ts";
 import { RestoreSecretsBody, computeSecretsButton, type SecretsState } from "./RestoreSecretsBody.tsx";
+import { UniqueSecretsList } from "./UniqueSecretsList.tsx";
 
 /**
  * 导入备份 modal：3-4 步流程（CHANGELOG_18 / Step 7）
@@ -23,6 +24,17 @@ import { RestoreSecretsBody, computeSecretsButton, type SecretsState } from "./R
  * secret 安全：用户填的 realValue 仅在 secretsState 内存里，最后通过 dchProfile
  * .restoreApplyWithSecrets 一次性走 Rust tempfile route（mode 0600 + drop guard），
  * 不写 console / localStorage / 任何旁路 IPC。
+ *
+ * REVIEW_9 D-HIGH-2 (D-claude H2 + D-codex M4 双方独立): step 3 任何关闭路径都丢全部 secret 输入,
+ * 无 confirm。修法：包 attemptClose() 函数：phase === "secrets" && filledCount > 0 → 弹内联
+ * confirm（CHANGELOG_5 不能用 window.confirm）；3 入口（backdrop / X / cancel）统一走。
+ *
+ * REVIEW_9 D-MED-1 (D-claude H1 → D-codex 反驳降 MED): 还原成功后 secret 仍以明文残留 React state,
+ * 直到「关闭」按钮 unmount 才 GC。修法：setResult(r) 后立即 setSecretsState({secretsMap:{},skipMap:{}})
+ * （成功 + 失败两个分支都加），把窗口最小化到 IPC in-flight 那 N 秒。
+ *
+ * REVIEW_9 D-MED-7: secrets 清单（preview 预告）走共用 UniqueSecretsList。
+ * REVIEW_9 D-claude LOW 4: step 2 加「← 重选文件」按钮回 step 1 改路径。
  */
 export function RestoreBackupModal({
   profiles, presetPackPath, onClose, onToast, onReloadProfile, onRevealPlaceholder,
@@ -46,8 +58,31 @@ export function RestoreBackupModal({
   const [phase, setPhase] = useState<"rename" | "secrets">("rename");
   const [result, setResult] = useState<ApplyBackupResult | (ApplyBackupWithSecretsResult & { manifest: Manifest }) | null>(null);
   const [busy, setBusy] = useState(false);
+  /** REVIEW_9 D-HIGH-2: secrets phase 关 modal 时弹内联 confirm（不能用 window.confirm，CHANGELOG_5） */
+  const [confirmClose, setConfirmClose] = useState(false);
 
   const hasSecrets = secretEntries !== null && secretEntries.length > 0;
+
+  /**
+   * REVIEW_9 D-HIGH-2: 中央关闭逻辑。secrets phase + 已填至少 1 个 secret → 弹内联 confirm；
+   * 其他场景（rename / report / secrets phase 但全空）→ 直接 onClose()。
+   *
+   * 调用方：modal-backdrop / 右上角 ✕ / footer 取消按钮 三处统一走。
+   * busy 中也调用（footer 已 disabled，但 backdrop / X 仍可触发 — 由 attemptClose 内拦截）。
+   */
+  const attemptClose = () => {
+    if (busy) return; // busy 中拒绝任何关闭路径，防 setState on unmounted（D-codex M4 同根）
+    if (phase === "secrets" && hasSecrets) {
+      const filledCount = secretEntries!
+        .filter((e) => !secretsState.skipMap[e.name] && (secretsState.secretsMap[e.name] ?? "").length > 0)
+        .length;
+      if (filledCount > 0) {
+        setConfirmClose(true);
+        return;
+      }
+    }
+    onClose();
+  };
 
   const onPreview = async () => {
     if (!packPath.trim()) {
@@ -87,6 +122,20 @@ export function RestoreBackupModal({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * REVIEW_9 D-claude LOW 4: 「← 重选文件」回 step 1。重置 preview / renameMap / secretEntries
+   * / secretsState / phase / autoPreviewedRef，但保留 packPath 让用户能在 input 里直接改。
+   */
+  const onBackToStep1 = () => {
+    if (busy) return;
+    setPreview(null);
+    setRenameMap({});
+    setSecretEntries(null);
+    setSecretsState({ secretsMap: {}, skipMap: {} });
+    setPhase("rename");
+    autoPreviewedRef.current = false;
+  };
 
   const updateName = (originalId: string, newId: string) => {
     setRenameMap((m) => ({ ...m, [originalId]: newId }));
@@ -129,19 +178,22 @@ export function RestoreBackupModal({
       if (phase === "rename") {
         const r = await dchProfile.restoreApply(packPath.trim(), { renameMap });
         setResult(r);
+        // REVIEW_9 D-MED-1: 成功 / 失败 / partial 三分支统一在外层 finally 清 secretsState
         if (r.errors.length > 0) {
           onToast(`还原完成但有 ${r.errors.length} 个错误`, false);
         } else {
           onToast(`已还原 ${r.appliedProfiles.length} 个 profile`, true);
         }
       } else {
-        // phase secrets：调 restoreApplyWithSecrets。skip 项不入 secretsMap，让 CLI 走 user-skip 语义
+        // phase secrets：调 restoreApplyWithSecrets。skip 项不入 secretsMap，让 CLI 走 user-skip 语义。
+        // REVIEW_9 D-MED-1: 构造完 filledMap 后立刻清 secretsState（最小化暴露窗口到 IPC in-flight 那 N 秒）。
         const filledMap: Record<string, string> = {};
         for (const e of secretEntries ?? []) {
           if (secretsState.skipMap[e.name]) continue;
           const v = secretsState.secretsMap[e.name];
           if (v && v.length > 0) filledMap[e.name] = v;
         }
+        setSecretsState({ secretsMap: {}, skipMap: {} });
         const r = await dchProfile.restoreApplyWithSecrets(packPath.trim(), {
           renameMap,
           secretsMap: filledMap,
@@ -155,9 +207,19 @@ export function RestoreBackupModal({
       }
       await onReloadProfile();
     } catch (e) {
-      onToast(e instanceof Error ? e.message : String(e), false);
+      // REVIEW_9 D-HIGH-1: partial restore 走 PartialRestoreError 分支 → 渲染部分还原报告 +
+      // reload profile（让 ~/.dch-restored/ 已写的 N-1 个 profile 在主 panel 里立即可见）
+      if (e instanceof PartialRestoreError) {
+        setResult(e.result as ApplyBackupResult);
+        onToast(`部分还原：${e.result.errors.length} 错误，已应用 ${e.result.appliedProfiles.length} profile`, false);
+        await onReloadProfile();
+      } else {
+        onToast(e instanceof Error ? e.message : String(e), false);
+      }
     } finally {
       setBusy(false);
+      // REVIEW_9 D-MED-1: 兜底再清一次 secretsState（任何分支 failed/success/partial 都到这里）
+      setSecretsState({ secretsMap: {}, skipMap: {} });
     }
   };
 
@@ -177,13 +239,29 @@ export function RestoreBackupModal({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={attemptClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h2>📥 导入备份</h2>
-          <button className="modal-close" onClick={onClose}>×</button>
+          <button className="modal-close" onClick={attemptClose}>×</button>
         </div>
         <div className="modal-body">
+          {confirmClose && (
+            <CloseConfirm
+              filledCount={
+                secretEntries
+                  ? secretEntries.filter((e) => !secretsState.skipMap[e.name] && (secretsState.secretsMap[e.name] ?? "").length > 0).length
+                  : 0
+              }
+              onCancel={() => setConfirmClose(false)}
+              onConfirm={() => {
+                // 用户确认放弃 → 立即清 secretsState 再关 modal（防关闭过渡帧 React DevTools 还能看到）
+                setSecretsState({ secretsMap: {}, skipMap: {} });
+                setConfirmClose(false);
+                onClose();
+              }}
+            />
+          )}
           {!preview ? (
             <>
               <div className="form-row form-row-block">
@@ -235,12 +313,17 @@ export function RestoreBackupModal({
           )}
         </div>
         <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={busy}>
+          <button className="btn ghost" onClick={attemptClose} disabled={busy}>
             {result ? "关闭" : "取消"}
           </button>
           {!preview && (
             <button className="btn primary" onClick={onPreview} disabled={busy || !packPath.trim()}>
               {busy ? "读取中…" : "读取预览"}
+            </button>
+          )}
+          {preview && !result && phase === "rename" && (
+            <button className="btn ghost" onClick={onBackToStep1} disabled={busy}>
+              ← 重选文件
             </button>
           )}
           {preview && !result && phase === "secrets" && (
@@ -260,6 +343,37 @@ export function RestoreBackupModal({
             </button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * REVIEW_9 D-HIGH-2: secrets phase 关 modal 内联 confirm UI。覆盖在 modal-body 顶部，
+ * cancel = 留在 modal 继续填；confirm = 清 secretsState + onClose()。
+ */
+function CloseConfirm({ filledCount, onCancel, onConfirm }: {
+  filledCount: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="form-row form-row-block"
+      style={{
+        padding: "12px 16px",
+        background: "rgba(227,179,65,.10)",
+        borderLeft: "3px solid var(--yellow)",
+        borderRadius: 2,
+        marginBottom: 12,
+      }}
+    >
+      <p className="form-hint" style={{ color: "var(--yellow)", margin: 0, fontSize: 14 }}>
+        ⚠️ 已填 <strong>{filledCount}</strong> 个 secret。关闭将丢弃所有输入，需重头开始。
+      </p>
+      <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+        <button className="btn-sm" onClick={onCancel}>留下继续填</button>
+        <button className="btn-sm danger danger-solid" onClick={onConfirm}>放弃并关闭</button>
       </div>
     </div>
   );
@@ -306,19 +420,11 @@ function RestorePreviewBody({
             <p className="form-hint" style={{ margin: 0, color: "var(--blue)" }}>
               🔑 改名确认后下一步将填写 <strong>{secretEntries!.length}</strong> 个去重 secret（自动 fan-out 到所有 {totalOcc} 处出现位置）
             </p>
-            <details open style={{ marginTop: 6 }}>
-              <summary className="form-hint" style={{ cursor: "pointer", color: "var(--blue)" }}>
-                清单（{secretEntries!.length} 个 logical key，按字段名排序）
-              </summary>
-              <div style={{ marginTop: 6, paddingLeft: 12, borderLeft: "2px solid rgba(88,166,255,.25)" }}>
-                {secretEntries!.map((e) => (
-                  <p key={e.name} className="form-hint" style={{ margin: "4px 0", color: "var(--fg1)" }}>
-                    <code>{e.name}</code>
-                    <span style={{ color: "var(--fg2)" }}> · count={e.count} · {e.hint}</span>
-                  </p>
-                ))}
-              </div>
-            </details>
+            <UniqueSecretsList
+              entries={secretEntries!}
+              summaryPrefix="🔑 清单"
+              footerHint={null}
+            />
           </div>
         </div>
       )}

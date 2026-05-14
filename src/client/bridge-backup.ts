@@ -137,11 +137,21 @@ export type RestoreApplyWithSecretsResponse = {
   manifest: Manifest;
 } & ApplyBackupWithSecretsResult;
 
-// 现有 restorePreview 已经在 manifest.secrets_index 里返回 entries；此 helper 只是把
-// 「manifest 有 secrets_index 且 entries 非空」flatten 成「null | { entries }」，让
-// RestoreBackupModal step 3 判断 / 渲染更平。**不**触发新 IPC，复用 restorePreview 结果即可。
-export interface RestorePreviewSecretsResult {
-  entries: SecretLogicalEntry[];
+/**
+ * 构造 `dch profile restore` 命令 args（不含 secrets，那走 IPC 入参单独传）。
+ *
+ * REVIEW_9 D-MED-6 (D-claude MED 3): restoreApply / restoreApplyWithSecrets args 构造
+ * 完全重复（prefix / allow-original-path / rename map flatten 三段），抽 helper 单点维护
+ * 避免一处加新 flag 另一处忘加。
+ */
+function buildRestoreArgs(packFile: string, opts: RestoreApplyOpts): string[] {
+  const args: string[] = ["profile", "restore", packFile, "--yes", "--json"];
+  if (opts.prefix) args.push("--prefix", opts.prefix);
+  if (opts.allowOriginalPath) args.push("--allow-original-path");
+  if (opts.renameMap && Object.keys(opts.renameMap).length > 0) {
+    args.push("--rename", Object.entries(opts.renameMap).map(([k, v]) => `${k}=${v}`).join(","));
+  }
+  return args;
 }
 
 const restorePreview = (packFile: string) =>
@@ -184,17 +194,13 @@ export const dchBackup = {
    * **REVIEW_9 D-HIGH-1**: 走 consumeRestoreResult helper,partial restore 抛
    * `PartialRestoreError(result, manifest)` 让 modal catch instanceof 分支拿到 result 渲染
    * 部分还原报告 + reload profile,而不是当 plain error 跳过。
+   * **REVIEW_9 D-MED-6**: args 构造走 buildRestoreArgs helper 共用。
    */
   restoreApply: async (packFile: string, opts: RestoreApplyOpts = {}): Promise<{
     ok: boolean;
     manifest: Manifest;
   } & ApplyBackupResult> => {
-    const args: string[] = ["profile", "restore", packFile, "--yes", "--json"];
-    if (opts.prefix) args.push("--prefix", opts.prefix);
-    if (opts.allowOriginalPath) args.push("--allow-original-path");
-    if (opts.renameMap && Object.keys(opts.renameMap).length > 0) {
-      args.push("--rename", Object.entries(opts.renameMap).map(([k, v]) => `${k}=${v}`).join(","));
-    }
+    const args = buildRestoreArgs(packFile, opts);
     const r = await invoke<DchCommandResult>("run_dch_command", { args, timeoutMs: TIMEOUT_BACKUP_MS });
     return consumeRestoreResult<{ ok: boolean } & ApplyBackupResult>(r, String(TIMEOUT_BACKUP_MS));
   },
@@ -208,34 +214,19 @@ export const dchBackup = {
    * secret 只在一次 IPC 入参里出现，**不**经第二次 IPC 也**不**落 webview localStorage / log。
    *
    * **REVIEW_9 D-HIGH-1**: 同 restoreApply 走 consumeRestoreResult helper 抛 PartialRestoreError。
+   * **REVIEW_9 D-MED-6**: args 构造走 buildRestoreArgs helper 共用。
    */
   restoreApplyWithSecrets: async (
     packFile: string,
     opts: RestoreApplyWithSecretsOpts,
   ): Promise<RestoreApplyWithSecretsResponse> => {
-    const args: string[] = ["profile", "restore", packFile, "--yes", "--json"];
-    if (opts.prefix) args.push("--prefix", opts.prefix);
-    if (opts.allowOriginalPath) args.push("--allow-original-path");
-    if (opts.renameMap && Object.keys(opts.renameMap).length > 0) {
-      args.push("--rename", Object.entries(opts.renameMap).map(([k, v]) => `${k}=${v}`).join(","));
-    }
+    const args = buildRestoreArgs(packFile, opts);
     const r = await invoke<DchCommandResult>("run_dch_with_secrets_temp", {
       args,
       secretsJson: JSON.stringify(opts.secretsMap),
       timeoutMs: TIMEOUT_BACKUP_MS,
     });
     return consumeRestoreResult<RestoreApplyWithSecretsResponse>(r, String(TIMEOUT_BACKUP_MS));
-  },
-
-  /**
-   * preview 阶段拿 dedup 后的 K 个 logical key 总览（不触发新 IPC，复用 restorePreview）。
-   * 旧 dchpack 无 secrets_index 或 entries 为空 → null（让 caller 跳过 step 3「填 secret」UI）。
-   */
-  restorePreviewSecrets: async (packFile: string): Promise<RestorePreviewSecretsResult | null> => {
-    const r = await restorePreview(packFile);
-    const entries = r.manifest.secrets_index?.entries;
-    if (!entries || entries.length === 0) return null;
-    return { entries };
   },
 
   /**

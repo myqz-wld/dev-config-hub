@@ -1,21 +1,32 @@
-// CHANGELOG_18 / Step 7：restore 4-step UI 第三步「填 K 个 secret」。
+// CHANGELOG_18 / Step 7:restore 4-step UI 第三步「填 K 个 secret」。
 //
-// 仅当 manifest.secrets_index 存在且 entries 非空时渲染（caller RestoreBackupModal 控制）。
-// 用户填入的 realValue 与 skip 标记由 caller 用 secretsMap / skipMap 持有，本组件纯受控。
+// 仅当 manifest.secrets_index 存在且 entries 非空时渲染(caller RestoreBackupModal 控制)。
+// 用户填入的 realValue 与 skip 标记由 caller 用 secretsMap / skipMap 持有,本组件纯受控。
 //
-// 安全约定：
-// - input 默认 type=password，eye 图标 toggle 到 type=text
-// - secretsMap 内的 realValue **绝不**写到 console / localStorage / 任何 IPC 旁路；只在
+// 安全约定:
+// - input 默认 type=password,eye 图标 toggle 到 type=text
+// - secretsMap 内的 realValue **绝不**写到 console / localStorage / 任何 IPC 旁路;只在
 //   caller 调 dchProfile.restoreApplyWithSecrets 时一次性走 Rust tempfile route
-// - 不渲染任何 redact 后真值的预览（hint 字段是脱敏 fieldName + 出现次数，安全）
+// - 不渲染任何 redact 后真值的预览(hint 字段是脱敏 fieldName + 出现次数,安全)
+//
+// REVIEW_9 D-MED-4 (D-claude MED 1 + D-codex LOW 3 双方独立): SecretEntryRow re-render 频繁
+// (99 entries 全 re-render 因为父无 useCallback + 子无 React.memo)。修法:
+// 1. SecretEntryRow 包 React.memo(浅相等比较 entry / value / skipped / busy)
+// 2. 父用 useCallback + stateRef 同步 state 让 updateValue / toggleSkip 引用稳定
+//    (用 ref 而非依赖 state,避免每次 state 变 useCallback 重生成回调破坏 memo)
+// 3. 回调 signature 改 `(name, value)` / `(name, skip)` curried 让 99 个 row 共用同一对回调
+//
+// REVIEW_9 D-MED-7 (D-claude MED 4): CrossFieldBadge 抽共用,Export / SecretEntryRow / Restore
+// PreviewBody 三处都用同款渲染。
 
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import type { SecretLogicalEntry } from "../../bridge.ts";
+import { CrossFieldBadge } from "./CrossFieldBadge.tsx";
 
 export interface SecretsState {
   /** logical_key → realValue */
   secretsMap: Record<string, string>;
-  /** logical_key → true 表示用户主动跳过（保留占位符） */
+  /** logical_key → true 表示用户主动跳过(保留占位符) */
   skipMap: Record<string, boolean>;
 }
 
@@ -34,16 +45,25 @@ export function RestoreSecretsBody({
 
   const banner = computeBanner(total, filledCount, skippedCount, totalOccurrences);
 
-  const updateValue = (name: string, value: string) => {
-    onChange({ ...state, secretsMap: { ...state.secretsMap, [name]: value } });
-  };
-  const toggleSkip = (name: string, skip: boolean) => {
-    const nextSkip = { ...state.skipMap, [name]: skip };
-    // skip 时清空 input value（避免 user 取消 skip 后留旧值）
-    const nextMap = { ...state.secretsMap };
+  // ref 同步 state(每次 render 同步,非 useEffect),让回调读最新值不依赖 state,
+  // useCallback 引用稳定 → SecretEntryRow React.memo 真生效(仅 entry / value / skipped 变才 re-render)。
+  // 这是 React 官方 ref-from-state 模式,非反模式。
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const updateValue = useCallback((name: string, value: string) => {
+    const s = stateRef.current;
+    onChange({ ...s, secretsMap: { ...s.secretsMap, [name]: value } });
+  }, [onChange]);
+
+  const toggleSkip = useCallback((name: string, skip: boolean) => {
+    const s = stateRef.current;
+    const nextSkip = { ...s.skipMap, [name]: skip };
+    // skip 时清空 input value(避免 user 取消 skip 后留旧值)
+    const nextMap = { ...s.secretsMap };
     if (skip) delete nextMap[name];
     onChange({ secretsMap: nextMap, skipMap: nextSkip });
-  };
+  }, [onChange]);
 
   return (
     <>
@@ -63,7 +83,7 @@ export function RestoreSecretsBody({
       </div>
 
       <div className="form-section-title">
-        填 {total} 个去重 secret（共 {totalOccurrences} 处占位符将被 fan-out）
+        填 {total} 个去重 secret(共 {totalOccurrences} 处占位符将被 fan-out)
       </div>
 
       {entries.map((entry) => (
@@ -72,8 +92,8 @@ export function RestoreSecretsBody({
           entry={entry}
           value={state.secretsMap[entry.name] ?? ""}
           skipped={state.skipMap[entry.name] === true}
-          onValueChange={(v) => updateValue(entry.name, v)}
-          onSkipChange={(s) => toggleSkip(entry.name, s)}
+          onValueChange={updateValue}
+          onSkipChange={toggleSkip}
           busy={busy}
         />
       ))}
@@ -81,14 +101,16 @@ export function RestoreSecretsBody({
   );
 }
 
-function SecretEntryRow({
+const SecretEntryRow = React.memo(function SecretEntryRow({
   entry, value, skipped, onValueChange, onSkipChange, busy,
 }: {
   entry: SecretLogicalEntry;
   value: string;
   skipped: boolean;
-  onValueChange: (v: string) => void;
-  onSkipChange: (s: boolean) => void;
+  /** curried (name, v) — 99 个 row 共用同一回调引用让 memo 真生效 */
+  onValueChange: (name: string, v: string) => void;
+  /** curried (name, s) — 同上 */
+  onSkipChange: (name: string, s: boolean) => void;
   busy: boolean;
 }) {
   const [reveal, setReveal] = useState(false);
@@ -103,28 +125,14 @@ function SecretEntryRow({
       <label style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <code style={{ fontSize: 13 }}>{entry.name}</code>
         <span className="profile-desc">{entry.count} 处 · {entry.hint}</span>
-        {entry.fieldNames && entry.fieldNames.length > 1 && (
-          <span
-            title={`同一 secret 在 ${entry.fieldNames.length} 个不同字段名下出现：${entry.fieldNames.join(" / ")}`}
-            style={{
-              fontSize: 11,
-              padding: "1px 6px",
-              borderRadius: 8,
-              background: "rgba(227,179,65,.12)",
-              color: "var(--yellow)",
-              border: "1px solid rgba(227,179,65,.35)",
-            }}
-          >
-            ⚡ 跨 {entry.fieldNames.length} 字段名
-          </span>
-        )}
+        <CrossFieldBadge fieldNames={entry.fieldNames} size="md" />
       </label>
 
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
         <input
           type={reveal ? "text" : "password"}
           value={value}
-          onChange={(e) => onValueChange(e.target.value)}
+          onChange={(e) => onValueChange(entry.name, e.target.value)}
           placeholder={skipped ? "(已跳过 — 占位符保留)" : "粘贴真实凭据"}
           spellCheck={false}
           autoComplete="off"
@@ -132,9 +140,9 @@ function SecretEntryRow({
           style={{
             flex: 1,
             opacity: skipped ? 0.5 : 1,
-            // 不显示 empty 红边：99 entries 全空时整屏全红视觉污染。footer 主按钮 disabled +
-            // 灰色「待填」hint 已经表达「未填」状态，不需要红边二次强化（红色是「错误」语义，
-            // 但「未填」是「待操作」语义，应该用中性灰）。
+            // 不显示 empty 红边:99 entries 全空时整屏全红视觉污染。footer 主按钮 disabled +
+            // 灰色「待填」hint 已经表达「未填」状态,不需要红边二次强化(红色是「错误」语义,
+            // 但「未填」是「待操作」语义,应该用中性灰)。
           }}
         />
         <button
@@ -142,7 +150,7 @@ function SecretEntryRow({
           className="btn-sm"
           onClick={() => setReveal((r) => !r)}
           disabled={busy || skipped}
-          title={reveal ? "隐藏" : "显示明文（注意旁观者）"}
+          title={reveal ? "隐藏" : "显示明文(注意旁观者)"}
         >
           {reveal ? "🙈" : "👁"}
         </button>
@@ -150,7 +158,7 @@ function SecretEntryRow({
           <input
             type="checkbox"
             checked={skipped}
-            onChange={(e) => onSkipChange(e.target.checked)}
+            onChange={(e) => onSkipChange(entry.name, e.target.checked)}
             disabled={busy}
           />
           跳过
@@ -159,13 +167,13 @@ function SecretEntryRow({
 
       {empty && (
         <p className="form-hint" style={{ color: "var(--fg2)", marginTop: 4 }}>
-          ⏳ 待填（或勾选「跳过」保留占位符）
+          ⏳ 待填(或勾选「跳过」保留占位符)
         </p>
       )}
 
       <details style={{ marginTop: 4 }}>
         <summary className="form-hint" style={{ cursor: "pointer" }}>
-          出现位置（{entry.locations.length}）
+          出现位置({entry.locations.length})
         </summary>
         {previewLocations.map((loc, i) => (
           <p key={i} className="form-hint" style={{ marginLeft: 16, marginTop: 2, fontFamily: "ui-monospace, monospace", fontSize: 11 }}>
@@ -189,14 +197,14 @@ function SecretEntryRow({
             >
               {showAllLocations
                 ? "收起 ▲"
-                : `+${entry.locations.length - 3} 处，点击展开全部 ▼`}
+                : `+${entry.locations.length - 3} 处,点击展开全部 ▼`}
             </button>
           </p>
         )}
       </details>
     </div>
   );
-}
+});
 
 // ─── derived banner / button helpers ────────────────────────────
 
@@ -208,10 +216,10 @@ interface BannerSpec {
 }
 
 function computeBanner(total: number, filled: number, skipped: number, totalOccurrences: number): BannerSpec {
-  // dark theme 友好色：用 styles.css 的 --yellow/--green/--blue/--fg* token + 半透明 wash
+  // dark theme 友好色:用 styles.css 的 --yellow/--green/--blue/--fg* token + 半透明 wash
   if (skipped === total) {
     return {
-      text: `所有 ${total} 个 secret 都将跳过 — 占位符保留，restore 后请按 README 清单手改`,
+      text: `所有 ${total} 个 secret 都将跳过 — 占位符保留,restore 后请按 README 清单手改`,
       color: "var(--yellow)",
       bg: "rgba(227,179,65,.10)",
       fg: "var(--yellow)",
@@ -227,7 +235,7 @@ function computeBanner(total: number, filled: number, skipped: number, totalOccu
   }
   const pending = total - filled - skipped;
   if (pending === 0) {
-    // 部分填 + 部分 skip，无 pending
+    // 部分填 + 部分 skip,无 pending
     return {
       text: `已填 ${filled} 个 · 跳过 ${skipped} 个 · 跳过项的占位符将保留`,
       color: "var(--fg2)",
@@ -245,7 +253,7 @@ function computeBanner(total: number, filled: number, skipped: number, totalOccu
 }
 
 /**
- * 还原按钮文案 + disable 判定。caller 决定 disabled 用 hasError，文案用 buttonLabel。
+ * 还原按钮文案 + disable 判定。caller 决定 disabled 用 hasError,文案用 buttonLabel。
  * 与 banner 保持一致状态分类。
  */
 export function computeSecretsButton(entries: SecretLogicalEntry[], state: SecretsState): {
