@@ -26,6 +26,7 @@ import {
   walkFiles, fileExists, tsForFilename, spawnSimple,
   type Manifest, type PlaceholderEntry,
 } from "./backup.ts";
+import { applyFilledSecrets } from "./secrets-index.ts";
 
 export interface ParseBackupResult {
   manifest: Manifest;
@@ -273,4 +274,92 @@ async function applySharedFile(
     await copyFile(src, dst);
   }
   return policy === "backup-then-overwrite" ? "backed-up-then-overwritten" : "overwritten";
+}
+
+// ─── applyBackupWithSecrets ─────────────────────────────────────────────
+// CHANGELOG_18：在原 applyBackup 写盘后追加一步，按 manifest.secrets_index 把
+// 用户填的真值 fan-out 到所有 location 的 host fs 路径。原 applyBackup 路径不变，
+// 旧 dchpack（无 secrets_index）/ 没传 secretsMap → 走 fall back 等价 applyBackup。
+
+export interface ApplyBackupWithSecretsOptions extends ApplyBackupOptions {
+  /**
+   * logical_key → realValue 映射（来自 `manifest.secrets_index.entries[].name`，
+   * 形如 `ANTHROPIC_AUTH_TOKEN-1`）。
+   *
+   * - **缺 key**：跳过，记入 `secretsSkipped`（user-skip 语义，对应位置仍是占位符）
+   * - **多 key**（map 里有但 index 里没有）：记入 `secretsUnknown`，warn 不 fail
+   * - **空 map** / **manifest 无 secrets_index**：跳过 fill 阶段（等价 applyBackup）
+   */
+  secretsMap: Record<string, string>;
+}
+
+export interface ApplyBackupWithSecretsResult extends ApplyBackupResult {
+  /** 实际成功 fan-out 写入的 location 总数（≤ manifest.secrets_index.total_occurrences） */
+  secretsApplied: number;
+  /** 用户没填值的 logical_key（map 里 key 不存在 / value === undefined） */
+  secretsSkipped: string[];
+  /** secretsMap 里有但 manifest.secrets_index 没有的 key（warn 不 fail） */
+  secretsUnknown: string[];
+  /**
+   * secrets fill 阶段的 IO / parse / 寻址 errors（warn 不 fail）。
+   * 同时**镜像** push 到 `errors[]` 加前缀 `secrets-fill: `，让 single-error-view caller
+   * 直接读 `errors`，细分 caller 读 `secretsErrors`。
+   */
+  secretsErrors: string[];
+}
+
+/**
+ * 还原备份并自动 fan-out 用户填的 secrets。
+ *
+ * 流程：
+ * 1. 调原 `applyBackup(opts)` 完成 configDir 拷贝 + addProfile + shared 资源（含 placeholders 的 hostPath 重写）
+ * 2. 取 `manifest.secrets_index`（无 → 直接返回 base result + secretsApplied: 0）
+ * 3. 用 `baseResult.placeholders` 构建 `packPath → hostPath` Map（**排除 _meta.json 段** ——
+ *    详 `secrets-index.ts:28-32` docstring：env 段 fieldPath `$.env.K` 与 profiles.json 顶层结构
+ *    不对齐，强行 set 必失败；让它们保留为占位符，用户后续手改 profiles.json）
+ * 4. 调 `applyFilledSecrets(idx, secretsMap, resolveHostPath)` 按文件 batch 写盘
+ * 5. fillResult.errors 镜像 push 到 baseResult.errors，加前缀 `secrets-fill: ` 区分来源
+ *
+ * `dryRun: true` → 完全跳过 fill 阶段（语义：dryRun 不写 fs）。
+ */
+export async function applyBackupWithSecrets(
+  opts: ApplyBackupWithSecretsOptions,
+): Promise<ApplyBackupWithSecretsResult> {
+  const baseResult = await applyBackup(opts);
+  const empty = { secretsApplied: 0, secretsSkipped: [], secretsUnknown: [], secretsErrors: [] };
+
+  if (opts.dryRun) {
+    return { ...baseResult, ...empty };
+  }
+
+  const idx = opts.parsed.manifest.secrets_index;
+  if (!idx || idx.entries.length === 0) {
+    return { ...baseResult, ...empty };
+  }
+
+  // packPath → hostPath 映射；_meta.json 段排除（双保险：build + resolve 都 check）
+  const packToHost = new Map<string, string>();
+  for (const ph of baseResult.placeholders) {
+    if (!ph.hostPath) continue;
+    if (ph.packPath.endsWith("/_meta.json")) continue;
+    packToHost.set(ph.packPath, ph.hostPath);
+  }
+  const resolveHostPath = (packPath: string): string | undefined => {
+    if (packPath.endsWith("/_meta.json")) return undefined;
+    return packToHost.get(packPath);
+  };
+
+  const fillResult = await applyFilledSecrets(idx, opts.secretsMap, resolveHostPath);
+
+  for (const e of fillResult.errors) {
+    baseResult.errors.push(`secrets-fill: ${e}`);
+  }
+
+  return {
+    ...baseResult,
+    secretsApplied: fillResult.written,
+    secretsSkipped: fillResult.skipped,
+    secretsUnknown: fillResult.unknown,
+    secretsErrors: fillResult.errors,
+  };
 }
