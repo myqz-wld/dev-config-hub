@@ -278,6 +278,8 @@ function formatBytes(bytes: number): string {
  * 备份完展示去重后的 unique secret 清单（CHANGELOG_19）。让用户立刻知道
  * 还原时只需填 K 次（而不是 placeholders.length 次），且每个 logical key
  * 是哪个字段、聚合了多少处、跨几个 profile。
+ *
+ * CHANGELOG_20: cross-fieldName dedup 后,多 fieldName entry 加「跨 N 字段名」标签。
  */
 function SecretsSummaryList({ idx }: { idx: SecretsIndex }) {
   return (
@@ -290,6 +292,22 @@ function SecretsSummaryList({ idx }: { idx: SecretsIndex }) {
           <p key={e.name} className="form-hint" style={{ margin: "4px 0" }}>
             <code>{e.name}</code>
             <span style={{ color: "#888" }}> · count={e.count} · {e.hint}</span>
+            {e.fieldNames && e.fieldNames.length > 1 && (
+              <span
+                title={`同一 secret 在 ${e.fieldNames.length} 个不同字段名下出现：${e.fieldNames.join(" / ")}`}
+                style={{
+                  marginLeft: 6,
+                  fontSize: 10,
+                  padding: "0 5px",
+                  borderRadius: 8,
+                  background: "#fef3c7",
+                  color: "#78350f",
+                  border: "1px solid #fbbf24",
+                }}
+              >
+                ⚡{e.fieldNames.length}
+              </span>
+            )}
           </p>
         ))}
         <p className="form-hint" style={{ margin: "8px 0 0", color: "#6b7280" }}>

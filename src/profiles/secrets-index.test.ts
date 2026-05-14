@@ -131,6 +131,62 @@ describe("buildSecretsIndex — dedup", () => {
       "profiles/zz/configDir/a.json",
     ]);
   });
+
+  // CHANGELOG_20: cross-fieldName dedup —— 同一 token 用多个 fieldName 命名也合并
+  it("跨 fieldName 同 hash → 合并 1 个 logical key + fieldNames 列全部 fieldName", () => {
+    // 模拟同一个 GitLab PAT 在 3 个 plugin 配置里被命名为不同的字段名
+    const placeholders: PlaceholderEntry[] = [
+      { packPath: "profiles/p1/configDir/.mcp.json", fieldPath: "$.a.GITLAB_PAT", fieldName: "GITLAB_PAT", hint: "" },
+      { packPath: "profiles/p1/configDir/.mcp.json", fieldPath: "$.b.TOKEN", fieldName: "TOKEN", hint: "" },
+      { packPath: "profiles/p2/configDir/.mcp.json", fieldPath: "$.c.TOKEN", fieldName: "TOKEN", hint: "" },
+      { packPath: "profiles/p2/configDir/.mcp.json", fieldPath: "$.d.lark_token", fieldName: "lark_token", hint: "" },
+    ];
+    const hashByEntry = new Map<PlaceholderEntry, string | undefined>(
+      placeholders.map((p) => [p, "same-token-hash"]),
+    );
+    const idx = buildSecretsIndex(placeholders, hashByEntry);
+    expect(idx.total_logical_keys).toBe(1);
+    expect(idx.entries[0]!.count).toBe(4);
+    // primary fieldName: TOKEN 出现 2 次（最多）→ 当 primary
+    expect(idx.entries[0]!.fieldName).toBe("TOKEN");
+    expect(idx.entries[0]!.name).toBe("TOKEN-1");
+    // fieldNames: 3 个 distinct，按字典序排
+    expect(idx.entries[0]!.fieldNames).toEqual(["GITLAB_PAT", "TOKEN", "lark_token"]);
+    // hint 含「3 field names」提示
+    expect(idx.entries[0]!.hint).toContain("3 field names");
+    expect(idx.entries[0]!.hint).toContain("GITLAB_PAT / TOKEN / lark_token");
+  });
+
+  it("primary fieldName 并列时按字典序最小（deterministic）", () => {
+    const placeholders: PlaceholderEntry[] = [
+      { packPath: "profiles/p1/configDir/a.json", fieldPath: "$.zzz", fieldName: "zzz", hint: "" },
+      { packPath: "profiles/p2/configDir/a.json", fieldPath: "$.aaa", fieldName: "aaa", hint: "" },
+    ];
+    // zzz / aaa 各 1 次，都同 hash → 合并 1 个 group
+    const hashByEntry = new Map<PlaceholderEntry, string | undefined>([
+      [placeholders[0]!, "h"],
+      [placeholders[1]!, "h"],
+    ]);
+    const idx = buildSecretsIndex(placeholders, hashByEntry);
+    expect(idx.total_logical_keys).toBe(1);
+    // 并列时字典序最小：aaa
+    expect(idx.entries[0]!.fieldName).toBe("aaa");
+  });
+
+  it("单 fieldName group：fieldNames 仅含 1 个 + hint 不含「N field names」段（向后兼容老体验）", () => {
+    const placeholders: PlaceholderEntry[] = [
+      { packPath: "profiles/p1/configDir/a.json", fieldPath: "$.t", fieldName: "ANTHROPIC_AUTH_TOKEN", hint: "" },
+      { packPath: "profiles/p2/configDir/a.json", fieldPath: "$.t", fieldName: "ANTHROPIC_AUTH_TOKEN", hint: "" },
+    ];
+    const hashByEntry = new Map<PlaceholderEntry, string | undefined>([
+      [placeholders[0]!, "h"],
+      [placeholders[1]!, "h"],
+    ]);
+    const idx = buildSecretsIndex(placeholders, hashByEntry);
+    expect(idx.entries[0]!.fieldNames).toEqual(["ANTHROPIC_AUTH_TOKEN"]);
+    expect(idx.entries[0]!.hint).not.toContain("field names");
+    expect(idx.entries[0]!.hint).toBe("2 occurrences across 2 profiles");
+  });
 });
 
 // ─── parseFieldPath / setByFieldPath ─────────────────────────────────

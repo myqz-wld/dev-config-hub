@@ -45,12 +45,27 @@ export interface SecretLocation {
 }
 
 export interface SecretLogicalEntry {
-  /** logical key 名，如 `ANTHROPIC_AUTH_TOKEN-1`；同 fieldName 内 idx 从 1 起 */
+  /** logical key 名，如 `ANTHROPIC_AUTH_TOKEN-1`；按 primary fieldName 分组内 idx 从 1 起 */
   name: string;
+  /**
+   * primary fieldName —— 该 group 内出现次数最多的 fieldName（并列时字典序最小）。
+   * CHANGELOG_20 (cross-fieldName dedup): group 现在按纯 valueHash 合并，**同一 secret 可能用
+   * 多个 fieldName 命名**（如 `TOKEN` / `FEISHU_TOKEN` / `LARK_TOKEN` 都配同一个 token）；
+   * 此字段是「主名」用于 logical key naming，完整 list 见 `fieldNames`。
+   */
   fieldName: string;
+  /**
+   * 该 group 内所有出现过的 fieldName（distinct + 字典序）。CHANGELOG_20 加。
+   * 单 fieldName group 时仅 1 项 = `fieldName`；多 fieldName group 时多项，UI 应 surface
+   * 提示用户「这个 secret 在 N 个不同字段名下出现，填一次替换全部」。
+   *
+   * **optional 用于向后兼容**：旧 dchpack（CHANGELOG_19）写的 manifest 没有此字段，restore
+   * 时读进来 undefined；新 backup 写的非 undefined。UI 渲染应 `entry.fieldNames ?? [entry.fieldName]` 兜底。
+   */
+  fieldNames?: string[];
   /** == locations.length */
   count: number;
-  /** 动态生成的提示文案，如 "13 occurrences across 2 profiles" */
+  /** 动态生成的提示文案，如 "13 occurrences across 2 profiles · also as TOKEN/LARK_TOKEN" */
   hint: string;
   /** 按 packPath 字典序排序保证 deterministic */
   locations: SecretLocation[];
@@ -68,9 +83,16 @@ export interface SecretsIndex {
 
 // ─── buildSecretsIndex ─────────────────────────────────────
 
-/** 内部 group：分配 logical key 前的中间态 */
+/**
+ * 内部 group：分配 logical key 前的中间态。CHANGELOG_20 cross-fieldName dedup 后扩展。
+ *
+ * group key 是纯 valueHash（不再带 fieldName）—— 同 valueHash 跨 fieldName 也合并到同一 group。
+ * `fieldNameCounts` 记每个 fieldName 在本 group 的出现次数,用于:
+ *   1) 选 primary fieldName（count 最大；并列字典序最小） → entry.fieldName + entry.name 命名
+ *   2) 导出 fieldNames[] distinct 列表 → entry.fieldNames（UI 展示「跨 N 字段名」标签）
+ */
 type Group = {
-  fieldName: string;
+  fieldNameCounts: Map<string, number>;
   locations: SecretLocation[];
   /** 提取自每个 location 的 packPath `profiles/<id>/...` 段，用于 hint 拼装 */
   profileSet: Set<string>;
@@ -79,7 +101,9 @@ type Group = {
 };
 
 /**
- * 按 (fieldName, valueHash) 全局合并 placeholders → SecretsIndex。
+ * 按 valueHash 全局合并 placeholders → SecretsIndex（**CHANGELOG_20 cross-fieldName dedup**：
+ * group key 改为纯 valueHash，跨 fieldName 同 value 也合并；旧版 group key 是 (fieldName, valueHash)
+ * 同 value 用不同 fieldName 命名时被切散）。
  *
  * 入参约定：
  * - `placeholders`：backup.ts createBackup 已收集的 PlaceholderEntry[] 平铺数组
@@ -92,17 +116,18 @@ export function buildSecretsIndex(
   placeholders: PlaceholderEntry[],
   hashByEntry: Map<PlaceholderEntry, string | undefined>,
 ): SecretsIndex {
-  // 1. 按 (fieldName, hash) group。hash undefined → key 加 `whole|<idx>` 确保每条独立
+  // 1. 按 valueHash group（CHANGELOG_20: 不再带 fieldName）。hash undefined → 加 `whole|<idx>`
+  //    确保每条独立。
   const groups = new Map<string, Group>();
   placeholders.forEach((entry, idx) => {
     const hash = hashByEntry.get(entry);
     const groupKey = hash === undefined
-      ? `${entry.fieldName}|whole|${idx}`
-      : `${entry.fieldName}|${hash}`;
+      ? `whole|${idx}`
+      : hash;
     let g = groups.get(groupKey);
     if (!g) {
       g = {
-        fieldName: entry.fieldName,
+        fieldNameCounts: new Map(),
         locations: [],
         profileSet: new Set(),
         isWhole: hash === undefined,
@@ -110,24 +135,41 @@ export function buildSecretsIndex(
       groups.set(groupKey, g);
     }
     g.locations.push({ packPath: entry.packPath, fieldPath: entry.fieldPath });
+    g.fieldNameCounts.set(entry.fieldName, (g.fieldNameCounts.get(entry.fieldName) ?? 0) + 1);
     // packPath 形如 `profiles/<id>/configDir/...` 或 `profiles/<id>/_meta.json`
     const m = entry.packPath.match(/^profiles\/([^/]+)\//);
     if (m) g.profileSet.add(m[1]!);
   });
 
-  // 2. 按 fieldName 二级分桶
-  const byFieldName = new Map<string, Group[]>();
+  // 2. 给每个 group 选 primary fieldName（出现次数最多；并列时字典序最小）+ 计算 fieldNames distinct
+  type ResolvedGroup = Group & { primaryFieldName: string; fieldNames: string[] };
+  const resolved: ResolvedGroup[] = [];
   for (const g of groups.values()) {
-    const list = byFieldName.get(g.fieldName);
-    if (list) list.push(g);
-    else byFieldName.set(g.fieldName, [g]);
+    let primary = "";
+    let primaryCount = -1;
+    for (const [fn, c] of g.fieldNameCounts) {
+      if (c > primaryCount || (c === primaryCount && fn < primary)) {
+        primary = fn;
+        primaryCount = c;
+      }
+    }
+    const fieldNames = [...g.fieldNameCounts.keys()].sort();
+    resolved.push({ ...g, primaryFieldName: primary, fieldNames });
   }
 
-  // 3. fieldName 字典序 → 同 fieldName 内按 group「最小 packPath」字典序分配 idx
+  // 3. 按 primaryFieldName 二级分桶
+  const byPrimary = new Map<string, ResolvedGroup[]>();
+  for (const rg of resolved) {
+    const list = byPrimary.get(rg.primaryFieldName);
+    if (list) list.push(rg);
+    else byPrimary.set(rg.primaryFieldName, [rg]);
+  }
+
+  // 4. primaryFieldName 字典序 → 同 primary 内按 group「最小 packPath」字典序分配 idx
   const entries: SecretLogicalEntry[] = [];
-  const fieldNames = [...byFieldName.keys()].sort();
-  for (const fn of fieldNames) {
-    const groupsForField = byFieldName.get(fn)!;
+  const primaryNames = [...byPrimary.keys()].sort();
+  for (const fn of primaryNames) {
+    const groupsForField = byPrimary.get(fn)!;
     groupsForField.sort((a, b) => firstPackPath(a).localeCompare(firstPackPath(b)));
     groupsForField.forEach((g, i) => {
       const idx = i + 1;
@@ -135,8 +177,9 @@ export function buildSecretsIndex(
       entries.push({
         name: `${fn}-${idx}`,
         fieldName: fn,
+        fieldNames: g.fieldNames,
         count: g.locations.length,
-        hint: hintForGroup(g.locations.length, g.profileSet, g.isWhole),
+        hint: hintForGroup(g.locations.length, g.profileSet, g.isWhole, g.fieldNames),
         locations: sortedLocations,
       });
     });
@@ -157,7 +200,7 @@ export function buildSecretsIndex(
   };
 }
 
-function firstPackPath(g: Group): string {
+function firstPackPath(g: { locations: SecretLocation[] }): string {
   let min = g.locations[0]!.packPath;
   for (const loc of g.locations) {
     if (loc.packPath < min) min = loc.packPath;
@@ -165,15 +208,24 @@ function firstPackPath(g: Group): string {
   return min;
 }
 
-function hintForGroup(count: number, profiles: Set<string>, isWhole: boolean): string {
+function hintForGroup(count: number, profiles: Set<string>, isWhole: boolean, fieldNames: string[]): string {
   if (isWhole) {
     const profile = [...profiles][0] ?? "unknown";
     return `1 occurrence (whole-file secret, ${profile})`;
   }
   const occ = count === 1 ? "occurrence" : "occurrences";
-  if (profiles.size === 0) return `${count} ${occ}`;
-  if (profiles.size === 1) return `${count} ${occ} in 1 profile`;
-  return `${count} ${occ} across ${profiles.size} profiles`;
+  const profilePart =
+    profiles.size === 0 ? "" :
+    profiles.size === 1 ? " in 1 profile" :
+    ` across ${profiles.size} profiles`;
+  // CHANGELOG_20: 多 fieldName group 提示「跨 N 字段名」便于用户理解一次填值会替换多种命名
+  let fnPart = "";
+  if (fieldNames.length > 1) {
+    const shown = fieldNames.slice(0, 3).join(" / ");
+    const more = fieldNames.length > 3 ? ` +${fieldNames.length - 3} more` : "";
+    fnPart = ` · ${fieldNames.length} field names: ${shown}${more}`;
+  }
+  return `${count} ${occ}${profilePart}${fnPart}`;
 }
 
 // ─── fieldPath 寻址 ────────────────────────────────────────

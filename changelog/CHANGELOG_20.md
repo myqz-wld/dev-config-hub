@@ -95,3 +95,61 @@ ACCESS_TOKEN：6 个独立 logical key（count=1 各）→ **1 个 logical key (
 ### 已知遗留（不修）
 
 - plain-text fan-out 仍走 `applyFilledSecrets:fillSingleFile` 的 `.json/.toml` only 分支，被记 errors 不实际写回 plain text 文件 —— 这是 CHANGELOG_19 既有边界（plain text 没有结构化 fieldPath 寻址，无法精确定位 line:col 替换）。dedup 现在正确，但 fan-out 仍要用户手改 plain text 文件。后续如需可加 plain text fill 路径（按 `<<DCH_PLACEHOLDER:NAME>>` 字面量全局替换）
+
+## Follow-up algorithm change：cross-fieldName dedup
+
+### 现象
+
+plain-text bug 修完后实测 585 placeholder → 110 logical key（5.32x），仍远高于「~15」预期。分析 110 个分布发现：同一个 token 在多个 plugin 配置里被命名为不同字段名（如 `APP_SECRET / DEFAULT_APP_SECRET / FEISHU_APP_SECRET` 都配同一个 secret，`APIKEY / API_KEY` / `GITLAB_PERSONAL_ACCESS_TOKEN / TOKEN` 等同义命名），原算法 group key=`(fieldName, valueHash)` 把同 value 不同 fieldName 切成多个 logical key。
+
+### 算法变更
+
+`src/profiles/secrets-index.ts:buildSecretsIndex`：
+
+| | before (CHANGELOG_19) | after (CHANGELOG_20) |
+|---|---|---|
+| group key | `(fieldName, valueHash)` | **`valueHash` only** |
+| 同 hash 跨 fieldName | 切成多个 logical key | **合并 1 个 logical key** |
+| `entry.fieldName` 语义 | 该 entry 唯一 fieldName | **primary** fieldName（出现最多；并列字典序最小） |
+| 新增字段 `entry.fieldNames` | — | **distinct list 字典序**（optional 兼容旧 dchpack） |
+| hint 多 fieldName 时 | — | 附 `· N field names: A / B / C +M more` |
+
+### 验证
+
+CLI E2E 同一 4-profile 备份：
+
+| | placeholders | unique logical keys | 压缩比 |
+|---|---|---|---|
+| **原算法 (bug 修前)** | 585 | 540 | 1.08x |
+| **plain-text bug 修后** | 585 | 110 | 5.32x |
+| **cross-fieldName 合并后** | 585 | **99** | **5.91x** |
+
+合并实例：`APIKEY-3` (count=6, fieldNames=APIKEY/API_KEY) / `DEFAULT_APP_SECRET-1` (count=8, fieldNames=APP_SECRET/DEFAULT_APP_SECRET/FEISHU_APP_SECRET) / `FOLDER_TOKEN-1` (count=32, fieldNames=FOLDER_TOKEN/TARGET_FOLDER_TOKEN) / `GITLAB_PERSONAL_ACCESS_TOKEN-6` (count=6, fieldNames=GITLAB_PERSONAL_ACCESS_TOKEN/TOKEN) 等。
+
+### 99 是用户备份的真实 distinct token 数
+
+进一步分析：剩余 99 个 logical key 的大头来自 plugin marketplace 安装目录的文档示例（如 `vibe-coding` plugin 的 `feishu-docs.yaml` 字面包含 12 个不同 `feishu_token: "..."` 字符串，每个 hash 不同 → 12 个独立 logical key 是 dedup 不可压缩的真值差异）。
+
+要降到 ~15 需从「数据源」入手：在 `src/profiles/backup-rules.ts` 排除 plugin marketplace 安装目录的 .md / .yaml（plugin install 时会重拉，备份不需要）。这是数据范围设计决策，不属于 dedup 算法范围，本次未做。
+
+### 单测
+
+`src/profiles/secrets-index.test.ts` +3 case：
+- 跨 fieldName 同 hash → 合并 1 个 logical key + fieldNames 列全部 fieldName + hint 含「N field names」
+- primary fieldName 并列时按字典序最小（deterministic）
+- 单 fieldName group：fieldNames 仅含 1 个 + hint 不含「N field names」段（向后兼容老体验 / 与 CHANGELOG_19 输出一致）
+
+309 → **312 pass / 0 回归**。
+
+### UI 配套
+
+- `RestoreSecretsBody.tsx` SecretEntryRow：multi-fieldName entry 加黄色标签 `⚡ 跨 N 字段名` + hover tooltip 列全部 fieldName
+- `ExportBackupModal.tsx` SecretsSummaryList：multi-fieldName 行尾加紧凑标签 `⚡N` + hover tooltip
+- 单 fieldName entry 不显示标签（保持简洁，避免视觉污染）
+
+### 兼容性
+
+- `manifest.format_version=1` 不变；新增 optional `entry.fieldNames?: string[]` 旧 dchpack 读进来 undefined
+- `entry.fieldName` 字段保留（语义改成 primary fieldName），旧 caller 不破坏
+- UI 渲染 fallback：`entry.fieldNames ?? [entry.fieldName]` 兼容旧 dchpack
+- 旧 dchpack restore 时仍按旧算法（CHANGELOG_19）切散的 logical key 列表展示，**用户填的还是 K_old 个值**；新 backup 出来的 dchpack 才走新算法（K_new ≤ K_old）
