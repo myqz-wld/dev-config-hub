@@ -7,14 +7,20 @@
  * - `redactProfileEnv`：给 profiles.json 里 profile.env 段用，敏感 key 的 value 也置占位
  * - `placeholderCount`：扫文件还剩几个未填的 `<<DCH_PLACEHOLDER:...>>`（UI 用于"待填提示"）
  *
- * Parse 失败（非严格 JSON / TOML）：不抛错，原样返回 content + 空 placeholders[]，
- * 由 caller 决定是否记 warning（避免备份因为单文件解析失败而整体失败）。
+ * Parse 失败（非严格 JSON / TOML）：**REVIEW_9 A-HIGH-2 / B-HIGH-2 跨批**：旧实现 fall back
+ * 到 `return { content, placeholders: [] }` 让真凭据原样进 dchpack。新实现 fall back 到
+ * `redactPlainTextContent(content)` regex 兜底 + push 一条 warning 到 `result.warnings`，由
+ * caller (backup.ts copyOrRedactFile) 透传到 manifest.security_warnings 让用户/UI 可见。
  *
  * Placeholder 格式：`<<DCH_PLACEHOLDER:KEY_NAME>>`。manifest 单独记录精确路径让 UI 可定位。
  *
  * `valueHash` 字段：CHANGELOG_18 加。仅 backup 内存阶段用作 group key 给 secrets-index 去重；
  * 分配 logical key 后立即丢弃，**绝不写到 manifest / dchpack**。`redactWholeFile` 不带
  * valueHash（整文件场景内容是 OAuth 整体，跨 profile 几乎必然不同；下游识别 undefined 跳过 dedup）。
+ *
+ * **REVIEW_9 A-HIGH-3**: 空字符串 value 也不带 valueHash（旧行为把所有空 value 误合并成同一
+ * group → fan-out 时 cross-fieldName 错填）。下游 buildSecretsIndex 识别 undefined 当
+ * wholeFile 各自独立 logical key。
  */
 
 import { CryptoHasher } from "bun";
@@ -22,13 +28,19 @@ import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { isSensitiveKey, isSensitiveFile } from "./backup-rules.ts";
 
 export interface PlaceholderHit {
-  /** JSON: `$.a.b.c`；TOML: `a.b.c`；profile.env: `env.KEY` */
+  /**
+   * JSON: `$.a.b.c`；TOML: `a.b.c`；profile.env: `env.KEY`。
+   * **REVIEW_9 A-codex M2**: key 字面量含 `.` / `[` / `]` / `\` 的字符按 backslash 转义
+   * （`a.b` → `a\.b`，`a[0]` → `a\[0\]`），让 parseFieldPath / setByFieldPath 能正确还原成
+   * 单段 key。极端罕见但严肃修：未转义会让 `{"api.key": "secret"}` 拼出 `$.api.key` 三段被
+   * fan-out fill 误寻址（写错字段或 set fail）。
+   */
   fieldPath: string;
-  /** 字段名本体（用于占位符内嵌 + UI 提示） */
+  /** 字段名本体（用于占位符内嵌 + UI 提示）。原始未转义字符串，用于 UI 显示。 */
   fieldName: string;
   /**
    * sha256(rawValue) 前 16 字符 hex 短串。仅 backup 内存阶段做 dedup group key，
-   * 分配 logical key 后立即丢弃；wholeFile / 空值不携带（undefined 表示「不参与 dedup」）。
+   * 分配 logical key 后立即丢弃；wholeFile / 空字符串值不携带（undefined 表示「不参与 dedup」）。
    */
   valueHash?: string;
 }
@@ -53,11 +65,25 @@ export function placeholderCount(content: string): number {
  * walkAndRedact 的 sync 签名，避免 cascade 上层 async 改动。
  *
  * 16 字符 = 64 bit 抗碰撞，对 backup dedup 场景（单次备份 < 1000 条 secret）足够；
- * 不暴露给用户也不写 manifest，仅内存比较。空字符串也算合法值（依然命中 sensitive key），
- * 但下游 buildSecretsIndex 会把空 value hash 当 valid hash 计入 group。
+ * 不暴露给用户也不写 manifest，仅内存比较。
+ *
+ * **REVIEW_9 A-HIGH-3**: 空字符串 value 返回 undefined（不参与 dedup）。旧实现把
+ * `sha256("") = "e3b0c44298fc1c14"` 当合法 hash 让 buildSecretsIndex 把所有空 value 误合并成
+ * 同一 group → fan-out 时把 fieldName-1 错填给所有空 value 字段。
  */
-function shortHash(value: string): string {
+function shortHash(value: string): string | undefined {
+  if (value === "") return undefined;
   return new CryptoHasher("sha256").update(value).digest("hex").slice(0, 16);
+}
+
+/**
+ * **REVIEW_9 A-codex M2**: 把 key 字面量中的 `\` `.` `[` `]` backslash 转义，让
+ * `${pathPrefix}.${escapeKey(k)}` 拼出的 fieldPath 在 parseFieldPath 阶段能正确还原成单段
+ * key（而不是被当成多段 / 数组下标拆开）。极罕见但严肃修：未转义会让 `{"api.key": "secret"}`
+ * 拼出 `$.api.key` 三段被 fan-out fill 误寻址。
+ */
+function escapeKey(k: string): string {
+  return k.replace(/[\\.\[\]]/g, "\\$&");
 }
 
 /**
@@ -75,7 +101,8 @@ function walkAndRedact(
   if (node && typeof node === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
-      const fieldPath = pathPrefix ? `${pathPrefix}.${k}` : k;
+      const escapedK = escapeKey(k);
+      const fieldPath = pathPrefix ? `${pathPrefix}.${escapedK}` : escapedK;
       if (typeof v === "string" && isSensitiveKey(k)) {
         hits.push({ fieldPath, fieldName: k, valueHash: shortHash(v) });
         out[k] = makePlaceholder(k);
@@ -91,21 +118,38 @@ function walkAndRedact(
 export interface RedactResult {
   content: string;
   placeholders: PlaceholderHit[];
+  /**
+   * **REVIEW_9 A-HIGH-2 / B-HIGH-2 跨批**: parse-based 脱敏（JSON / TOML）失败时 fall back 到
+   * `redactPlainTextContent` 后,把一条人类可读 warning push 进来。caller (backup.ts
+   * copyOrRedactFile) 透传到 manifest.security_warnings,UI / README 让用户感知「文件 X 解析
+   * 失败,已走 regex 兜底,可能漏脱敏不规范的 token」。omitted = 无 warning。
+   */
+  warnings?: string[];
 }
 
 /**
- * JSON 文件脱敏。Parse 失败 → 原样返回 + 空 placeholders（caller 自行 warning）。
+ * JSON 文件脱敏。**REVIEW_9 A-HIGH-2**: parse 失败 fall back 到 `redactPlainTextContent` 走
+ * regex 兜底（不再原样返回让真凭据 leak 进 dchpack） + 加一条 warning。caller 透传到
+ * manifest.security_warnings。
  *
  * 输出 stringify 用 indent=2，原 formatting 会被 normalise。
  * 大多数 settings.json / .mcp.json 都是 ConfigPanel 用 JSON.stringify(content, null, 2)
  * 落盘的，loss 可接受。
  */
-export function redactJsonContent(content: string): RedactResult {
+export function redactJsonContent(content: string, filename = ""): RedactResult {
   let raw: unknown;
   try {
     raw = JSON.parse(content);
   } catch {
-    return { content, placeholders: [] };
+    const fallback = redactPlainTextContent(content);
+    const label = filename ? ` (${filename})` : "";
+    return {
+      ...fallback,
+      warnings: [
+        ...(fallback.warnings ?? []),
+        `JSON 解析失败${label}: 已走 plain-text regex 兜底,可能漏脱敏不规范字段(如 JSONC // 注释 / trailing comma)`,
+      ],
+    };
   }
   const hits: PlaceholderHit[] = [];
   const redacted = walkAndRedact(raw, "$", hits);
@@ -116,17 +160,26 @@ export function redactJsonContent(content: string): RedactResult {
 }
 
 /**
- * TOML 文件脱敏。Parse 失败同上。
+ * TOML 文件脱敏。**REVIEW_9 A-HIGH-2**: parse / stringify 失败同 JSON 也 fall back 到
+ * `redactPlainTextContent` + warning。
  *
  * smol-toml stringify 输出符合 TOML 1.0；原文件注释会丢，section 顺序可能调整。
  * 这是接受的代价 — 备份后人工还原前用户大多直接编辑 placeholder 不在意 formatting。
  */
-export function redactTomlContent(content: string): RedactResult {
+export function redactTomlContent(content: string, filename = ""): RedactResult {
   let raw: Record<string, unknown>;
   try {
     raw = parseToml(content) as Record<string, unknown>;
   } catch {
-    return { content, placeholders: [] };
+    const fallback = redactPlainTextContent(content);
+    const label = filename ? ` (${filename})` : "";
+    return {
+      ...fallback,
+      warnings: [
+        ...(fallback.warnings ?? []),
+        `TOML 解析失败${label}: 已走 plain-text regex 兜底,可能漏脱敏不规范字段(typo / trailing 逗号)`,
+      ],
+    };
   }
   const hits: PlaceholderHit[] = [];
   const redacted = walkAndRedact(raw, "", hits) as Record<string, unknown>;
@@ -134,7 +187,15 @@ export function redactTomlContent(content: string): RedactResult {
   try {
     out = stringifyToml(redacted);
   } catch {
-    return { content, placeholders: [] };
+    const fallback = redactPlainTextContent(content);
+    const label = filename ? ` (${filename})` : "";
+    return {
+      ...fallback,
+      warnings: [
+        ...(fallback.warnings ?? []),
+        `TOML stringify 失败${label}: 已走 plain-text regex 兜底`,
+      ],
+    };
   }
   return {
     content: out + (out.endsWith("\n") ? "" : "\n"),
@@ -213,12 +274,24 @@ const HIGH_CONFIDENCE_PATTERNS: Array<{ name: string; re: RegExp }> = [
 ];
 
 // KEY = VALUE / KEY: VALUE / export KEY=VALUE
-// 仅当 KEY 含敏感词（api_key / token / secret / password / bearer 等）才命中
-// VALUE 接受引号包裹与否，长度 ≥ 16，[A-Za-z0-9_+./=-] 字符集
+// 仅当 KEY 含敏感词（api_key / token / secret / password / bearer 等）才命中。
+//
+// **REVIEW_9 A-HIGH-4 + A-claude M1**: 重写。
+// 旧 regex `[A-Za-z0-9_+./=-]{16,}` 字符集过窄,漏 `:` (Slack webhook url) /
+// `password!@#$` (含 shell special) / `tok:abc...` 类组合,且 callback 一律重建为
+// `KEY=value` 损坏 YAML (`api_key: "x"` → `api_key=<<placeholder>>`)、丢引号 (强 lint
+// 工具报错)、丢空白对齐。
+//
+// 新设计:三组捕获 quote 区分(双引号 / 单引号 / 无引号)+ callback 拼回原 layout。
+//   - 双引号: `KEY <sep> "value..."`  → 重建保留 `"`
+//   - 单引号: `KEY <sep> 'value...'`  → 重建保留 `'`
+//   - 无引号: `KEY <sep> value...`    → value 截到行尾下一个空白(允许任意 char 含 `:` `!@#$`)
+// 分隔符 `<sep>` (`=` 或 `:` + 周围空白) + 引号都被 callback 原样拼回,YAML / properties / TS
+// 等 syntax 不破坏。value 长度 ≥ 8(避免 `key=v` 短设置误命中)。
 const KEY_VALUE_PATTERNS: Array<{ name: string; re: RegExp }> = [
   {
     name: "GENERIC_KEY_VALUE",
-    re: /\b((?:[A-Z][A-Z0-9_]*_)?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PASSWD|BEARER|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|AUTH))\s*[:=]\s*["']?([A-Za-z0-9_+./=-]{16,})["']?/gi,
+    re: /\b((?:[A-Za-z][A-Za-z0-9_]*_)?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PASSWD|BEARER|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|AUTH))(\s*[:=]\s*)(?:"([^"\n]{8,})"|'([^'\n]{8,})'|([^\s"'\n][^\s\n\r]{7,}))/gi,
   },
 ];
 
@@ -244,13 +317,30 @@ export function redactPlainTextContent(content: string): RedactResult {
     });
   }
 
-  // 2. KEY_VALUE：保留 key 与分隔符，仅替换 value 部分
+  // 2. KEY_VALUE: 保留 key + 分隔符 + 引号(原样拼回 不损坏 YAML / properties / TS),
+  //    仅替换 value 部分。**REVIEW_9 A-HIGH-4 + A-claude M1**: callback 重写。
   for (const { re } of KEY_VALUE_PATTERNS) {
-    out = out.replace(re, (_m: string, keyName: string, value: string) => {
-      const upperKey = keyName.toUpperCase().replace(/[-]/g, "_");
+    out = out.replace(re, (
+      _m: string,
+      keyName: string,
+      sep: string,
+      doubleQuoted: string | undefined,
+      singleQuoted: string | undefined,
+      unquoted: string | undefined,
+    ) => {
+      const value = doubleQuoted ?? singleQuoted ?? unquoted ?? "";
+      if (!value) return _m;
+      // **REVIEW_9 A-HIGH-4 防御**: value 已是 placeholder 形式(HIGH_CONFIDENCE 阶段刚换)
+      // 时跳过 — 否则会用 KEY_VALUE 通用名(如 `API_KEY`)覆盖 HIGH_CONFIDENCE 精准名
+      // (`ANTHROPIC_API_KEY`),用户填回时 logical key 错位。
+      if (value.includes(PLACEHOLDER_PREFIX)) return _m;
+      const upperKey = keyName.toUpperCase().replace(/-/g, "_");
       hits.push({ fieldPath: `text.${upperKey}`, fieldName: upperKey, valueHash: shortHash(value) });
-      // 重建 KEY=value 形式（不解析原始分隔符细节，统一用 `=`；用户填回时按上下文调整）
-      return `${keyName}=${makePlaceholder(upperKey)}`;
+      const ph = makePlaceholder(upperKey);
+      // 重建保留原 layout
+      if (doubleQuoted !== undefined) return `${keyName}${sep}"${ph}"`;
+      if (singleQuoted !== undefined) return `${keyName}${sep}'${ph}'`;
+      return `${keyName}${sep}${ph}`;
     });
   }
 
@@ -272,12 +362,16 @@ export function redactPlainTextContent(content: string): RedactResult {
  * credentials.json）走 redactWholeFile。**REVIEW_8 M2 / D5**：其他文件类型 fall-through
  * 到 redactPlainTextContent（regex 替换 token），不再原样返回。
  *
+ * **REVIEW_9 A-HIGH-2 / B-HIGH-2 跨批**: 把 filename 一路传给 redactJsonContent /
+ * redactTomlContent,parse 失败 fall back 到 plain-text 时 warning 能带上 filename 让用户
+ * 知道哪个文件解析失败。
+ *
  * caller 拿到 filename 是 basename（如 `settings.json`），用于 sensitive-file 命中判断
  * + 选 parser。
  */
 export function redactByFilename(content: string, filename: string): RedactResult {
   if (isSensitiveFile(filename)) return redactWholeFile(content, filename);
-  if (filename.endsWith(".json")) return redactJsonContent(content);
-  if (filename.endsWith(".toml")) return redactTomlContent(content);
+  if (filename.endsWith(".json")) return redactJsonContent(content, filename);
+  if (filename.endsWith(".toml")) return redactTomlContent(content, filename);
   return redactPlainTextContent(content);
 }

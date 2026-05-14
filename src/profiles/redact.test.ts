@@ -321,3 +321,112 @@ describe("valueHash on PlaceholderHit", () => {
     expect(ha?.valueHash).toBe(hb?.valueHash);
   });
 });
+
+// ─── REVIEW_9 G1 fix 覆盖测试 ─────────────────────────────────────────
+
+describe("REVIEW_9 A-HIGH-4 + A-claude M1: KEY_VALUE 保留分隔符 + 引号(不损坏 YAML / TS)", () => {
+  it("YAML `:` 分隔符 + 双引号: api_key: \"sk-...\" → 保留 `:` + `\"` 不强转 `=`", () => {
+    const r = redactByFilename(`api_key: "sk-ant-api03-XYZXYZXYZXYZXYZXYZXYZ"`, "config.yaml");
+    expect(r.content).not.toContain("sk-ant-api03-XYZXYZXYZXYZXYZXYZXYZ");
+    // HIGH_CONFIDENCE_PATTERNS 优先命中 sk-ant-,直接换 token,保留 KEY: " " 外层
+    expect(r.content).toContain("api_key:");
+    expect(r.content).toContain('"<<DCH_PLACEHOLDER:ANTHROPIC_API_KEY>>"');
+    // 验证不再强转 `=` 形式
+    expect(r.content).not.toMatch(/api_key=<<DCH_PLACEHOLDER/);
+  });
+
+  it("KEY_VALUE 单引号: SECRET='value' → 保留单引号", () => {
+    const r = redactByFilename(`MY_SECRET='supersecret123456'`, "shell.sh");
+    expect(r.content).not.toContain("supersecret123456");
+    expect(r.content).toMatch(/MY_SECRET\s*=\s*'<<DCH_PLACEHOLDER:/);
+  });
+
+  it("KEY_VALUE 无引号: TOKEN=value → 不加引号", () => {
+    const r = redactByFilename(`MY_TOKEN=randomvaluetoken123`, "config.env");
+    expect(r.content).not.toContain("randomvaluetoken123");
+    // 不应有引号包围
+    expect(r.content).toMatch(/MY_TOKEN\s*=\s*<<DCH_PLACEHOLDER:/);
+    expect(r.content).not.toMatch(/MY_TOKEN\s*=\s*"</);
+    expect(r.content).not.toMatch(/MY_TOKEN\s*=\s*'</);
+  });
+
+  it("KEY_VALUE 含 `:` 字符的 value(Slack webhook style)→ 整体进 placeholder 不被旧 charset 截断", () => {
+    // 旧 regex `[A-Za-z0-9_+./=-]{16,}` 漏 `:`,导致 `https://hooks.slack.com/services/T0/B0/xxx:abc` 中
+    // `:abc` 部分残留进备份。新 regex 用引号或行尾边界,完整截到下一空白。
+    const r = redactByFilename(
+      `SLACK_WEBHOOK_SECRET="https://hooks.slack.com/services/T0/B0/key:abcdefghij"`,
+      "webhook.env",
+    );
+    // 完整 secret URL 都被替换,不留 `:abcdefghij` 残尾
+    expect(r.content).not.toContain("hooks.slack.com");
+    expect(r.content).not.toContain(":abcdefghij");
+    expect(r.content).toContain("<<DCH_PLACEHOLDER:");
+  });
+
+  it("KEY_VALUE 含 shell special 的 password → 完整截至引号边界", () => {
+    // 旧 charset 漏 `!@#$%^&*` 等,密码含特殊字符的尾部残留进备份
+    const r = redactByFilename(
+      `MY_PASSWORD="p@ssw0rd!#$%^&*()"`,
+      "secrets.env",
+    );
+    expect(r.content).not.toContain("p@ssw0rd!#$%^&*()");
+    expect(r.content).toMatch(/MY_PASSWORD\s*=\s*"<<DCH_PLACEHOLDER:/);
+  });
+});
+
+describe("REVIEW_9 A-HIGH-2 / B-HIGH-2: redactJsonContent / redactTomlContent parse fail → fall back regex + warning", () => {
+  it("redactJsonContent broken JSON → fall back redactPlainTextContent + warnings 非空", () => {
+    const broken = "{ invalid json with sk-ant-api03-XYZXYZXYZXYZXYZXYZXYZ token";
+    const r = redactJsonContent(broken, "broken.json");
+    expect(r.content).not.toContain("sk-ant-api03-XYZXYZXYZXYZXYZXYZXYZ");
+    expect(r.content).toContain("<<DCH_PLACEHOLDER:ANTHROPIC_API_KEY>>");
+    expect(r.warnings).toBeDefined();
+    expect(r.warnings!.length).toBeGreaterThan(0);
+    expect(r.warnings![0]).toContain("JSON 解析失败");
+    expect(r.warnings![0]).toContain("broken.json");
+  });
+
+  it("redactTomlContent broken TOML → fall back + warnings 含 filename", () => {
+    const broken = '[server\nname = "x"\napi_key = ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789';
+    const r = redactTomlContent(broken, "config.toml");
+    expect(r.content).not.toContain("ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789");
+    expect(r.warnings).toBeDefined();
+    expect(r.warnings![0]).toContain("TOML 解析失败");
+    expect(r.warnings![0]).toContain("config.toml");
+  });
+
+  it("成功 parse 时 warnings 应为 undefined(不污染合法路径)", () => {
+    const r = redactJsonContent('{"api_key": "secret"}');
+    expect(r.warnings).toBeUndefined();
+  });
+});
+
+describe("REVIEW_9 A-HIGH-3: shortHash empty value → undefined", () => {
+  it("redactJsonContent: 空字符串敏感 value → placeholder + valueHash undefined", () => {
+    const r = redactJsonContent(JSON.stringify({ api_key: "" }));
+    expect(r.placeholders).toHaveLength(1);
+    expect(r.placeholders[0]!.valueHash).toBeUndefined();
+  });
+
+  it("redactProfileEnv: 空 env value → placeholder + valueHash undefined", () => {
+    const r = redactProfileEnv({ MY_TOKEN: "" });
+    expect(r.placeholders).toHaveLength(1);
+    expect(r.placeholders[0]!.valueHash).toBeUndefined();
+  });
+});
+
+describe("REVIEW_9 A-codex M2: walkAndRedact 对含特殊字符 key escape 让 fieldPath 单段还原", () => {
+  it("JSON key 含 `.` 字面量(命中 token 子串) → fieldPath 用 \\. 转义", () => {
+    // key `my.token` 含 `token` sensitive 子串 + 含 `.` 字面量(罕见但合法 JSON)
+    const r = redactJsonContent(JSON.stringify({ "my.token": "sk-real-secret" }));
+    expect(r.placeholders).toHaveLength(1);
+    expect(r.placeholders[0]!.fieldPath).toBe("$.my\\.token");
+    expect(r.placeholders[0]!.fieldName).toBe("my.token"); // 原始 key 名
+  });
+
+  it("JSON 嵌套 key 含 `.`(命中 secret 子串) → fieldPath escape 后 parseFieldPath 还原成单段", () => {
+    const r = redactJsonContent(JSON.stringify({ outer: { "v1.secret": "value" } }));
+    expect(r.placeholders).toHaveLength(1);
+    expect(r.placeholders[0]!.fieldPath).toBe("$.outer.v1\\.secret");
+  });
+});
