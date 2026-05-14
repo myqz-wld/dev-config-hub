@@ -130,6 +130,12 @@ export function BackupHistoryModal({
       }
     : null;
 
+  /** REVIEW_9 D-claude INFO 2: 父封装 onClose() + onRestoreFile(path) 让 BackupGroup 不需要再传两个 prop */
+  const onRestoreCloseAndOpen = useCallback((path: string) => {
+    onClose();
+    onRestoreFile(path);
+  }, [onClose, onRestoreFile]);
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
@@ -169,10 +175,9 @@ export function BackupHistoryModal({
                 busy={busy}
                 confirmDel={confirmDel}
                 setConfirmDel={setConfirmDel}
-                onRestoreFile={onRestoreFile}
+                onRestore={onRestoreCloseAndOpen}
                 onPin={onPin}
                 onDelete={onDelete}
-                onClose={onClose}
               />
               <BackupGroup
                 title="⭐ 置顶（不会被覆盖）"
@@ -181,10 +186,9 @@ export function BackupHistoryModal({
                 busy={busy}
                 confirmDel={confirmDel}
                 setConfirmDel={setConfirmDel}
-                onRestoreFile={onRestoreFile}
+                onRestore={onRestoreCloseAndOpen}
                 onPin={onPin}
                 onDelete={onDelete}
-                onClose={onClose}
               />
               <BackupGroup
                 title="📜 历史（--keep 创建）"
@@ -193,10 +197,9 @@ export function BackupHistoryModal({
                 busy={busy}
                 confirmDel={confirmDel}
                 setConfirmDel={setConfirmDel}
-                onRestoreFile={onRestoreFile}
+                onRestore={onRestoreCloseAndOpen}
                 onPin={onPin}
                 onDelete={onDelete}
-                onClose={onClose}
               />
             </>
           )}
@@ -211,7 +214,7 @@ export function BackupHistoryModal({
 
 function BackupGroup({
   title, hint, items, busy, confirmDel, setConfirmDel,
-  onRestoreFile, onPin, onDelete, onClose,
+  onRestore, onPin, onDelete,
 }: {
   title: string;
   hint: string;
@@ -219,10 +222,10 @@ function BackupGroup({
   busy: boolean;
   confirmDel: string | null;
   setConfirmDel: (p: string | null) => void;
-  onRestoreFile: (path: string) => void;
+  /** REVIEW_9 D-claude INFO 2: 父封装 onRestoreCloseAndOpen — onClose() + onRestoreFile(path) 一起 */
+  onRestore: (path: string) => void;
   onPin: (path: string, pin: boolean) => Promise<void>;
   onDelete: (path: string) => Promise<void>;
-  onClose: () => void;
 }) {
   if (items.length === 0) return null;
   return (
@@ -237,7 +240,7 @@ function BackupGroup({
           confirming={confirmDel === x.path}
           onConfirmDel={() => setConfirmDel(x.path)}
           onCancelDel={() => setConfirmDel(null)}
-          onRestore={() => { onClose(); onRestoreFile(x.path); }}
+          onRestore={() => onRestore(x.path)}
           onPin={() => void onPin(x.path, !x.pinned)}
           onDelete={() => void onDelete(x.path)}
         />
