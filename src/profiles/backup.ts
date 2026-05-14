@@ -23,6 +23,7 @@ import {
   redactProfileEnv,
   type PlaceholderHit,
 } from "./redact.ts";
+import { buildSecretsIndex, type SecretsIndex } from "./secrets-index.ts";
 
 export const FORMAT_VERSION = 1 as const;
 const PLACEHOLDER_HINTS: Record<string, string> = {
@@ -75,6 +76,12 @@ export interface Manifest {
     agents_paths: string[];
   };
   placeholders: PlaceholderEntry[];
+  /**
+   * 按真值 hash 全局合并的 logical key 索引（CHANGELOG_18）。
+   * 仅当 `!no_placeholder` 且实际存在敏感命中时挂出；旧 dchpack（无此字段）由 restore
+   * 端 fall back 到 `placeholders[]` 走逐文件 dump 清单（兼容路径）。
+   */
+  secrets_index?: SecretsIndex;
   security_warnings: string[];
 }
 
@@ -171,6 +178,7 @@ async function copyOrRedactFile(
   dst: string,
   filename: string,
   opts: { noPlaceholder: boolean; packPath: string },
+  hashByEntry: Map<PlaceholderEntry, string | undefined>,
 ): Promise<PlaceholderEntry[]> {
   await mkdir(dirname(dst), { recursive: true });
   const file = Bun.file(src);
@@ -194,7 +202,11 @@ async function copyOrRedactFile(
   }
   const r = redactByFilename(text, filename);
   await Bun.write(dst, r.content);
-  return r.placeholders.map((h) => entryFromHit(h, opts.packPath));
+  return r.placeholders.map((h) => {
+    const entry = entryFromHit(h, opts.packPath);
+    hashByEntry.set(entry, h.valueHash);
+    return entry;
+  });
 }
 
 function entryFromHit(h: PlaceholderHit, packPath: string): PlaceholderEntry {
@@ -277,6 +289,10 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
 
     // 4. profiles/<id>/_meta.json + configDir/**
     const placeholders: PlaceholderEntry[] = [];
+    // 与 placeholders 一一对应的 sha256(value).slice(0,16) 短串。`undefined` 表示来自
+    // redactWholeFile（整文件场景，每条独立 logical key 不参与 dedup）。仅 backup 内存
+    // 阶段用作 group key，分配 logical key 后立即丢弃，绝不写到 manifest / dchpack。
+    const hashByEntry = new Map<PlaceholderEntry, string | undefined>();
     const manifestProfiles: ManifestProfile[] = [];
     for (const p of wanted) {
       const profileBase = join(tmpDir, "profiles", p.id);
@@ -295,12 +311,14 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
       if (!noPlaceholder) {
         const r = redactProfileEnv(p.env);
         for (const h of r.placeholders) {
-          placeholders.push({
+          const entry: PlaceholderEntry = {
             packPath: `profiles/${p.id}/_meta.json`,
             fieldPath: `$.env.${h.fieldName}`,
             fieldName: h.fieldName,
             hint: hintFor(h.fieldName),
-          });
+          };
+          placeholders.push(entry);
+          hashByEntry.set(entry, h.valueHash);
         }
       }
 
@@ -311,7 +329,7 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
         const hits = await copyOrRedactFile(f.absPath, dst, filename, {
           noPlaceholder,
           packPath: `profiles/${p.id}/configDir/${f.relPath}`,
-        });
+        }, hashByEntry);
         placeholders.push(...hits);
       }
 
@@ -325,6 +343,14 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
         active_in_source: store.active[p.tool] === p.id,
       });
     }
+
+    // 4.5 placeholders → secrets_index：按 (fieldName, valueHash) 全局合并去重。
+    //     仅当 entries 非空才挂到 manifest（noPlaceholder 模式 / 实际无敏感命中时 omit，
+    //     旧 dch restore 路径走 `manifest.placeholders[]` fall back 完全兼容）。
+    const builtIndex = placeholders.length > 0
+      ? buildSecretsIndex(placeholders, hashByEntry)
+      : undefined;
+    const secretsIndex = builtIndex && builtIndex.entries.length > 0 ? builtIndex : undefined;
 
     // 5. manifest + README
     const manifest: Manifest = {
@@ -341,6 +367,7 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
       profiles: manifestProfiles,
       shared: { dch_scripts: sharedScripts, agents_paths: agentsPaths },
       placeholders,
+      ...(secretsIndex ? { secrets_index: secretsIndex } : {}),
       security_warnings: noPlaceholder ? ["raw_credentials: 此包包含明文凭据，仅限本地加密迁移"] : [],
     };
     await writeJson(join(tmpDir, "manifest.json"), manifest);
@@ -368,6 +395,10 @@ function readmeText(m: Manifest): string {
     ? "⚠️ **此备份含明文凭据（--no-placeholder 模式），请通过加密渠道传输。**\n\n"
     : "";
   const profileLines = m.profiles.map((p) => `- \`${p.id}\` (${p.tool}) → \`${p.configDir_original}\``).join("\n");
+  const uniqueSection = m.secrets_index ? formatUniqueSecretsSection(m.secrets_index) : "";
+  const detailsTitle = m.secrets_index
+    ? `## 占位符详细清单（共 ${m.placeholders.length} 处）`
+    : "## 待填占位符";
   const phLines = m.placeholders.length
     ? m.placeholders.map((p) => `- \`${p.packPath}\` :: ${p.fieldName} — ${p.hint}`).join("\n")
     : "（无）";
@@ -381,7 +412,7 @@ function readmeText(m: Manifest): string {
 
 ${profileLines}
 
-## 待填占位符
+${uniqueSection}${detailsTitle}
 
 ${phLines}
 
@@ -392,6 +423,19 @@ dch profile restore <this-file>.dchpack
 \`\`\`
 
 或在 UI 中：ProfilePanel → 📥 导入备份。
+`;
+}
+
+function formatUniqueSecretsSection(idx: SecretsIndex): string {
+  const lines = idx.entries
+    .map((e) => `- \`${e.name}\` (count=${e.count}) — ${e.hint}`)
+    .join("\n");
+  return `## 唯一凭据（去重后）
+
+共 ${idx.total_logical_keys} 个 logical key（合并自 ${idx.total_occurrences} 处占位符）。restore 时填一次即按 fieldPath fan-out 到所有 location：
+
+${lines}
+
 `;
 }
 
