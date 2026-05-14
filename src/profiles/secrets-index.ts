@@ -33,7 +33,7 @@
  *   用户后续手改 profiles.json
  */
 
-import type { PlaceholderEntry } from "./backup.ts";
+import type { PlaceholderEntry } from "./backup-shared.ts";
 
 // ─── manifest 写入用类型 ──────────────────────────────────────
 

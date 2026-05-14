@@ -52,7 +52,7 @@ import {
   FORMAT_VERSION,
   walkFiles, fileExists, tsForFilename, spawnSimple,
   type Manifest, type PlaceholderEntry,
-} from "./backup.ts";
+} from "./backup-shared.ts";
 import {
   RESTORED_BASE,
   safeJoinUnderRoot,
