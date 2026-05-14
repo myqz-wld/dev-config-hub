@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   dchProfile, type BackupSummary,
 } from "../../bridge.ts";
 import { backupCache } from "../../backup-cache.ts";
+import { formatBytes } from "../../format-bytes.ts";
 
 /**
  * 备份历史 Modal：列三组（默认位 / 置顶 / 历史），每组每行支持「还原 / 置顶 / 删除」。
@@ -20,7 +21,15 @@ import { backupCache } from "../../backup-cache.ts";
  *    RestoreBackupModal 预填 packPath
  *
  * 删除走内联 confirm 而非 window.confirm（Tauri 2 webview 不弹原生 confirm，CHANGELOG_5）。
+ *
+ * REVIEW_9 D-claude LOW 3: 30s 内的 cache 视为 fresh,跳过 mount 时 silent refresh
+ * （避免用户连续开关 modal 时反复 spawn dch CLI + tar exec 浪费 IO）。
+ * REVIEW_9 D-MED-4: formatBytes 抽 ../../format-bytes.ts 共用。
+ * REVIEW_9 D-MED-5: silent refresh + 同时跑 pin/rm 的 reload race —— 用 reloadIdRef 单调
+ * 递增 id 标记每次 reload，response 回到时若 id < latest → 丢弃不写 state/cache。这样并发
+ * reload 只有最后一次结果生效，旧 stale 请求不会覆盖新数据。
  */
+const CACHE_FRESH_TTL_MS = 30_000;
 export function BackupHistoryModal({
   onClose, onToast, onRestoreFile,
 }: {
@@ -38,26 +47,41 @@ export function BackupHistoryModal({
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
+  /** REVIEW_9 D-MED-5: reload 单调递增 id，response 回到时只 commit id === latest 的结果 */
+  const reloadIdRef = useRef(0);
 
   const reload = useCallback(async (silent = false) => {
+    const myId = ++reloadIdRef.current;
     if (silent) setRefreshing(true);
     else setBusy(true);
     try {
       const r = await dchProfile.backups();
+      // REVIEW_9 D-MED-5: 旧请求 / 新请求并发时只允许最后一次结果落 state + cache
+      if (reloadIdRef.current !== myId) return;
       setItems(r.items);
       setBackupDir(r.backupDir);
       backupCache.set(r.items, r.backupDir);
     } catch (e) {
+      // 旧请求的 error 也应静默丢弃（用户已发更新请求）
+      if (reloadIdRef.current !== myId) return;
       onToast(e instanceof Error ? e.message : String(e), false);
     } finally {
-      setBusy(false);
-      setRefreshing(false);
-      setInitialLoad(false);
+      // 旧请求不重置 spinner（最后一次 reload 还在跑，不要把 refreshing 误清成 false）
+      if (reloadIdRef.current === myId) {
+        setBusy(false);
+        setRefreshing(false);
+        setInitialLoad(false);
+      }
     }
   }, [onToast]);
 
-  // Mount 时：cache hit → 后台 silent refresh；cache miss → 阻塞 fetch
+  // Mount 时：cache fresh（30s 内）→ 完全跳过 silent refresh（REVIEW_9 D-claude LOW 3）；
+  // cache stale（> 30s 但有数据）→ 后台 silent refresh；cache miss → 阻塞 fetch
   useEffect(() => {
+    if (cached && Date.now() - cached.fetchedAt < CACHE_FRESH_TTL_MS) {
+      // fresh, 初始 state 已吃 cache，无需 fetch
+      return;
+    }
     void reload(!!cached);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -304,9 +328,3 @@ function BackupRow({
   );
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)}GB`;
-}
