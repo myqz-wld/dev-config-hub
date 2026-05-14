@@ -362,6 +362,74 @@ fn run_dch_command_blocking(args: Vec<String>, timeout_ms: Option<u64>) -> Resul
     })
 }
 
+/// 与 `run_dch_command` 同款，但额外把 `secrets_json` 写到 OS tempdir 的 mode-0600 临时文件
+/// 后再追加 `--secrets-json <tmp>` 到 args，spawn dch 完成后**强制**清理临时文件。
+///
+/// **为什么要这个 command**（不让 webview 直接写 tempfile）：
+/// - tempfile 必须 mode 0600 才能避免同机其他用户读到 secret，但 webview TS 没法 chmod。
+/// - 清理用 Rust drop-style let _ = remove_file(...) 保底，比 JS finally 更紧（panic 也能跑）。
+/// - secret 只在一次 IPC 入参里出现，Rust 内存生命周期受控，不绕第二次。
+///
+/// **CHANGELOG_18（dch-secrets-dedup）**：UI 4-step 流程在 step 3「填 K 个 secret」收齐
+/// `secretsMap` 后调本 command；CLI 等价路径是 `--secrets-json <file>` 由用户自己管 file。
+#[tauri::command]
+async fn run_dch_with_secrets_temp(
+    args: Vec<String>,
+    secrets_json: String,
+    timeout_ms: Option<u64>,
+) -> Result<DchCommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || run_dch_with_secrets_temp_blocking(args, secrets_json, timeout_ms))
+        .await
+        .map_err(|e| format!("run_dch_with_secrets_temp worker failed: {}", e))?
+}
+
+fn run_dch_with_secrets_temp_blocking(
+    mut args: Vec<String>,
+    secrets_json: String,
+    timeout_ms: Option<u64>,
+) -> Result<DchCommandResult, String> {
+    // 临时文件名：含 pid + nanos 防同机并发碰撞；前缀 `dch-secrets-` 让用户能识别 / grep
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_path = std::env::temp_dir().join(format!("dch-secrets-{}-{}.json", pid, nanos));
+
+    // 写文件 + mode 0600（仅 unix；Windows 走默认 ACL）。create_new=true 保证不被预先存在的同名文件覆盖
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp_path)
+            .map_err(|e| format!("create secrets tempfile {}: {}", tmp_path.display(), e))?;
+        f.write_all(secrets_json.as_bytes())
+            .map_err(|e| format!("write secrets tempfile: {}", e))?;
+        let _ = f.sync_all();
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&tmp_path, secrets_json.as_bytes())
+            .map_err(|e| format!("write secrets tempfile {}: {}", tmp_path.display(), e))?;
+    }
+
+    args.push("--secrets-json".to_string());
+    args.push(tmp_path.to_string_lossy().into_owned());
+
+    let result = run_dch_command_blocking(args, timeout_ms);
+
+    // best-effort cleanup —— 失败仅 eprintln，不让 dch 实际成功的 result 因 unlink 失败丢掉
+    if let Err(e) = std::fs::remove_file(&tmp_path) {
+        eprintln!("warn: failed to remove secrets tempfile {}: {}", tmp_path.display(), e);
+    }
+
+    result
+}
+
 #[derive(Serialize)]
 struct DirEntryView {
     name: String,
@@ -476,6 +544,7 @@ pub fn run() {
             get_tool_version,
             get_home_dir,
             run_dch_command,
+            run_dch_with_secrets_temp,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
