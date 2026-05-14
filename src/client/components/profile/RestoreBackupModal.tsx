@@ -2,17 +2,27 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   dchProfile, type Profile, type Manifest, type AppliedProfile,
   type ApplyBackupResult, type SharedAction, type PlaceholderEntry,
+  type SecretLogicalEntry, type ApplyBackupWithSecretsResult,
   type ToolKind,
 } from "../../bridge.ts";
+import { RestoreSecretsBody, computeSecretsButton, type SecretsState } from "./RestoreSecretsBody.tsx";
 
 /**
- * 导入备份 modal：3 步流程
+ * 导入备份 modal：3-4 步流程（CHANGELOG_18 / Step 7）
  * 1. 输入 .dchpack 路径 → 读取预览（presetPackPath 时自动触发）
- * 2. 看冲突 / 改名（每个 profile 的 finalId 用户可覆盖）→ 确认还原
- * 3. 看还原报告 + 占位符清单（点击跳转编辑）→ 关闭
+ * 2. 看冲突 / 改名（每个 profile 的 finalId 用户可覆盖）→ Next
+ * 3. **填 K 个 secret**（仅 manifest.secrets_index.entries 非空时） → Restore
+ * 4. 看还原报告 + 占位符清单（点击跳转编辑）→ 关闭
+ *
+ * step 3 跳过条件：旧 dchpack（无 secrets_index） / 新 pack 但 entries 为空 → 直接 step 2 → 4，
+ * 走 dchProfile.restoreApply（占位符原样保留，与 fall back 行为一致）。
  *
  * 撞名处理：dry-run 已经算好 default 后缀（claude-pro → claude-pro-restored-TS），
  * 用户可在 input 改 finalId；UI 端做基础格式校验（^[a-zA-Z0-9_-]+$）+ 撞名实时提示。
+ *
+ * secret 安全：用户填的 realValue 仅在 secretsState 内存里，最后通过 dchProfile
+ * .restoreApplyWithSecrets 一次性走 Rust tempfile route（mode 0600 + drop guard），
+ * 不写 console / localStorage / 任何旁路 IPC。
  */
 export function RestoreBackupModal({
   profiles, presetPackPath, onClose, onToast, onReloadProfile, onRevealPlaceholder,
@@ -29,8 +39,15 @@ export function RestoreBackupModal({
   const [packPath, setPackPath] = useState(presetPackPath ?? "");
   const [preview, setPreview] = useState<{ manifest: Manifest; plan: ApplyBackupResult } | null>(null);
   const [renameMap, setRenameMap] = useState<Record<string, string>>({});
-  const [result, setResult] = useState<ApplyBackupResult | null>(null);
+  /** 来自 manifest.secrets_index.entries；null = 旧 pack / 新 pack 但 entries 为空 → 跳过 step 3 */
+  const [secretEntries, setSecretEntries] = useState<SecretLogicalEntry[] | null>(null);
+  const [secretsState, setSecretsState] = useState<SecretsState>({ secretsMap: {}, skipMap: {} });
+  /** 仅当 hasSecrets 时有意义：rename = step 2，secrets = step 3。无 secrets 时 phase 始终 rename */
+  const [phase, setPhase] = useState<"rename" | "secrets">("rename");
+  const [result, setResult] = useState<ApplyBackupResult | (ApplyBackupWithSecretsResult & { manifest: Manifest }) | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const hasSecrets = secretEntries !== null && secretEntries.length > 0;
 
   const onPreview = async () => {
     if (!packPath.trim()) {
@@ -47,6 +64,12 @@ export function RestoreBackupModal({
         map[ap.originalId] = ap.finalId;
       }
       setRenameMap(map);
+      // 提取 secrets_index entries（直接从 preview 的 manifest 拿，不做第二次 IPC）
+      const entries = r.manifest.secrets_index?.entries;
+      setSecretEntries(entries && entries.length > 0 ? entries : null);
+      // 重置 secretsState（避免重 preview 时残留旧值）
+      setSecretsState({ secretsMap: {}, skipMap: {} });
+      setPhase("rename");
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
     } finally {
@@ -80,22 +103,55 @@ export function RestoreBackupModal({
     return null;
   };
 
-  const hasError = preview
+  // step 2 rename 阶段错误：每个 profile 改名校验
+  const renameHasError = preview
     ? preview.plan.appliedProfiles.some((ap) => renameError(ap.originalId, renameMap[ap.originalId] ?? "") !== null)
     : false;
 
+  // step 3 secrets 阶段错误：未填且未跳过的 entry
+  const secretsButton = hasSecrets ? computeSecretsButton(secretEntries!, secretsState) : { label: "", hasError: false };
+
+  // 当前 step 是否阻塞 Next 按钮
+  const hasError = phase === "rename" ? renameHasError : secretsButton.hasError;
+
   const onApply = async () => {
     if (!preview || hasError) return;
+
+    // phase rename + 有 secrets：仅切到 step 3，不调 IPC
+    if (phase === "rename" && hasSecrets) {
+      setPhase("secrets");
+      return;
+    }
+
     setBusy(true);
     try {
-      // 把 renameMap 里只跟 dry-run 默认不一样的传给 CLI（其他用 dry-run 的 default suffix）
-      // 实际上传整个 map 也 OK，CLI 会按 renameMap 优先
-      const r = await dchProfile.restoreApply(packPath.trim(), { renameMap });
-      setResult(r);
-      if (r.errors.length > 0) {
-        onToast(`还原完成但有 ${r.errors.length} 个错误`, false);
+      // phase rename + 无 secrets（旧 pack 或新 pack 但 entries 空）→ 走原 restoreApply
+      if (phase === "rename") {
+        const r = await dchProfile.restoreApply(packPath.trim(), { renameMap });
+        setResult(r);
+        if (r.errors.length > 0) {
+          onToast(`还原完成但有 ${r.errors.length} 个错误`, false);
+        } else {
+          onToast(`已还原 ${r.appliedProfiles.length} 个 profile`, true);
+        }
       } else {
-        onToast(`已还原 ${r.appliedProfiles.length} 个 profile`, true);
+        // phase secrets：调 restoreApplyWithSecrets。skip 项不入 secretsMap，让 CLI 走 user-skip 语义
+        const filledMap: Record<string, string> = {};
+        for (const e of secretEntries ?? []) {
+          if (secretsState.skipMap[e.name]) continue;
+          const v = secretsState.secretsMap[e.name];
+          if (v && v.length > 0) filledMap[e.name] = v;
+        }
+        const r = await dchProfile.restoreApplyWithSecrets(packPath.trim(), {
+          renameMap,
+          secretsMap: filledMap,
+        });
+        setResult(r);
+        if (r.errors.length > 0) {
+          onToast(`还原完成但有 ${r.errors.length} 个错误`, false);
+        } else {
+          onToast(`已还原 ${r.appliedProfiles.length} 个 profile · 填值 ${r.secretsApplied} 处`, true);
+        }
       }
       await onReloadProfile();
     } catch (e) {
@@ -146,20 +202,35 @@ export function RestoreBackupModal({
               </div>
             </>
           ) : !result ? (
-            <RestorePreviewBody
-              manifest={preview.manifest}
-              plan={preview.plan}
-              renameMap={renameMap}
-              renameError={renameError}
-              onUpdate={updateName}
-              busy={busy}
-            />
+            phase === "rename" ? (
+              <RestorePreviewBody
+                manifest={preview.manifest}
+                plan={preview.plan}
+                renameMap={renameMap}
+                renameError={renameError}
+                onUpdate={updateName}
+                busy={busy}
+                hasSecretsHint={hasSecrets ? secretEntries!.length : 0}
+              />
+            ) : (
+              <RestoreSecretsBody
+                entries={secretEntries!}
+                state={secretsState}
+                onChange={setSecretsState}
+                busy={busy}
+              />
+            )
           ) : (
             <RestoreReportBody
               result={result}
               appliedById={Object.fromEntries(result.appliedProfiles.map((a) => [a.originalId, a]))}
               onReveal={onRevealPlaceholder}
               computeRevealTarget={computeRevealTarget}
+              secretsMetrics={"secretsApplied" in result ? {
+                applied: result.secretsApplied,
+                skipped: result.secretsSkipped,
+                unknown: result.secretsUnknown,
+              } : undefined}
             />
           )}
         </div>
@@ -172,9 +243,20 @@ export function RestoreBackupModal({
               {busy ? "读取中…" : "读取预览"}
             </button>
           )}
+          {preview && !result && phase === "secrets" && (
+            <button className="btn ghost" onClick={() => setPhase("rename")} disabled={busy}>
+              ← 上一步
+            </button>
+          )}
           {preview && !result && (
             <button className="btn primary" onClick={onApply} disabled={busy || hasError}>
-              {busy ? "还原中…" : "确认还原"}
+              {busy
+                ? "还原中…"
+                : phase === "rename"
+                  ? hasSecrets
+                    ? `下一步：填 ${secretEntries!.length} 个 secret`
+                    : "确认还原"
+                  : secretsButton.label}
             </button>
           )}
         </div>
@@ -184,7 +266,7 @@ export function RestoreBackupModal({
 }
 
 function RestorePreviewBody({
-  manifest, plan, renameMap, renameError, onUpdate, busy,
+  manifest, plan, renameMap, renameError, onUpdate, busy, hasSecretsHint,
 }: {
   manifest: Manifest;
   plan: ApplyBackupResult;
@@ -192,6 +274,8 @@ function RestorePreviewBody({
   renameError: (originalId: string, finalId: string) => string | null;
   onUpdate: (originalId: string, newId: string) => void;
   busy: boolean;
+  /** > 0 时在头部加 banner 预告 step 3 要填几个 secret */
+  hasSecretsHint: number;
 }) {
   return (
     <>
@@ -203,6 +287,22 @@ function RestorePreviewBody({
         <div className="form-row form-row-block">
           <p className="form-hint" style={{ color: "#c00" }}>
             ⚠️ 此包含明文凭据（来源 --no-placeholder 模式）
+          </p>
+        </div>
+      )}
+      {hasSecretsHint > 0 && (
+        <div className="form-row form-row-block">
+          <p
+            className="form-hint"
+            style={{
+              padding: "6px 10px",
+              background: "#dbeafe",
+              color: "#1e3a8a",
+              borderLeft: "3px solid #3b82f6",
+              borderRadius: 2,
+            }}
+          >
+            🔑 改名确认后下一步将提示填写 {hasSecretsHint} 个去重 secret（自动 fan-out 到所有出现位置）
           </p>
         </div>
       )}
@@ -260,7 +360,7 @@ function RestorePreviewBody({
 }
 
 function RestoreReportBody({
-  result, appliedById, onReveal, computeRevealTarget,
+  result, appliedById, onReveal, computeRevealTarget, secretsMetrics,
 }: {
   result: ApplyBackupResult;
   appliedById: Record<string, AppliedProfile>;
@@ -269,11 +369,19 @@ function RestoreReportBody({
     ph: PlaceholderEntry,
     appliedById: Record<string, AppliedProfile>,
   ) => { profileId: string; configFile: string } | null;
+  /** 仅当本次 restore 走 restoreApplyWithSecrets 时传，控制底部 secrets metrics 段渲染 */
+  secretsMetrics?: { applied: number; skipped: string[]; unknown: string[] };
 }) {
   return (
     <>
       <div className="form-row form-row-block">
         <p className="form-hint">✓ 已还原 {result.appliedProfiles.length} 个 profile（共享资源 {result.sharedActions.length} 项）。</p>
+        {secretsMetrics && (
+          <p className="form-hint" style={{ color: secretsMetrics.applied > 0 ? "#059669" : "#6b7280" }}>
+            🔑 填值 {secretsMetrics.applied} 处 · 跳过 {secretsMetrics.skipped.length} 个 logical key
+            {secretsMetrics.unknown.length > 0 && ` · 未知 key ${secretsMetrics.unknown.length} 个（已忽略）`}
+          </p>
+        )}
       </div>
 
       <div className="form-section-title">已还原 profile</div>
