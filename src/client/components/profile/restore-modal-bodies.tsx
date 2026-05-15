@@ -162,6 +162,8 @@ export function RestoreReportBody({
   /** 仅当本次 restore 走 restoreApplyWithSecrets 时传，控制底部 secrets metrics 段渲染 */
   secretsMetrics?: { applied: number; skipped: string[]; unknown: string[] };
 }) {
+  const { plainTextFillFiles, otherErrors } = splitErrorsForReport(result.errors);
+
   return (
     <>
       <div className="form-row form-row-block">
@@ -214,10 +216,34 @@ export function RestoreReportBody({
         </>
       )}
 
-      {result.errors.length > 0 && (
+      {/* F4: plain-text 文件 fill 友好段 — 提示用户手动编辑 */}
+      {plainTextFillFiles.length > 0 && (
+        <div
+          className="form-row form-row-block"
+          data-testid="plain-text-fill-warning"
+          style={{
+            padding: "8px 12px",
+            background: "rgba(227,179,65,.08)",
+            borderLeft: "3px solid var(--yellow)",
+            borderRadius: 2,
+            marginTop: 8,
+          }}
+        >
+          <p className="form-hint" style={{ margin: 0, color: "var(--yellow)" }}>
+            🔑 <strong>{plainTextFillFiles.length}</strong> 个 plain-text 文件（如 <code>.md</code> / <code>.sh</code>）的占位符未自动填回真值,请手动编辑这些文件填入对应 secret:
+          </p>
+          {plainTextFillFiles.map((f, i) => (
+            <p key={i} className="form-hint" style={{ marginLeft: 16, marginTop: 4, color: "var(--yellow)" }}>
+              • <code>{f}</code>
+            </p>
+          ))}
+        </div>
+      )}
+
+      {otherErrors.length > 0 && (
         <div className="form-row form-row-block">
-          <p className="form-hint" style={{ color: "var(--red)" }}>错误（{result.errors.length}）：</p>
-          {result.errors.map((e, i) => <p key={i} className="form-hint" style={{ color: "var(--red)" }}>• {e}</p>)}
+          <p className="form-hint" style={{ color: "var(--red)" }}>错误（{otherErrors.length}）：</p>
+          {otherErrors.map((e, i) => <p key={i} className="form-hint" style={{ color: "var(--red)" }}>• {e}</p>)}
         </div>
       )}
     </>
@@ -255,4 +281,34 @@ export function PlaceholdersList({ items }: { items: PlaceholderEntry[] }) {
       ))}
     </details>
   );
+}
+
+/**
+ * **REVIEW_9 follow-up F4**: 把 result.errors[] 拆分成「plain-text fill 失败(友好提示)」 +
+ * 「其他错误(原样显示)」两组,让 RestoreReportBody 单独渲染前者。
+ *
+ * R1 G1 已让 field-path.ts:fillSingleFile 报清晰 error("文件后缀非 .json/.toml,不支持自动
+ * fill"),但只到 secretsErrors[] + 镜像加 `secrets-fill: ` 前缀进 result.errors[] 里堆所有
+ * error 一起显示 — 用户可能不知道这意味着「写到 .md/.sh 等 plain-text 文件的占位符没自动
+ * 填,请手动编辑文件填回真值」。本 helper 提取后缀拒型 error 让 UI 单独友好显示,其他 error
+ * 原样保留进 errors 段。
+ *
+ * 匹配后缀拒 error 文案与 field-path.ts:261 同源 — 改 field-path.ts 文案需同步本 RE。
+ *
+ * pure 函数(无副作用)便于 unit test;export 方便 RestoreReportBody.test.tsx 直接 cover。
+ */
+const SUFFIX_REJECT_RE = /^secrets-fill: (.+?): 文件后缀非 \.json\/\.toml/;
+
+export function splitErrorsForReport(errors: string[]): {
+  plainTextFillFiles: string[];
+  otherErrors: string[];
+} {
+  const plainTextFillFiles: string[] = [];
+  const otherErrors: string[] = [];
+  for (const e of errors) {
+    const m = e.match(SUFFIX_REJECT_RE);
+    if (m) plainTextFillFiles.push(m[1]!);
+    else otherErrors.push(e);
+  }
+  return { plainTextFillFiles, otherErrors };
 }
