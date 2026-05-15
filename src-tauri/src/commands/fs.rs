@@ -485,6 +485,10 @@ mod tests {
         std::fs::create_dir_all(&tmp_home).unwrap();
         let nonexist = tmp_home.join("schemas-not-built-yet");
         // 不创建该 dir,验证契约
+        // **REVIEW_9 follow-up F1**: 与 path_policy::HOME_ENV_LOCK 共享串行 env 改
+        let _guard = crate::path_policy::HOME_ENV_LOCK
+            .lock()
+            .expect("HOME_ENV_LOCK poisoned");
         let prev_home = std::env::var("HOME").ok();
         std::env::set_var("HOME", &tmp_home);
 
@@ -506,6 +510,10 @@ mod tests {
     fn read_dir_rejects_outside_home_even_if_nonexistent() {
         let tmp_home = std::env::temp_dir().join(format!("dch-rd-out-{}", std::process::id()));
         std::fs::create_dir_all(&tmp_home).unwrap();
+        // **REVIEW_9 follow-up F1**: 与 path_policy::HOME_ENV_LOCK 共享串行 env 改
+        let _guard = crate::path_policy::HOME_ENV_LOCK
+            .lock()
+            .expect("HOME_ENV_LOCK poisoned");
         let prev_home = std::env::var("HOME").ok();
         std::env::set_var("HOME", &tmp_home);
 
