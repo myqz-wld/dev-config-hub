@@ -17,8 +17,8 @@
  *   child + 可选 timeoutMs (REVIEW_9 B-MED-2 / B-claude M2)
  */
 
-import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, stat, mkdir, copyFile } from "node:fs/promises";
+import { join, dirname } from "node:path";
 import type { ToolKind, ProfileHooks } from "./types.ts";
 import type { SecretsIndex } from "./secrets-index.ts";
 
@@ -177,4 +177,106 @@ export async function spawnSimple(
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+// ─── REVIEW_9 follow-up F2: backup-restore 拆模块 ────────────────────────────
+// 4 helper + 2 type alias 抽出自 backup-restore.ts(515 → 顶 500 LOC 护栏)。
+// caller 仍走 facade `import { ... } from "./backup.ts"` 不变。
+
+/**
+ * shared 文件冲突 caller 偏好策略:与冲突解决一一对应。
+ * - skip: 直接跳过(等价 skipped-same)
+ * - overwrite: 直接覆盖(不留备份)
+ * - backup-then-overwrite: 备份 dst → `<dst>.dch-backup-<TS>` 再覆盖(默认)
+ *
+ * 原 backup-restore.ts:113 定义,F2 挪过来与 applySharedFile 同源。
+ */
+export type ConflictAction = "skip" | "overwrite" | "backup-then-overwrite";
+
+/**
+ * applySharedFile 返回的实际 action 结果:与 SharedAction.action 字段同款。
+ *
+ * 单独 type alias 让 backup-restore.ts 的 SharedAction.action 与 applySharedFile 返回类型
+ * 通过 alias 同源(改 alias 两侧自动一致),不会 type 漂移。
+ */
+export type SharedActionResult =
+  | "created"
+  | "skipped-same"
+  | "overwritten"
+  | "backed-up-then-overwritten";
+
+/**
+ * 撞名后缀 helper:`-restored-<本地时间戳>`。
+ * configDir 撞已有 / id 撞 store 现有 profile 时统一拿这个后缀。
+ */
+export function defaultSuffix(): string {
+  return `-restored-${tsForFilename()}`;
+}
+
+/**
+ * 计算文件 sha256(hex 长串);path 读不到返 null 让 caller 判 conflict 时降级处理。
+ * applySharedFile 用 srcSha == dstSha 判同 → skipped-same。
+ */
+export async function fileSha256(path: string): Promise<string | null> {
+  try {
+    const bytes = await Bun.file(path).bytes();
+    const h = new Bun.CryptoHasher("sha256");
+    h.update(bytes);
+    return h.digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 递归 copy `srcDir` 树下所有文件到 `dstDir`(同款相对结构),复用 walkFiles 跳 symlink。
+ *
+ * 用于 restore 把 dchpack 内的 `profiles/<id>/configDir/**` 拷到 host fs `finalDirAbs/`。
+ * walkFiles 已 H2 跳 symlink → 不会跨 configDir 边界 walk(REVIEW_8 H2 / Group D1 同款)。
+ */
+export async function copyDirRecursive(srcDir: string, dstDir: string): Promise<void> {
+  for await (const f of walkFiles(srcDir)) {
+    const dst = join(dstDir, f.relPath);
+    await mkdir(dirname(dst), { recursive: true });
+    await copyFile(f.absPath, dst);
+  }
+}
+
+/**
+ * 应用单个 shared 文件:dst 不存在 → created;存在且 sha 同 → skipped-same;不同则按
+ * `preferred` 走 skip / overwrite / backup-then-overwrite(default)。
+ *
+ * dryRun=true 时算 plan 不写 fs(返同款 action 让 caller 拿到 plan);为 false 才真写。
+ *
+ * 内部 throw(disk full / EACCES / fileSha256 OOM 等)由 caller 包 try/catch 转 errors[],
+ * 不让单个 shared 项异常整段 abort 后续 shared 项(REVIEW_9 B-HIGH-1 同款守护)。
+ */
+export async function applySharedFile(
+  src: string,
+  dst: string,
+  preferred: ConflictAction | undefined,
+  dryRun: boolean,
+): Promise<SharedActionResult> {
+  const dstExists = await fileExists(dst);
+  if (!dstExists) {
+    if (!dryRun) {
+      await mkdir(dirname(dst), { recursive: true });
+      await copyFile(src, dst);
+    }
+    return "created";
+  }
+  const [srcSha, dstSha] = await Promise.all([fileSha256(src), fileSha256(dst)]);
+  if (srcSha && dstSha && srcSha === dstSha) {
+    return "skipped-same";
+  }
+  const policy: ConflictAction = preferred ?? "backup-then-overwrite";
+  if (policy === "skip") return "skipped-same";
+  if (!dryRun) {
+    if (policy === "backup-then-overwrite") {
+      const bak = `${dst}.dch-backup-${tsForFilename()}`;
+      await copyFile(dst, bak);
+    }
+    await copyFile(src, dst);
+  }
+  return policy === "backup-then-overwrite" ? "backed-up-then-overwritten" : "overwritten";
 }
