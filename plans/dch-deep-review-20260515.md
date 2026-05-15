@@ -326,8 +326,8 @@ fan-out: 4/5 (B-claude / B-codex / C-claude / C-codex)
 - [x] Step 7 — R1 真问题清单汇总 + 7 fix commit (G1-G7) 全部落地
 - [x] Step 8 — R2 spawn(滑动窗口 2 批并发,A+B → 收口 → C+D)+ R2 review 全部收齐 + 反驳轮 + 三态裁决
 - [x] Step 9 — R2 fix commit (G8-G12) 全部落地 ✓
-- [ ] Step 10 — 视情况 R3 / 收口
-- [ ] Step 11 — 写 REVIEW_9.md + CHANGELOG_21.md + plans 归档
+- [x] Step 10 — 决策跳过 R3(R1+R2 12 commit 已大幅收敛真问题面,再开 R3 边际收益低 + fan-out + spawn 开销大;按本节末 hand off prompt 决策建议)
+- [x] Step 11 — 写 REVIEW_9.md (commit e55b5b2) + CHANGELOG_21.md + 同步 INDEX + plan 归档(本文件 mv 自 .claude/plans/ + frontmatter status=completed) ✓
 
 ## R2 reviewer session id (最终,全部 closed)
 
