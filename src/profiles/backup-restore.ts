@@ -42,16 +42,18 @@
  * "./backup-restore.ts"` 不变 — 本文件 re-export 透传。
  */
 
-import { mkdir, mkdtemp, rm, copyFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Profile } from "./types.ts";
 import { loadStore, expandHome, collapseHome, HOME, DCH_DIR, STORE_PATH } from "./store.ts";
 import { addProfile, ID_RE } from "./manager.ts";
 import {
   FORMAT_VERSION,
-  walkFiles, fileExists, tsForFilename, spawnSimple,
+  fileExists, tsForFilename, spawnSimple,
+  defaultSuffix, fileSha256, copyDirRecursive, applySharedFile,
   type Manifest, type PlaceholderEntry,
+  type ConflictAction, type SharedActionResult,
 } from "./backup-shared.ts";
 import {
   RESTORED_BASE,
@@ -63,6 +65,11 @@ import {
 // caller 仍 `import { validateRestorePath } from "./backup-restore.ts"` 不变
 // (e.g. backup-safety.test.ts)
 export { validateRestorePath } from "./backup-restore-paths.ts";
+
+// **REVIEW_9 follow-up F2**: ConflictAction 类型挪到 backup-shared.ts(与 applySharedFile
+// 同源),这里 re-export 让 backup.ts → backup-restore.ts → backup-shared.ts re-export chain
+// 不断,caller 仍 `import type { ConflictAction } from "./backup.ts"` 不变。
+export type { ConflictAction } from "./backup-shared.ts";
 
 export interface ParseBackupResult {
   manifest: Manifest;
@@ -110,8 +117,6 @@ export async function cleanupParsed(parsed: ParseBackupResult): Promise<void> {
   await rm(parsed.tmpDir, { recursive: true, force: true });
 }
 
-export type ConflictAction = "skip" | "overwrite" | "backup-then-overwrite";
-
 export interface ApplyBackupOptions {
   parsed: ParseBackupResult;
   prefix?: string;
@@ -139,7 +144,9 @@ export interface SharedAction {
   category: "dch_script" | "agents";
   relPath: string;
   hostPath: string;
-  action: "created" | "skipped-same" | "overwritten" | "backed-up-then-overwritten";
+  // **REVIEW_9 follow-up F2**: 与 backup-shared.ts:applySharedFile 返回类型同源 alias,
+  // 通过 type 单一定义点防漂移(改 alias 两侧自动一致)。
+  action: SharedActionResult;
 }
 
 export interface ApplyBackupResult {
@@ -149,28 +156,10 @@ export interface ApplyBackupResult {
   errors: string[];
 }
 
-function defaultSuffix(): string {
-  return `-restored-${tsForFilename()}`;
-}
-
-async function fileSha256(path: string): Promise<string | null> {
-  try {
-    const bytes = await Bun.file(path).bytes();
-    const h = new Bun.CryptoHasher("sha256");
-    h.update(bytes);
-    return h.digest("hex");
-  } catch {
-    return null;
-  }
-}
-
-async function copyDirRecursive(srcDir: string, dstDir: string): Promise<void> {
-  for await (const f of walkFiles(srcDir)) {
-    const dst = join(dstDir, f.relPath);
-    await mkdir(dirname(dst), { recursive: true });
-    await copyFile(f.absPath, dst);
-  }
-}
+// **REVIEW_9 follow-up F2**: defaultSuffix / fileSha256 / copyDirRecursive / applySharedFile
+// 4 个 helper 已挪到 backup-shared.ts(让本文件回到 ≤ 500 LOC 护栏)。caller 仍 `import {
+// applyBackup, ... } from "./backup.ts"` 不变 — 通过 backup-shared 单 SSOT 让 helper 单一
+// 实现点不会双向 import。
 
 export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackupResult> {
   const { manifest, tmpDir } = opts.parsed;
@@ -466,36 +455,6 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
   }
 
   return { appliedProfiles: applied, sharedActions, placeholders, errors };
-}
-
-async function applySharedFile(
-  src: string,
-  dst: string,
-  preferred: ConflictAction | undefined,
-  dryRun: boolean,
-): Promise<SharedAction["action"]> {
-  const dstExists = await fileExists(dst);
-  if (!dstExists) {
-    if (!dryRun) {
-      await mkdir(dirname(dst), { recursive: true });
-      await copyFile(src, dst);
-    }
-    return "created";
-  }
-  const [srcSha, dstSha] = await Promise.all([fileSha256(src), fileSha256(dst)]);
-  if (srcSha && dstSha && srcSha === dstSha) {
-    return "skipped-same";
-  }
-  const policy: ConflictAction = preferred ?? "backup-then-overwrite";
-  if (policy === "skip") return "skipped-same";
-  if (!dryRun) {
-    if (policy === "backup-then-overwrite") {
-      const bak = `${dst}.dch-backup-${tsForFilename()}`;
-      await copyFile(dst, bak);
-    }
-    await copyFile(src, dst);
-  }
-  return policy === "backup-then-overwrite" ? "backed-up-then-overwritten" : "overwritten";
 }
 
 // ─── applyBackupWithSecrets ─────────────────────────────────────────────
