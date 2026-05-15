@@ -171,13 +171,24 @@ fn boundary_check_canonical(canonical: &std::path::Path, policy: PathPolicy) -> 
     }
 }
 
+/// **REVIEW_9 follow-up F1**: 串行化 HOME env 改,让 cargo test 默认多线程稳定通过。
+///
+/// 旧实现 `with_home` / commands::fs::tests 内手写 `std::env::set_var("HOME", ...)` 不加锁,
+/// 多个 test 并发跑时一个 set 完被另一个覆盖 → starts_with 用错 home 失败。所有读改 HOME
+/// env 的 test 路径(path_policy / commands::fs)统一 acquire 此 lock 串行 env 改。
+///
+/// `pub(crate)` + `#[cfg(test)]`: cross-module test 共享(commands/fs.rs mod tests 也用),
+/// 但仅 test 编译时存在,不污染 release binary。lock poison 时调用方 panic
+/// (一个 test 内 panic 已让该 test 失败,poison 后续 test 一并 fail 行为合理)。
+#[cfg(test)]
+pub(crate) static HOME_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn with_home<R>(home: &str, f: impl FnOnce() -> R) -> R {
-        // 注意：cargo test 默认多线程，env 改是进程级 → 测内 env 改不安全。
-        // 这些 test 仅当 cargo test -- --test-threads=1 时可靠；CI 配单线程。
+        let _guard = HOME_ENV_LOCK.lock().expect("HOME_ENV_LOCK poisoned");
         let prev = std::env::var("HOME").ok();
         std::env::set_var("HOME", home);
         let r = f();
@@ -260,7 +271,8 @@ mod tests {
         std::os::unix::fs::symlink(&outside_target, &symlink_in_home).unwrap();
         let attack_path = symlink_in_home.join("secret");
 
-        // env 改要串行(本测可能与其他 with_home 并行 race,加锁略,直接 set 后 check)
+        // **REVIEW_9 follow-up F1**: 与 with_home 共用 HOME_ENV_LOCK 串行 env 改
+        let _guard = HOME_ENV_LOCK.lock().expect("HOME_ENV_LOCK poisoned");
         let prev_home = std::env::var("HOME").ok();
         std::env::set_var("HOME", &tmp);
 
@@ -294,6 +306,8 @@ mod tests {
         let real_file = tmp.join("real.txt");
         std::fs::write(&real_file, "ok").unwrap();
 
+        // **REVIEW_9 follow-up F1**: 与 with_home 共用 HOME_ENV_LOCK 串行 env 改
+        let _guard = HOME_ENV_LOCK.lock().expect("HOME_ENV_LOCK poisoned");
         let prev_home = std::env::var("HOME").ok();
         std::env::set_var("HOME", &tmp);
         let r = check_path_canonical(&real_file.to_string_lossy(), PathPolicy::HomeOnly);
@@ -319,6 +333,8 @@ mod tests {
         std::os::unix::fs::symlink(&outside, &link).unwrap();
         let new_file = link.join("new.txt"); // parent (link) 指向 HOME 外
 
+        // **REVIEW_9 follow-up F1**: 与 with_home 共用 HOME_ENV_LOCK 串行 env 改
+        let _guard = HOME_ENV_LOCK.lock().expect("HOME_ENV_LOCK poisoned");
         let prev_home = std::env::var("HOME").ok();
         std::env::set_var("HOME", &tmp);
         let r = check_path_for_write(&new_file.to_string_lossy(), PathPolicy::HomeOnly);
