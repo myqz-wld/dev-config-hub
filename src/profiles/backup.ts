@@ -18,7 +18,7 @@
  * 不变 — 通过 re-export 透传。
  */
 
-import { mkdir, mkdtemp, rm, copyFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, copyFile, open } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
 import { tmpdir, hostname, userInfo } from "node:os";
 import type { ToolKind, ProfileHooks, Profile } from "./types.ts";
@@ -147,6 +147,45 @@ function shesc(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * **REVIEW_9 follow-up F3**: 原子占位 candidate 文件,杜绝 createBackup --keep 同秒并发
+ * TOCTOU(B-LOW-1 / B-codex MED-3 *未验证* 降)。
+ *
+ * 旧实现 fileExists(candidate) 检查与后续 mv tmpOut→outFile 之间存在窗口:同秒并发 createBackup
+ * 进程 A/B 同时 fileExists(`dch-backup-<TS>.dchpack`) 都返 false → 都选同名 candidate →
+ * 都跑 tar 写到各自 tmpOut → A mv 完 outFile 存在,B mv 直接覆盖 A → A 的备份丢。
+ *
+ * 修法:Node fs.open(path, 'wx') flag = O_CREAT|O_EXCL,文件已存在抛 EEXIST。candidate 选定
+ * 时立刻 atomic create 0 字节 placeholder 占位,让其他并发进程下次 wx 见到 EEXIST → 走下一
+ * 个 suffix。createBackup 主流程后期 mv tmpOut→outFile 走 rename(2) 原子覆盖 placeholder。
+ *
+ * 失败 path(tar / verify / mv 任一失败) caller 必须 rm placeholder 防 leak 0 字节文件
+ * (createBackup 内 try/finally + mvSucceeded flag 实现)。
+ *
+ * 返 true=占位成功,false=EEXIST 已被占。其他 IO error 透传 throw。
+ */
+async function tryReserveCandidate(path: string): Promise<boolean> {
+  let fh;
+  try {
+    fh = await open(path, "wx"); // O_CREAT|O_EXCL — 已存在抛 EEXIST
+  } catch (e: unknown) {
+    if (
+      e !== null &&
+      typeof e === "object" &&
+      "code" in e &&
+      (e as { code: string }).code === "EEXIST"
+    ) {
+      return false;
+    }
+    throw e;
+  }
+  try {
+    return true;
+  } finally {
+    await fh.close();
+  }
+}
+
 export async function createBackup(opts: CreateBackupOptions = {}): Promise<CreateBackupResult> {
   const noPlaceholder = !!opts.noPlaceholder;
   const includeShared = opts.includeShared !== false;
@@ -163,34 +202,42 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
   // 直接覆盖第一次。修法:fileExists 循环加 -001 / -002 ... 后缀直到空闲名(与 pinBackup 同款
   // backup-manage.ts:215-225 防撞名);outFile 显式传仍以 caller 为准(CLI / UI 显式覆盖意图明确)。
   //
-  // **REVIEW_9 B-LOW-1 / B-codex MED-3 *未验证* 降**: fileExists check 与后续 Bun.write 之间
-  // 存在 TOCTOU 窗口(并发同秒 createBackup 进程之间互见)。Bun 当前没暴露 O_CREAT|O_EXCL 原子
-  // 创建-或-失败 API,Node fs.open `'wx'` flag 在 Bun 已支持但需迁出 Bun.write 改用 fs.open +
-  // fs.writeFile。trade-off:dch 单用户 single-process 设计,createBackup 同秒并发概率极低
-  // (用户手点 + cron job 偶发碰撞);TOCTOU 命中也只是覆盖一次空 placeholder 不破坏数据。
-  // 接受此 LOW 边界,follow-up 重写为 fs.open(wx) 时一并修。
+  // **REVIEW_9 follow-up F3 (落地 B-LOW-1 / B-codex MED-3)**: 改 fileExists 循环为 fs.open
+  // wx atomic create-or-fail。原 fileExists check 与后续 mv tmpOut→outFile 之间的 TOCTOU
+  // 窗口已闭合 — candidate 选定时立刻原子占位 0 字节 placeholder,并发进程下次 wx 见 EEXIST
+  // 自动走下一个 suffix。失败 path 必须 rm placeholder(主 try/finally + mvSucceeded flag)。
   let outFile: string;
+  let placeholderToCleanup: string | null = null; // F3: --keep 模式 placeholder cleanup tracker
   if (opts.outFile) {
     outFile = opts.outFile;
+    await mkdir(dirname(outFile), { recursive: true });
   } else if (opts.keep) {
+    const backupsDir = join(DCH_DIR, "backups");
+    await mkdir(backupsDir, { recursive: true }); // tryReserveCandidate 需 parent dir 存在
     const baseTs = tsForFilename();
-    let candidate = join(DCH_DIR, "backups", `dch-backup-${baseTs}.dchpack`);
-    let suffix = 1;
-    while (await fileExists(candidate)) {
-      candidate = join(DCH_DIR, "backups", `dch-backup-${baseTs}-${String(suffix).padStart(3, "0")}.dchpack`);
-      suffix++;
-      if (suffix > 999) {
-        // 不可能撞到 1000 同秒备份;防御性退出避免无限循环
-        throw new Error(`createBackup: 同秒 ${baseTs} 已有 999+ 个 .dchpack,无法分配空闲文件名`);
+    let candidate = "";
+    let reserved = false;
+    for (let suffix = 0; suffix <= 999; suffix++) {
+      candidate = suffix === 0
+        ? join(backupsDir, `dch-backup-${baseTs}.dchpack`)
+        : join(backupsDir, `dch-backup-${baseTs}-${String(suffix).padStart(3, "0")}.dchpack`);
+      if (await tryReserveCandidate(candidate)) {
+        reserved = true;
+        break;
       }
     }
+    if (!reserved) {
+      throw new Error(`createBackup: 同秒 ${baseTs} 已有 1000 个 .dchpack,无法分配空闲文件名`);
+    }
     outFile = candidate;
+    placeholderToCleanup = outFile; // 失败 path 必须 rm 这个 0 字节占位
   } else {
     outFile = join(DCH_DIR, "backups", "latest.dchpack");
+    await mkdir(dirname(outFile), { recursive: true });
   }
-  await mkdir(dirname(outFile), { recursive: true });
 
   const tmpDir = await mkdtemp(join(tmpdir(), "dch-backup-"));
+  let mvSucceeded = false;
   try {
     // 1. 写 dch/profiles.json（脱敏整体），带 profiles[i].env 已脱敏
     const dchProfiles = {
@@ -352,16 +399,24 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
       throw new Error(`tar 验证失败（写出的 archive 不完整）: ${verifyRes.stderr}`);
     }
     // 原子 rename — 同 fs（都在 ~/.dch/backups/）下 mv = rename(2) 原子
+    // F3: --keep 模式 outFile 是 tryReserveCandidate 占的 0 字节 placeholder,mv 同 fs rename(2)
+    // 原子覆盖。mv 成功 → mvSucceeded=true 让 finally 跳过 placeholder cleanup。
     const mvRes = await spawnSimple(["mv", tmpOut, outFile]);
     if (!mvRes.ok) {
       try { await rm(tmpOut, { force: true }); } catch {}
       throw new Error(`rename 失败: ${mvRes.stderr}`);
     }
+    mvSucceeded = true;
 
     const bytes = (await Bun.file(outFile).stat()).size;
     return { outFile, bytes, manifest };
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
+    // F3: --keep 模式失败 path(tar / verify / mv 任一失败 throw)必须 rm placeholder 防 leak
+    // 0 字节占位文件。mv 成功的 happy path 已被覆盖,此处 mvSucceeded=true 跳过 cleanup。
+    if (placeholderToCleanup && !mvSucceeded) {
+      try { await rm(placeholderToCleanup, { force: true }); } catch {}
+    }
   }
 }
 
