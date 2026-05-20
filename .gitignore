@@ -40,3 +40,14 @@ src-tauri/gen
 # Claude Code agent local state（plans 是跨会话草稿、worktrees 是 plan 隔离区，都不入项目 git）
 .claude/plans/
 .claude/worktrees/
+
+# ↓ Appended by plan personal-projects-cleanup-20260520 (2026-05-20)
+.claude/scheduled_tasks*
+!plans/**/spike-reports/*.log
+Thumbs.db
+.AppleDouble
+._*
+*~
+.*.swp
+.*.swo
+__MACOSX/
