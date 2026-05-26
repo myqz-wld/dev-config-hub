@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev:fe": "bun src/client/dev-server.ts",
-    "build:fe": "bun build src/client/index.html --outdir dist --splitting",
+    "build:fe": "bun build src/client/index.html --outdir build/fe --splitting",
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",

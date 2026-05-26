@@ -7,7 +7,7 @@
     "beforeDevCommand": "bun run dev:fe",
     "devUrl": "http://localhost:3456",
     "beforeBuildCommand": "bun run build:fe",
-    "frontendDist": "../dist"
+    "frontendDist": "../build/fe"
   },
   "bundle": {
     "active": true,
