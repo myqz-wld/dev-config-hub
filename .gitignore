@@ -42,7 +42,7 @@ src-tauri/gen
 
 # ↓ Appended by plan personal-projects-cleanup-20260520 (2026-05-20)
 .claude/scheduled_tasks*
-!plans/**/spike-reports/*.log
+!ref/plans/**/spike-reports/**/*.log
 Thumbs.db
 .AppleDouble
 ._*

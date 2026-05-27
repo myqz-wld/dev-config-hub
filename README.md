@@ -12,7 +12,7 @@
 | **Windows 10 1703+ / 11** | **beta** | symlink 自动走 junction（无需 SeCreateSymbolicLinkPrivilege / Developer Mode）；hook 默认走 PowerShell（hook 字符串形式按 PowerShell 解析；object 形式 `{posix?, powershell?, cmd?}` 显式分平台）；shell reader 改读 `$PROFILE`；opencode 优先 `%APPDATA%\opencode\` |
 | **Linux** | **beta** | symlink 与 macOS 同款行为；hook 走 bash；shell reader 读 zsh + bash 配置 |
 
-Win 端真机 E2E 留待 CI 验证（参见 [REVIEW_1](reviews/REVIEW_1.md)）。
+Win 端真机 E2E 留待 CI 验证（参见 [REVIEW_1](ref/reviews/REVIEW_1.md)）。
 
 ## 支持的工具
 
@@ -496,7 +496,7 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │   └── src/
 │       ├── main.rs
 │       └── lib.rs            # 文件读写 / 版本检测 / run_dch_command（spawn cli）
-├── changelog/                # 功能变更记录
+├── ref/changelogs/                # 功能变更记录
 └── package.json
 ```
 
