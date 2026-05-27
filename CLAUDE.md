@@ -27,32 +27,32 @@ cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 2. 改动了**文件结构 / 新建模块**？→ 改「项目结构」节
 3. 改动了**启动方式 / 依赖 / 验证步骤**？→ 改「快速开始」节
 
-纯 bug 修复 / 内部重构（不改用户感知）→ 不动 README，写到 `changelog/` 或 `reviews/`。
+纯 bug 修复 / 内部重构（不改用户感知）→ 不动 README，写到 `ref/changelogs/` 或 `ref/reviews/`。
 
 ### 2. 写 changelog 或 review（**必做，二选一**）
 
 | 类型 | 写到 | 例子 |
 |---|---|---|
-| **功能变更**（新功能 / 行为修改 / API / 依赖升级） | `changelog/` | 新增 Profile 系统、删 env 模式、加 `dch profile env` |
-| **Debug / 性能 / 安全 review**（不引入新功能，只修问题或加固） | `reviews/` | TOCTOU / shell 注入 / hook 超时审查 |
+| **功能变更**（新功能 / 行为修改 / API / 依赖升级） | `ref/changelogs/` | 新增 Profile 系统、删 env 模式、加 `dch profile env` |
+| **Debug / 性能 / 安全 review**（不引入新功能，只修问题或加固） | `ref/reviews/` | TOCTOU / shell 注入 / hook 超时审查 |
 
-#### `changelog/` 规则
+#### `ref/changelogs/` 规则
 
-- 文件名 `CHANGELOG_X.md`，X 递增整数。新建前 `ls changelog/` 找最大 X
+- 文件名 `CHANGELOG_X.md`，X 递增整数。新建前 `ls ref/changelogs/` 找最大 X
 - **小改动**（一两个文件、几十行同主题）→ 追加到最新 `CHANGELOG_X.md`
 - **大改动**（多模块 / 上百行 / 新功能）→ 新建 `CHANGELOG_X+1.md`
-- 每次改 `changelog/` 都要同步 `changelog/INDEX.md`（简表：`[CHANGELOG_X.md](CHANGELOG_X.md) | 一句话概要`）
-- 单文件结构：标题 + 概要（2-3 行）+ 变更内容（按模块 bullet）。**不要写「踩坑细节 / 推演过程」**——那些去 `reviews/`
+- 每次改 `ref/changelogs/` 都要同步 `ref/changelogs/INDEX.md`（简表：`[CHANGELOG_X.md](CHANGELOG_X.md) | 一句话概要`）
+- 单文件结构：标题 + 概要（2-3 行）+ 变更内容（按模块 bullet）。**不要写「踩坑细节 / 推演过程」**——那些去 `ref/reviews/`
 
-#### `reviews/` 规则
+#### `ref/reviews/` 规则
 
-- 文件名 `REVIEW_X.md`，X 递增整数。新建前 `ls reviews/` 找最大 X
+- 文件名 `REVIEW_X.md`，X 递增整数。新建前 `ls ref/reviews/` 找最大 X
 - 每份 review 单文件结构：触发场景 + 方法（双对抗 Agent / 范围 / 工具）+ 三态裁决清单 + 修复条目
-- 同步更新 `reviews/INDEX.md`
+- 同步更新 `ref/reviews/INDEX.md`
 
 ### 3. 改功能前先读 changelog
 
-修改任何模块前，**先 `ls changelog/` + 浏览相关条目**，了解历史决策、避免推翻已有约定。比如「为什么删除了 env 切换模式只留 symlink」、「为什么 profile.env 不再写到 user-level settings.json」这类设计取舍都在 changelog 里有迹可循。
+修改任何模块前，**先 `ls ref/changelogs/` + 浏览相关条目**，了解历史决策、避免推翻已有约定。比如「为什么删除了 env 切换模式只留 symlink」、「为什么 profile.env 不再写到 user-level settings.json」这类设计取舍都在 changelog 里有迹可循。
 
 ---
 
