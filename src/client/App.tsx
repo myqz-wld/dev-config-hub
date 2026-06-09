@@ -9,7 +9,7 @@ import { ConfigPanel } from "./components/ConfigPanel.tsx";
 import { ProfilePanel } from "./components/ProfilePanel.tsx";
 import { PanelVisibilityProvider } from "./components/panel-visibility.tsx";
 
-const ICONS: Record<string, string> = { terminal: ">_", claude: "C", codex: "X", opencode: "O" };
+const ICONS: Record<string, string> = { terminal: ">_", claude: "C", codex: "X" };
 
 type View = { kind: "tool"; index: number } | { kind: "profile" };
 
@@ -26,7 +26,7 @@ export function App() {
   // 旧 8s timer 会在第 8s 把 ok toast 也清掉（看起来 ok toast 提前消失）。
   const toastTimerRef = useRef<number | null>(null);
 
-  // CHANGELOG_15：versions 缓存到首屏，focus reload 跳过 4 zsh spawn（每个 200-500ms）。
+  // CHANGELOG_15：versions 缓存到首屏，focus reload 跳过 3 zsh spawn（每个 200-500ms）。
   // 用户外部 brew upgrade 是罕见事件，需要刷新版本只能重启 app（trade-off 已记 plan）。
   const versionsRef = useRef<ToolVersions | null>(null);
 
@@ -64,11 +64,11 @@ export function App() {
     }
   }, []);
 
-  // CHANGELOG_15：focus reload 快路径——只刷文件内容，跳过 versions（4 zsh spawn 大头）。
+  // CHANGELOG_15：focus reload 快路径——只刷文件内容，跳过 versions（3 zsh spawn 大头）。
   // versionsRef 没缓存（首屏失败的极端情况）→ fallback 到完整 load。
   const loadFilesOnly = useCallback(async () => {
     if (!versionsRef.current) {
-      // 首屏 load 失败的恢复路径，用完整 load 再试一次（会重新 spawn 4 zsh，但只这一次）
+      // 首屏 load 失败的恢复路径，用完整 load 再试一次（会重新 spawn 3 zsh，但只这一次）
       await load();
       return;
     }
@@ -85,7 +85,7 @@ export function App() {
 
   // CHANGELOG_15：focus listener 与首屏 load 共享 reloadingRef 防 race（Plan agent Q5）：
   // 首屏 load 还在跑时用户切走 + 切回 → onAppActive 触发 → versionsRef 还是 null →
-  // fallback 跑全量 load 第二份 = 8 zsh spawn × 2 比修复前还差。首屏 load 期间 set
+  // fallback 跑全量 load 第二份 = 6 zsh spawn × 2 比修复前还差。首屏 load 期间 set
   // reloadingRef = true，onAppActive 直接 skip 这次。
   const lastReloadAtRef = useRef(0);
   const reloadingRef = useRef(false);
@@ -197,30 +197,33 @@ export function App() {
           <div><div className="logo-title">Dev Config Hub</div><div className="logo-sub">配置中心</div></div>
         </div>
         <div className="nav-list">
-          <button
-            className={`nav-item nav-item-profile${view.kind === "profile" ? " on" : ""}`}
-            onClick={() => setView({ kind: "profile" })}
-          >
-            <div className="nav-icon profiles">⇄</div>
-            <div className="nav-text">
-              <div className="nav-name">Profiles</div>
-              <div className="nav-ver">快速切换 · hook</div>
-            </div>
-          </button>
+          <div className="nav-row nav-row-profile">
+            <button
+              className={`nav-item nav-tag nav-item-profile tilt-right${view.kind === "profile" ? " on" : ""}`}
+              onClick={() => setView({ kind: "profile" })}
+            >
+              <div className="nav-icon profiles">⇄</div>
+              <div className="nav-text">
+                <div className="nav-name">Profiles</div>
+                <div className="nav-ver">快速切换 · hook</div>
+              </div>
+            </button>
+          </div>
           <div className="nav-sep">工具配置</div>
           {tools.map((t, i) => (
-            <button
-              key={t.name}
-              className={`nav-item${view.kind === "tool" && i === view.index ? " on" : ""}`}
-              onClick={() => setView({ kind: "tool", index: i })}
-            >
-              <div className={`nav-icon ${t.icon}`}>{ICONS[t.icon]}</div>
-              <div className="nav-text">
-                <div className="nav-name">{t.name}</div>
-                <div className="nav-ver">v{t.version}</div>
-              </div>
-              <div className="dots">{t.scopes.map((s, j) => <span key={j} className={`dot${s.exists ? "" : " off"}`} />)}</div>
-            </button>
+            <div className="nav-row" key={t.name}>
+              <button
+                className={`nav-item nav-tag nav-tool-${t.icon} ${i % 2 === 0 ? "tilt-left" : "tilt-right"}${view.kind === "tool" && i === view.index ? " on" : ""}`}
+                onClick={() => setView({ kind: "tool", index: i })}
+              >
+                <div className={`nav-icon ${t.icon}`}>{ICONS[t.icon]}</div>
+                <div className="nav-text">
+                  <div className="nav-name">{t.name}</div>
+                  <div className="nav-ver">v{t.version}</div>
+                </div>
+                <div className="dots">{t.scopes.map((s, j) => <span key={j} className={`dot${s.exists ? "" : " off"}`} />)}</div>
+              </button>
+            </div>
           ))}
         </div>
       </nav>

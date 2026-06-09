@@ -97,14 +97,13 @@ export async function writeProfileConfigFile(configDir: string, filename: string
 
 /**
  * **REVIEW_9 C-HIGH-1 / C-codex H1**: tool 字段映射 Rust 端 ToolKind enum
- * (commands/version.rs)。serde rename_all = camelCase 让 OpenCode → "openCode";
- * 其他 lowercase。前端直接传 enum value 而非任意 string,关闭 IPC 直传 shell -c 的注入面。
+ * (commands/version.rs)。前端直接传 enum value 而非任意 string,关闭 IPC 直传 shell -c 的注入面。
  *
  * 命名 `VersionToolKind` 避免与 profiles/types.ts ToolKind ("claude" | "codex") 冲突 —
- * profiles 端的 ToolKind 不含 "zsh" / "openCode" (那俩不是可切换的 dch profile,只是
+ * profiles 端的 ToolKind 不含 "zsh" (它不是可切换的 dch profile,只是
  * version IPC 多包含的工具),两个 type 语义不同不能合并。
  */
-type VersionToolKind = "zsh" | "claude" | "codex" | "openCode";
+type VersionToolKind = "zsh" | "claude" | "codex";
 
 async function version(tool: VersionToolKind): Promise<string> {
   return call<string>("get_tool_version", { tool });
@@ -123,24 +122,22 @@ export interface ToolVersions {
   shell: string;
   claude: string;
   codex: string;
-  opencode: string;
 }
 
 /**
- * 拉 4 个工具的版本号 (zsh / claude / codex / opencode)。
+ * 拉 3 个工具的版本号 (zsh / claude / codex)。
  *
  * **慢路径**：每个 version() spawn 一次登录式 zsh + source rc → tool --version，单个 200-500ms。
- * 仅首屏跑一次，结果缓存到 App.tsx versionsRef；切回窗口（focus reload）跳过这步省 4 zsh spawn
+ * 仅首屏跑一次，结果缓存到 App.tsx versionsRef；切回窗口（focus reload）跳过这步省 3 zsh spawn
  * （CHANGELOG_15）。需要刷新版本只能重启 app。
  */
 export async function loadAllVersions(): Promise<ToolVersions> {
-  const [shell, claude, codex, opencode] = await Promise.all([
+  const [shell, claude, codex] = await Promise.all([
     version("zsh"),
     version("claude"),
     version("codex"),
-    version("openCode"),
   ]);
-  return { shell, claude, codex, opencode };
+  return { shell, claude, codex };
 }
 
 /**
@@ -162,14 +159,15 @@ export async function loadAllFiles(home: string, versions: ToolVersions): Promis
     readScope(`${home}/.claude/.mcp.json`, "user", "~/.claude/.mcp.json", "json"),
   ]);
 
-  const codexScope = await readScope(`${home}/.codex/config.toml`, "global", "~/.codex/config.toml", "toml");
-  const ocScope = await readScope(`${home}/.config/opencode/opencode.json`, "global", "~/.config/opencode/opencode.json", "json");
+  const codexScopes = await Promise.all([
+    readScope(`${home}/.codex/config.toml`, "global", "~/.codex/config.toml", "toml"),
+    readScope(`${home}/.codex/AGENTS.md`, "user", "~/.codex/AGENTS.md", "markdown"),
+  ]);
 
   return [
     { name: "Shell (Zsh)", version: versions.shell, icon: "terminal", description: "Zsh shell 环境配置", scopes: shellScopes },
     { name: "Claude Code", version: versions.claude, icon: "claude", description: "Anthropic AI 编码助手", scopes: claudeScopes },
-    { name: "Codex CLI", version: versions.codex, icon: "codex", description: "OpenAI AI 编码助手", scopes: [codexScope] },
-    { name: "OpenCode", version: versions.opencode, icon: "opencode", description: "开源 AI 编码助手", scopes: [ocScope] },
+    { name: "Codex CLI", version: versions.codex, icon: "codex", description: "OpenAI AI 编码助手", scopes: codexScopes },
   ];
 }
 
@@ -302,7 +300,7 @@ export const dchProfile = {
 //
 // CHANGELOG_15：focus reload 时切回窗口卡顿根因之一是 list / current 各 spawn 一次
 // `bun src/cli.ts profile <cmd>` cold start ~500ms × 2。CLI 端这俩命令本质就是
-// 「读 ~/.dch/profiles.json + 4 次 readlink ~/.{tool}」，前端直读 fs 等价且零 spawn。
+// 「读 ~/.dch/profiles.json + 2 次 readlink ~/.{tool}」，前端直读 fs 等价且零 spawn。
 //
 // 写操作（add/remove/use/init/config/testHook）仍走 dch CLI —— 涉及 store lock + hook
 // 不能复刻；这里只 bypass 纯读路径。
