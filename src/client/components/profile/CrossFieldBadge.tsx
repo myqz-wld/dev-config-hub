@@ -1,5 +1,3 @@
-import React from "react";
-
 /**
  * 「⚡N 字段名」标签 — secret 跨多个 fieldName 出现时的标识(CHANGELOG_20)。
  *

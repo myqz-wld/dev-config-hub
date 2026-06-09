@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { ToolConfig } from "../types.ts";
 import {
   loadAllVersions, loadAllFiles, saveFile, saveFileIfMtime, isMtimeMismatch, getHomeDir,

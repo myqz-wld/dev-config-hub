@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import type { Profile } from "../../bridge.ts";
 import { hookToString, maskValue } from "./helpers.ts";
 
