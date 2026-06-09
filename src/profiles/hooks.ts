@@ -61,7 +61,7 @@ export function pickScriptForRunner(s: HookScript, runner: ShellRunner): string 
  * Windows: detach 触发面窄（无 `(... &)` 语法）+ Bun 没有等价 process group API，fallback 走旧的
  *          `proc.kill()`（TerminateProcess 立即杀 direct child）。
  */
-function killProcessGroup(proc: { pid: number | null; kill: (signal?: string | number) => void }): void {
+function killProcessGroup(proc: { pid: number | null; kill: () => void }): void {
   if (IS_WIN) {
     try { proc.kill(); } catch {}
     return;
