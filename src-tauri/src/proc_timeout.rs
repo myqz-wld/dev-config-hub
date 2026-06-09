@@ -101,7 +101,7 @@ pub fn spawn_with_timeout(mut cmd: Command, timeout: Duration) -> Result<Command
     //
     // **REVIEW_9 C-LOW-2 / C-codex LOW-1**: polling sleep 改 50ms → 15ms。R1 G4 清单本说要
     // 改但实际未做。50ms polling 对短命令(`dch list` ~100ms)多 50-100ms latency,放大到
-    // loadAllVersions Promise.all × 4 + loadAllConfigs N 次 IPC 总开销 hundreds of ms。
+    // loadAllVersions Promise.all × 3 + loadAllConfigs N 次 IPC 总开销 hundreds of ms。
     // 15ms 是 OS scheduler quantum 中位区间(macOS 1ms tick + 多核唤醒延迟实测 5-10ms 合理),
     // 既显著降短命令 latency 又避免 sub-ms 高频唤醒空耗 CPU。grace 仍 50ms(reader thread
     // 收尾时间够,与 polling 频率独立)。

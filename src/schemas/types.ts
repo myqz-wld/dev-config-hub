@@ -118,7 +118,6 @@ export type ScopeKind =
   | "claude-mcp"
   | "claude-md"
   | "codex-config"
-  | "opencode-config"
   | "shell-rc"
   | "dch-store";
 
