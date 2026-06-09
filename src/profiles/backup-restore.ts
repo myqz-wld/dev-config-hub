@@ -51,7 +51,7 @@ import { addProfile, ID_RE } from "./manager.ts";
 import {
   FORMAT_VERSION,
   fileExists, tsForFilename, spawnSimple,
-  defaultSuffix, fileSha256, copyDirRecursive, applySharedFile,
+  defaultSuffix, copyDirRecursive, applySharedFile,
   type Manifest, type PlaceholderEntry,
   type ConflictAction, type SharedActionResult,
 } from "./backup-shared.ts";

@@ -1,6 +1,5 @@
 import { describe, expect, it, mock, afterEach } from "bun:test";
 import { render, cleanup, act } from "@testing-library/react";
-import React from "react";
 
 // Mock bridge：T7 套首次 loadAllVersions reject、retry 成功；T8 套首屏 reloadingRef guard 验 spawn ≤ 3。
 let versionsCallCount = 0;

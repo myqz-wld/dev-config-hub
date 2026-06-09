@@ -1,11 +1,6 @@
-import { join } from "node:path";
 import { HOME } from "./platform.ts";
 
 export { HOME };
-
-export function expandHome(p: string): string {
-  return p.startsWith("~") ? join(HOME, p.slice(1)) : p;
-}
 
 export async function readFileIfExists(
   filePath: string,

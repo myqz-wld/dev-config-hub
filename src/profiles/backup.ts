@@ -21,7 +21,7 @@
 import { mkdir, mkdtemp, rm, copyFile, open } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
 import { tmpdir, hostname, userInfo } from "node:os";
-import type { ToolKind, ProfileHooks, Profile } from "./types.ts";
+import type { Profile } from "./types.ts";
 import { loadStore, expandHome, collapseHome, HOME, DCH_DIR } from "./store.ts";
 import { shouldIncludePath } from "./backup-rules.ts";
 import {

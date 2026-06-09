@@ -1,4 +1,3 @@
-import React from "react";
 import type { HookResult } from "../../bridge.ts";
 
 export function HookOutputModal({

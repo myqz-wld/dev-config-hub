@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { CMEditor } from "../editor/CMEditor.tsx";
 import { languageByName } from "../editor/languages.ts";
 import { buildSchemaExtensions } from "../editor/schema-lint.ts";

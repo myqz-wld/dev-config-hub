@@ -1,6 +1,5 @@
 import { describe, expect, it, mock, afterEach } from "bun:test";
 import { render, cleanup, act, fireEvent } from "@testing-library/react";
-import React from "react";
 
 /**
  * REVIEW_8 H7-同源 / Group E7 回归保护：AddProfileModal env KEY regex 校验。

@@ -1,6 +1,5 @@
 import { describe, expect, it, mock, afterEach } from "bun:test";
 import { render, cleanup, act, fireEvent } from "@testing-library/react";
-import React from "react";
 
 /**
  * REVIEW_8 H7 / Group E3 回归保护：ProfileStoreEditor mtime CAS。

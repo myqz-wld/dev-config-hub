@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { dchProfile, type Profile, type Manifest } from "../../bridge.ts";
 import { backupCache } from "../../backup-cache.ts";
 import { formatBytes } from "../../format-bytes.ts";

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   dchProfile, type Profile, type Manifest, type AppliedProfile,
   type ApplyBackupResult, type PlaceholderEntry,
@@ -355,4 +355,3 @@ export function RestoreBackupModal({
     </div>
   );
 }
-

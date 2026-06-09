@@ -5,9 +5,7 @@ import { homedir } from "node:os";
  * 避免散落各处。新增 / 调整平台分支时统一改这里。
  */
 
-export const IS_DARWIN = process.platform === "darwin";
 export const IS_WIN = process.platform === "win32";
-export const IS_LINUX = process.platform === "linux";
 
 /** 用户主目录。优先用 `os.homedir()` 而非 `process.env.HOME`：Win 默认无 `HOME` 环境变量。 */
 export const HOME = homedir();

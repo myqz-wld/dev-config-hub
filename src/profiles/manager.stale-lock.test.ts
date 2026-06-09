@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { mkdtemp, mkdir, writeFile, symlink, rm, readFile, stat, unlink } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, symlink, rm, readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { IS_WIN } from "../platform.ts";

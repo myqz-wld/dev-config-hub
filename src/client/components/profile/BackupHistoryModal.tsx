@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   dchProfile, type BackupSummary,
 } from "../../bridge.ts";
@@ -348,4 +348,3 @@ function BackupRow({
     </div>
   );
 }
-

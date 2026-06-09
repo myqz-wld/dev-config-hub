@@ -9,7 +9,6 @@
 // 顺手一并删 RestoreBackupModal.tsx 旧 dead code `type _UnusedToolKind = ToolKind`
 // (`ToolKind` import 仅本类型定义引用,删后整个 import 也清理)。
 
-import React from "react";
 import type {
   Manifest, AppliedProfile, SharedAction, PlaceholderEntry, ApplyBackupResult,
   SecretLogicalEntry,

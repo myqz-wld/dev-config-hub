@@ -9,7 +9,7 @@
  * 测试策略:每条 test 跑前数 `os.tmpdir()` 下 `dch-restore-*` 目录数,跑后再数,确保无新增。
  */
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
-import { mkdtemp, mkdir, writeFile, rm, readdir } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseBackup } from "./backup-restore.ts";

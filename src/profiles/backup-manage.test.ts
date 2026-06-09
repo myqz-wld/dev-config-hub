@@ -1,9 +1,9 @@
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
-import { mkdtemp, mkdir, writeFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, isAbsolute } from "node:path";
 import {
-  listBackups, deleteBackup, pinBackup,
+  deleteBackup, pinBackup,
   BACKUP_DIR, DEFAULT_FILENAME, resolveBackupPath,
 } from "./backup-manage.ts";
 

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { dchProfile, type ProfileStore } from "../../bridge.ts";
 
 export function PreferencesEditor({
