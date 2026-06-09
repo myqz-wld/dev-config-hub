@@ -426,6 +426,10 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 ## 项目结构
 
 ```
+├── AGENTS.md                 # 配套 agent 入口：只记录入口特定工具机制差异
+├── CLAUDE.md                 # 共享项目规则：Bun first / 记录流程 / 项目不变量 / 验证流程
+├── README.md                 # 用户视角功能总览、启动方式和项目结构
+├── build/fe/                 # 前端 build 产物（git ignored）
 ├── src/
 │   ├── platform.ts           # 跨平台抽象：IS_DARWIN/IS_WIN/IS_LINUX、HOME、defaultShellRunner、defaultEditor
 │   ├── platform.test.ts      # platform 工具单测
@@ -495,8 +499,19 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │   ├── tauri.conf.json
 │   └── src/
 │       ├── main.rs
-│       └── lib.rs            # 文件读写 / 版本检测 / run_dch_command（spawn cli）
-├── ref/changelogs/                # 功能变更记录
+│       ├── lib.rs            # Tauri Builder + command 注册
+│       └── commands/
+│           ├── mod.rs        # command module 出口
+│           ├── dch.rs        # run_dch_command / secret tempfile IPC
+│           ├── fs.rs         # 文件读写 / mtime / read_link / read_dir IPC
+│           ├── fs_tests.rs   # fs IPC 单元测试
+│           ├── shell.rs      # shell invocation helper
+│           └── version.rs    # 工具版本检测 IPC
+├── ref/
+│   ├── changelogs/           # 功能 / 结构 / 依赖变更记录
+│   ├── reviews/              # debug / 性能 / 安全 / review 记录
+│   ├── plans/                # durable plan 归档
+│   └── conventions/          # 项目约定候选 tally 与升级后约定
 └── package.json
 ```
 
