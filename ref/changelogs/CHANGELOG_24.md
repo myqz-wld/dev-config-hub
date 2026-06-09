@@ -17,6 +17,7 @@
 
 - 修正 `ref/reviews/INDEX.md` 中指向 `ref/changelogs/` 的链接。
 - 清理 `ref/conventions/INDEX.md` 的过时说明，改成当前项目入口与 conventions 目录的关系。
+- 将旧 `.claude/conventions-tally.md` 的 AP-1..AP-20 候选迁入 `ref/conventions/tally.md`，删除 `.claude/` 下的 tracked 文件。
 
 ### 文件大小护栏
 
