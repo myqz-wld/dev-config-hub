@@ -7,6 +7,7 @@
 - macOS 环境（Tauri 依赖 WebKit；Profile 切换语义紧贴 macOS 文件系统）
 - 包管理器 / 运行时 **统一用 Bun**（不要混 npm / pnpm / yarn）
 - Rust ≥ 1.77（Tauri v2 后端）
+- `CLAUDE.md` 是共享项目规则；`AGENTS.md` 只记录配套入口的工具机制差异。改任一入口前同时审计另一份，保持规则语义一致。
 
 ## 构建 & 本地安装
 
@@ -52,7 +53,7 @@ cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 
 ### 3. 改功能前先读 changelog
 
-修改任何模块前，**先 `ls ref/changelogs/` + 浏览相关条目**，了解历史决策、避免推翻已有约定。比如「为什么删除了 env 切换模式只留 symlink」、「为什么 profile.env 不再写到 user-level settings.json」这类设计取舍都在 changelog 里有迹可循。
+修改任何模块前，**先 `ls ref/changelogs/ ref/conventions/ ref/reviews/` + 浏览相关条目**，了解已记录的设计决策、项目约定和 review 结论。
 
 ---
 
@@ -79,7 +80,7 @@ cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 
 - `~/.claude` / `~/.codex` 永远是 symlink，指向某个 `<configDir>`。`dch profile use <id>` 通过「先 `ln -s` 临时名，再 `mv` 覆盖」做原子替换
 - 第一次切换前必须跑 `dch profile init <tool>`：把现有真实目录 mv 到 `~/.<tool>-default`，再 ln -s 回去并注册成 default profile
-- **不再支持 env 切换模式**：历史上有 env-only 模式（不动 symlink，只把 env 写到 user-level `settings.json`），但会泄漏到所有 cwd，且 codex 没有对应机制，已统一删除（CHANGELOG_3）
+- **禁止 env 切换模式**：Profile 切换只允许 symlink / junction。不要新增“不切 symlink、只写 user-level `settings.json` env”的路径；该路径会污染所有 cwd，且 Codex 没有同等机制（CHANGELOG_3）。
 - 切换语义按 4 步走：① 跑 `preSwitch` hook（含 profile.env），失败则中断且不更新 active；② 原子 swap symlink；③ 写回 `~/.dch/profiles.json` 的 `active.<tool>`；④ 跑 `postSwitch` hook，失败仅警告
 
 ### `profile.env` 双注入路径
@@ -107,7 +108,7 @@ DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 
 ### Tauri / 前端边界
 
-- 前端在 `src/client/`，通过 `bridge.ts` 调用 Tauri command；后端在 `src-tauri/src/lib.rs`，主要做文件读写 / 版本检测 / `run_dch_command`（spawn cli）
+- 前端在 `src/client/`，通过 `bridge.ts` 调用 Tauri command；后端入口 `src-tauri/src/lib.rs` 只做 Tauri Builder 与 command 注册，具体 IPC 实现在 `src-tauri/src/commands/`。
 - **CLI 是单一入口**：UI 的所有 profile 操作都通过 `run_dch_command` 调 cli 子命令，不要在 Rust 端复刻一份 profile 逻辑（避免 UI / CLI 行为分叉）
 - **不要用 `window.confirm`**：Tauri 2 的 webview 不弹原生 confirm，所有确认必须改成内联 UI 状态（CHANGELOG_5）
 - 前端表单一次填齐 preHook / postHook + 模型配置，不要分多步引导（CHANGELOG_5）
@@ -126,7 +127,7 @@ DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 
 ### 单文件 ≤ 500 行
 
-- 一般代码文件**含注释 / 空行不超过 500 行**。超过后下一次改动必须先拆分 / 重构再加新逻辑（按职责拆 / pure 逻辑 vs IO 分层 / 一个 component 一个文件）
+- 代码文件**含注释 / 空行不超过 500 行**。超过后下一次改动必须先拆分 / 重构再加新逻辑（按职责拆 / pure 逻辑 vs IO 分层 / 一个 component 一个文件）
 - **例外**：测试文件、单份 changelog / review 可放宽到 ≤ 800 行；超 800 也要考虑按主题拆
 - 现存超标已知（不重构不让新加）：`ProfilePanel.tsx` 已拆；`bridge.ts` 接近上限待观察。`cli-profile.ts` 已通过 CHANGELOG_17 拆出 `cli-shared.ts` + `cli-backup.ts`（588 → 341 行 ✓）
 - 新文件创建时 first commit 就要保持 ≤ 500，宁可一开始就拆，也不要先怼到一份再后期拆
@@ -135,7 +136,7 @@ DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 
 ## 反复反馈 / 反复踩坑 → 升级约定（自维护机制）
 
-候选放 `.claude/conventions-tally.md`，count ≥ 3 升级到本文件「项目特定约定」。
+候选放 `ref/conventions/tally.md`，count ≥ 3 升级到 `ref/conventions/<X>-<topic>.md` 并同步 `ref/conventions/INDEX.md`。
 
 | 类型 | 触发条件 |
 |---|---|
@@ -144,7 +145,7 @@ DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 
 count = 3 → 走「双对抗三态裁决」评审升级提案后写入；count < 3 → 静默更新 tally。30 天未更新且 count < 3 → 下次扫描可清理。
 
-> tally 是 Claude Code 内部状态，**不要手工管理**。
+> `ref/conventions/tally.md` 是项目记录，由 agent 维护。不要手工删条目。
 
 ---
 

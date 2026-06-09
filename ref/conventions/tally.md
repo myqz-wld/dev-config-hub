@@ -1,8 +1,8 @@
 # 项目约定候选（待观察）
 
-> 由 Claude Code 自动维护。**不要手工删条目**。
-> 流程见 `~/.claude/CLAUDE.md`「反复反馈 / 反复踩坑 → 升级约定」节。
-> count ≥ 3 时走「决策对抗」三态裁决后**新建** `conventions/<X>-<topic>.md`（X 递增）+ 同步 `conventions/INDEX.md`，从本 tally 删该条。**不再**写到项目 [CLAUDE.md](../CLAUDE.md)「项目特定约定」节，让 CLAUDE.md 保持静态。
+> 由 agent 自动维护。**不要手工删条目**。
+> 流程见根 `CLAUDE.md`「反复反馈 / 反复踩坑 → 升级约定」节。
+> count ≥ 3 时走「决策对抗」三态裁决后**新建** `ref/conventions/<X>-<topic>.md`（X 递增）+ 同步 `ref/conventions/INDEX.md`，从本 tally 删该条。
 
 ---
 
