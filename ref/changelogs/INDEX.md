@@ -29,3 +29,4 @@
 | [CHANGELOG_23.md](CHANGELOG_23.md) | build-dir-migration plan 收口（学样 agent-deck CHANGELOG_154 同款改造）:前端 build 产物 `dist/` → `build/fe/`(bun build outDir + Tauri frontendDist cross-file 同步) + `.gitignore` 删 out/dist 单数 entry + 加 `/build/` 项目根锚定(R1 codex LOW-1 fix 防 nested 子目录意外隐藏) + `tsconfig.json:30` 删 exclude `"dist"`(R1 claude HIGH-1 + codex LOW-2 双方独立 — §不变量 6 hard cutover);Tauri Rust + bundle 产物保留 `src-tauri/target/` 不动(Cargo 标准例外)。deep-review R1 mixed kind 11 finding 100% 真问题 + 0 反驳 + 0 主路径 bug。**bun 419 pass / 0 fail / `bunx tauri build` ✅ .app 生成成功** |
 | [CHANGELOG_24.md](CHANGELOG_24.md) | 补 AGENTS 入口、迁移 conventions tally、拆 fs 测试过 500 行护栏 |
 | [CHANGELOG_25.md](CHANGELOG_25.md) | 拆分 redact / secrets-index 测试，清理 500 行护栏 |
+| [CHANGELOG_26.md](CHANGELOG_26.md) | 补 `.refs/` 忽略规则，并对齐基础工程模板的入口与 ref 索引结构 |

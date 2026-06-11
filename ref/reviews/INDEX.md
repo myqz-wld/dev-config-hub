@@ -1,6 +1,6 @@
 # Reviews 索引
 
-> 周期性 / 触发性的 debug、code review、性能 audit、安全审查报告。功能变更去 [`changelogs/`](../changelogs/INDEX.md)，本目录专注**修问题与加固**。
+> 周期性 / 触发性的 debug、code review、性能 audit、安全审查报告。未终态 review 草稿放当前环境配置的工作区；无更强契约时用 `<repo>/.refs/reviews/`，且 `.refs/` 必须加入 `.gitignore`。功能变更去 [`changelogs/`](../changelogs/INDEX.md)，本目录专注**修问题与加固**。
 
 ## 命名
 

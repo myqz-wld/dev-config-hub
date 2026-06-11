@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-> 给 Claude Code 在本仓库工作时的硬性约定。本文件聚焦 **Dev Config Hub 专属** 的设计要点与改动流程；通用工程约定（输出语言、外部 CLI 调用、双 Agent 对抗审视等）由调用方自行约束，不在此重复。
+> 本文件是 Dev Config Hub 的仓库级共享 SSOT，记录仓库基础、目录架构、改动后要求、plan/review 生命周期、项目特定不变量和验证流程。
+> `AGENTS.md` 是配套入口，只记录运行时 / 工具机制差异；共享规则放在这里，避免两份入口漂移。
 
 ## 仓库基础
 
@@ -8,6 +9,23 @@
 - 包管理器 / 运行时 **统一用 Bun**（不要混 npm / pnpm / yarn）
 - Rust ≥ 1.77（Tauri v2 后端）
 - `CLAUDE.md` 是共享项目规则；`AGENTS.md` 只记录配套入口的工具机制差异。改任一入口前同时审计另一份，保持规则语义一致。
+
+## 基础目录架构
+
+创建或维护仓库时按这份结构落位；除非项目已有更强契约，不要为同类文件另建平行目录：
+
+- `CLAUDE.md`：共享项目 SSOT，记录仓库基础、目录架构、改动后必做、plan/review 生命周期、项目特定约定和验证流程。
+- `AGENTS.md`：入口 / 工具差异，只引用并遵守 `CLAUDE.md` 的共享规则。
+- `README.md`：面向用户和维护者的功能总览、启动方式、验证步骤和项目结构。
+- `src/`：Bun/React 前端、CLI、profile 业务逻辑和工具配置读取器。
+- `src-tauri/`：Tauri v2 Rust 后端；`src-tauri/target/` 是 Cargo/Tauri 标准产物目录，保持 git ignored。
+- `build/fe/`：前端 build 产物；项目根 `/build/` 保持 git ignored。
+- `ref/changelogs/INDEX.md`：终态 changelog 索引；功能、行为、API、依赖或结构变化写 `ref/changelogs/CHANGELOG_X.md`。
+- `ref/reviews/INDEX.md`：终态 review 索引；debug、性能、安全或 review-driven fix 写 `ref/reviews/REVIEW_X.md`。
+- `ref/plans/INDEX.md`：终态 plan 索引；完成后的 plan 归档到 `ref/plans/`。
+- `ref/conventions/INDEX.md`：已升级项目约定索引；约定正文用 `ref/conventions/<X>-<topic>.md`。
+- `ref/conventions/tally.md`：重复用户反馈 / 重复 agent 踩坑计数入口。
+- `.refs/`：必须加入 `.gitignore`；只放未终态 plan/review 工作副本，不放终态记录。
 
 ## 构建 & 本地安装
 
@@ -42,7 +60,7 @@ cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 - 文件名 `CHANGELOG_X.md`，X 递增整数。新建前 `ls ref/changelogs/` 找最大 X
 - **小改动**（一两个文件、几十行同主题）→ 追加到最新 `CHANGELOG_X.md`
 - **大改动**（多模块 / 上百行 / 新功能）→ 新建 `CHANGELOG_X+1.md`
-- 每次改 `ref/changelogs/` 都要同步 `ref/changelogs/INDEX.md`（简表：`[CHANGELOG_X.md](CHANGELOG_X.md) | 一句话概要`）
+- 每次改 `ref/changelogs/` 都要同步 `ref/changelogs/INDEX.md`（简表：`CHANGELOG_X.md | 一句话概要`）
 - 单文件结构：标题 + 概要（2-3 行）+ 变更内容（按模块 bullet）。**不要写「踩坑细节 / 推演过程」**——那些去 `ref/reviews/`
 
 #### `ref/reviews/` 规则
@@ -51,9 +69,17 @@ cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 - 每份 review 单文件结构：触发场景 + 方法（双对抗 Agent / 范围 / 工具）+ 三态裁决清单 + 修复条目
 - 同步更新 `ref/reviews/INDEX.md`
 
-### 3. 改功能前先读 changelog
+### 3. Plan / review 文档生命周期
 
-修改任何模块前，**先 `ls ref/changelogs/ ref/conventions/ ref/reviews/` + 浏览相关条目**，了解已记录的设计决策、项目约定和 review 结论。
+- 未终态 plan 放在当前环境的 plan 工作区；无更强契约时用 `<repo>/.refs/plans/<plan-id>.md`。
+- 未终态 review 草稿 / reviewer 原始输出放在当前 review 工作区；无更强契约时用 `<repo>/.refs/reviews/<review-id>.md` 或会话输出。
+- plan 到终态后，把最终文档和 plan 专属支持材料归档到 `ref/plans/`，更新 `ref/plans/INDEX.md`，并清理工作区副本。
+- review 到终态后，把最终记录归档到 `ref/reviews/REVIEW_X.md`，更新 `ref/reviews/INDEX.md`，并清理工作区副本。
+- `.refs/` 是未终态工作区，不要把终态记录只留在 `.refs/`。
+
+### 4. 改功能前先读历史记录
+
+修改任何模块前，**先 `ls ref/changelogs/ ref/conventions/ ref/reviews/ ref/plans/` + 浏览相关条目**，了解已记录的设计决策、项目约定、plan 和 review 结论。
 
 ---
 
