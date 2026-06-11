@@ -512,6 +512,8 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │   ├── reviews/              # debug / 性能 / 安全 / review 记录
 │   ├── plans/                # durable plan 归档
 │   └── conventions/          # 项目约定候选 tally 与升级后约定
+├── scripts/
+│   └── file-level-review-expiry.sh  # review 过期机械检查（见 CLAUDE.md §Review 过期）
 └── package.json
 ```
 

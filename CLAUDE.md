@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-> 本文件是 Dev Config Hub 的仓库级共享 SSOT，记录仓库基础、目录架构、改动后要求、plan/review 生命周期、项目特定不变量和验证流程。
+> 本文件是 Dev Config Hub 的仓库级共享 SSOT，记录仓库基础、目录架构、改动后要求、plan/review 生命周期、review 过期规则、文件大小护栏、项目特定不变量和验证流程。
 > `AGENTS.md` 是配套入口，只记录运行时 / 工具机制差异；共享规则放在这里，避免两份入口漂移。
 
 ## 仓库基础
@@ -172,6 +172,27 @@ DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 count = 3 → 走「双对抗三态裁决」评审升级提案后写入；count < 3 → 静默更新 tally。30 天未更新且 count < 3 → 下次扫描可清理。
 
 > `ref/conventions/tally.md` 是项目记录，由 agent 维护。不要手工删条目。
+
+---
+
+## Review 过期与最小复审范围
+
+准备下一次 review 时按本节确定最小复审范围；`ref/reviews/` 是会过期的覆盖记录，不是永久豁免。
+
+下一次 review 的最小范围：
+
+```text
+unreviewed files ∪ expired reviewed files ∪ scope_unknown files
+```
+
+自最近一次覆盖该文件的 REVIEW 基线以来，满足任一条件即过期：
+
+- 净改动 ≥ `min(200 行, 当前 LOC 的 30%)`。
+- 不同 commit 数 ≥ 3。
+- 距今 ≥ 90 天且文件至少改过一次。
+- REVIEW frontmatter 标记 `expired: true`。
+
+准备 review 时在仓库根目录运行 `bash scripts/file-level-review-expiry.sh`；脚本缺失时按上述条件用 `git log` 手工判定。
 
 ---
 
