@@ -9,7 +9,7 @@
 | 平台 | 状态 | 说明 |
 |---|---|---|
 | **macOS 12+ (Apple Silicon / Intel)** | **GA** | 主要开发与测试平台；symlink + bash hook + zsh shell reader |
-| **Windows 10 1703+ / 11** | **beta** | symlink 自动走 junction（无需 SeCreateSymbolicLinkPrivilege / Developer Mode）；hook 默认走 PowerShell（hook 字符串形式按 PowerShell 解析；object 形式 `{posix?, powershell?, cmd?}` 显式分平台）；shell reader 改读 `$PROFILE`；opencode 优先 `%APPDATA%\opencode\` |
+| **Windows 10 1703+ / 11** | **beta** | symlink 自动走 junction（无需 SeCreateSymbolicLinkPrivilege / Developer Mode）；hook 默认走 PowerShell（hook 字符串形式按 PowerShell 解析；object 形式 `{posix?, powershell?, cmd?}` 显式分平台）；shell reader 改读 `$PROFILE` |
 | **Linux** | **beta** | symlink 与 macOS 同款行为；hook 走 bash；shell reader 读 zsh + bash 配置 |
 
 Win 端真机 E2E 留待 CI 验证（参见 [REVIEW_1](ref/reviews/REVIEW_1.md)）。
@@ -21,7 +21,6 @@ Win 端真机 E2E 留待 CI 验证（参见 [REVIEW_1](ref/reviews/REVIEW_1.md)�
 | **Shell** | macOS/Linux：`~/.zprofile`, `~/.zshrc`, `~/.bashrc` ／ Windows：`$PROFILE`（PowerShell 5.1 + 7） | dotfile / .ps1 |
 | **Claude Code** | `~/.claude/settings.json`, `settings.local.json`, `CLAUDE.md`, `.mcp.json` | JSON / Markdown |
 | **Codex CLI** | `~/.codex/config.toml` | TOML |
-| **OpenCode** | macOS/Linux：`~/.config/opencode/opencode.json` ／ Windows：`%APPDATA%\opencode\opencode.json` | JSON |
 
 ## 核心能力
 
@@ -87,7 +86,6 @@ dch                   # 总览所有工具
 dch shell             # Shell 配置
 dch claude            # Claude Code 配置
 dch codex             # Codex CLI 配置
-dch opencode          # OpenCode 配置
 dch all               # 全部展示
 dch gui               # 启动桌面窗口（等同于 bun run dev）
 dch edit <file>       # 用 $EDITOR 编辑指定配置文件
@@ -318,7 +316,7 @@ dch profile backup-rm dch-backup-XXX.dchpack [--yes]
 
 ```bash
 dch profile backup
-# → ~/.dch/backups/dch-backup-<YYYYMMDD-HHMMSS>.dchpack
+# → ~/.dch/backups/latest.dchpack（加 --keep 则另存 dch-backup-<YYYYMMDD-HHMMSS>.dchpack）
 # 用 AirDrop / scp / U 盘把 .dchpack 传到新机器
 ```
 
@@ -418,12 +416,14 @@ JSON schema 严格校验：必须 plain object + 所有 value 是 string；缺 k
 `--no-placeholder` 模式保留原始 token，需自己加密外层：
 
 ```bash
-dch profile backup --no-placeholder
+dch profile backup --no-placeholder --keep
 gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 # 传输 .gpg → 新机器 gpg --decrypt → dch profile restore（无占位符 → 立即可用）
 ```
 
 ## 项目结构
+
+测试文件（`*.test.ts(x)` / `fs_tests.rs`）与被测文件同目录，树中省略。
 
 ```
 ├── AGENTS.md                 # 配套 agent 入口：只记录入口特定工具机制差异
@@ -432,12 +432,12 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 ├── build/fe/                 # 前端 build 产物（git ignored）
 ├── src/
 │   ├── platform.ts           # 跨平台抽象：IS_DARWIN/IS_WIN/IS_LINUX、HOME、defaultShellRunner、defaultEditor
-│   ├── platform.test.ts      # platform 工具单测
 │   ├── cli.ts                # CLI 入口
 │   ├── cli-colors.ts         # ANSI 颜色常量（cli.ts + cli-profile.ts 共享）
 │   ├── cli-profile.ts        # `dch profile ...` 子命令实现，支持 --json
 │   ├── cli-shared.ts         # cli-profile / cli-backup 共享 helper（JSON_MODE / parseFlags / readStdinLine 等）
 │   ├── cli-backup.ts         # `dch profile backup / restore / backups / backup-rm / backup-pin` 实现
+│   ├── format-bytes.ts       # 字节数格式化（CLI + 前端共用单一来源）
 │   ├── types.ts              # 共享类型（ConfigScope / ToolConfig）
 │   ├── schemas/              # 唯一保留：dch profiles.json 的 schema-aware 编辑器用
 │   │   ├── types.ts          # FieldSchema / ToolSchema 类型
@@ -446,32 +446,33 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │   ├── utils.ts              # 文件读取等工具
 │   ├── profiles/             # Profile 系统核心（Bun-only）
 │   │   ├── types.ts          # Profile / ProfileStore / HookScript / HookResult / ...
+│   │   ├── defaults.ts       # 新建 profile 的 configDir 默认值（UI / CLI 单一来源）
 │   │   ├── store.ts          # ~/.dch/profiles.json 读写 + 跨平台 collapseHome
-│   │   ├── store.test.ts     # store 工具单测
+│   │   ├── store-shape.ts    # store default 补全（前端 / CLI 同源防分叉）
 │   │   ├── hooks.ts          # 执行 pre/post shell 脚本（平台分流）+ pickScriptForRunner
-│   │   ├── hooks.test.ts     # bun test 单元测试（含 Win/POSIX 分流）
 │   │   ├── symlink.ts        # 符号链接切换（macOS/Linux symlink + Win junction）
-│   │   ├── symlink.test.ts   # getSymlinkType / normalizeSymlinkTarget 跨平台测试
 │   │   ├── manager.ts        # CRUD + switch 调度（共用核心）
-│   │   ├── backup.ts         # createBackup + 共享 helper（.dchpack 归档 + secrets_index 集成）
-│   │   ├── backup-restore.ts # parseBackup / applyBackup / cleanupParsed / applyBackupWithSecrets（fan-out fill）
+│   │   ├── backup.ts         # createBackup（.dchpack 归档 + secrets_index 集成）
+│   │   ├── backup-shared.ts  # 备份共享 types + fs / 子进程 helper
+│   │   ├── backup-restore.ts # parseBackup / applyBackup / applyBackupWithSecrets（fan-out fill）
+│   │   ├── backup-restore-paths.ts / backup-restore-secrets.ts # restore 路径校验 / secrets 填回 helper
 │   │   ├── backup-manage.ts  # listBackups / deleteBackup / pinBackup（默认位 + 置顶 + 历史 三层管理）
 │   │   ├── backup-rules.ts   # INCLUDE / EXCLUDE glob + 敏感字段判断
 │   │   ├── secrets-index.ts  # backup placeholder 全局 dedup + restore fieldPath 寻址 fan-out
+│   │   ├── field-path.ts     # fieldPath 解析 + 寻址（secrets-index 拆出，经其透传 export）
 │   │   └── redact.ts         # JSON / TOML / 整文件级凭据脱敏（含 valueHash 给 secrets-index）
 │   ├── readers/              # 各工具的配置读取器（平台分流：Win 路径/PowerShell）
 │   │   ├── shell.ts          # POSIX zsh/bash / Win PowerShell $PROFILE
 │   │   ├── claude-code.ts
-│   │   ├── codex.ts
-│   │   └── opencode.ts       # POSIX XDG / Win %APPDATA%
+│   │   └── codex.ts
 │   └── client/               # Tauri 前端（React）
-│       ├── index.html
-│       ├── main.tsx
-│       ├── App.tsx
+│       ├── index.html / main.tsx / App.tsx / styles.css / dev-server.ts
 │       ├── bridge.ts         # Tauri IPC 桥接 + dchProfile.* 包装 + readFileWithMtime + getHomeDir
-│       ├── bridge-backup.ts  # bridge.ts 拆出来的 backup IPC（restoreApplyWithSecrets / restorePreviewSecrets 等）
-│       ├── styles.css
-│       ├── dev-server.ts
+│       ├── bridge-core.ts    # dch CLI invoke primitive（bridge / bridge-backup 共用底座）
+│       ├── bridge-mtime.ts   # mtime CAS 错误类型 + classifier（TOCTOU 检测）
+│       ├── bridge-backup.ts  # backup IPC（restoreApplyWithSecrets / restorePreviewSecrets 等）
+│       ├── backup-cache.ts   # 备份历史 modal 跨 mount 缓存（避免重 spawn dch CLI）
+│       ├── format-bytes.ts   # 兼容 re-export → ../format-bytes.ts
 │       └── components/
 │           ├── ConfigPanel.tsx           # 配置主面板（view / edit / markdown render 三模式）
 │           ├── ProfilePanel.tsx
@@ -481,7 +482,7 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │           │   ├── theme.ts              # one-dark + 项目颜色 token
 │           │   ├── languages.ts          # ConfigScope.format → CM6 lang 扩展
 │           │   └── schema-lint.ts        # codemirror-json-schema 包装（仅 ProfileStoreEditor 用）
-│           ├── markdown/                 # react-markdown + shiki 代码块
+│           ├── markdown/                 # react-markdown + shiki 代码块（MarkdownView / highlighter）
 │           ├── panel-visibility.tsx
 │           └── profile/                  # ProfilePanel 拆出来的子组件
 │               ├── AddProfileModal.tsx
@@ -489,7 +490,9 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │               ├── ProfileStoreEditor.tsx  # ~/.dch/profiles.json 的 schema-aware modal
 │               ├── ExportBackupModal.tsx   # 导出 .dchpack（profile 多选 + 共享开关 + keep / 占位符开关）
 │               ├── RestoreBackupModal.tsx  # 导入 .dchpack（4 步：preview + 改名 + 填 K 个 secret + apply+report）
-│               ├── RestoreSecretsBody.tsx  # RestoreBackupModal step 3「填 K 个 secret」的 K logical key 表单
+│               ├── restore-modal-bodies.tsx / restore-modal-helpers.ts # RestoreBackupModal 拆出的步骤 body / helper
+│               ├── RestoreSecretsBody.tsx  # step 3「填 K 个 secret」的 K logical key 表单
+│               ├── UniqueSecretsList.tsx / CrossFieldBadge.tsx # 去重凭据清单 + ⚡跨字段名标签
 │               ├── BackupHistoryModal.tsx  # 备份历史（默认位 / 置顶 / 历史 三组 + 还原 / 置顶 / 删除）
 │               ├── HookOutputModal.tsx
 │               ├── PreferencesEditor.tsx
@@ -500,11 +503,13 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │   └── src/
 │       ├── main.rs
 │       ├── lib.rs            # Tauri Builder + command 注册
+│       ├── atomic.rs         # 原子写 + mtime CAS（防半文件 / TOCTOU 覆盖）
+│       ├── path_policy.rs    # fs command 路径边界策略（防 webview 任意读写）
+│       ├── proc_timeout.rs   # spawn_with_timeout（process group + 超时杀整组）
 │       └── commands/
 │           ├── mod.rs        # command module 出口
 │           ├── dch.rs        # run_dch_command / secret tempfile IPC
 │           ├── fs.rs         # 文件读写 / mtime / read_link / read_dir IPC
-│           ├── fs_tests.rs   # fs IPC 单元测试
 │           ├── shell.rs      # shell invocation helper
 │           └── version.rs    # 工具版本检测 IPC
 ├── ref/
