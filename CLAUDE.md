@@ -8,15 +8,15 @@
 - macOS 环境（Tauri 依赖 WebKit；Profile 切换语义紧贴 macOS 文件系统）
 - 包管理器 / 运行时 **统一用 Bun**（不要混 npm / pnpm / yarn）
 - Rust ≥ 1.77（Tauri v2 后端）
-- `CLAUDE.md` 是共享项目规则；`AGENTS.md` 只记录配套入口的工具机制差异。改任一入口前同时审计另一份，保持规则语义一致。
+- 改 `CLAUDE.md` / `AGENTS.md` 任一入口前同时审计另一份，保持规则语义一致
 
 ## 基础目录架构
 
 创建或维护仓库时按这份结构落位；除非项目已有更强契约，不要为同类文件另建平行目录：
 
-- `CLAUDE.md`：共享项目 SSOT，记录仓库基础、目录架构、改动后必做、plan/review 生命周期、项目特定约定和验证流程。
-- `AGENTS.md`：入口 / 工具差异，只引用并遵守 `CLAUDE.md` 的共享规则。
-- `README.md`：面向用户和维护者的功能总览、启动方式、验证步骤和项目结构。
+- `CLAUDE.md`：共享项目 SSOT（即本文件）。
+- `AGENTS.md`：入口 / 工具机制差异，引用本文件的共享规则。
+- `README.md`：面向用户的功能总览、启动方式、验证步骤和项目结构。
 - `src/`：Bun/React 前端、CLI、profile 业务逻辑和工具配置读取器。
 - `src-tauri/`：Tauri v2 Rust 后端；`src-tauri/target/` 是 Cargo/Tauri 标准产物目录，保持 git ignored。
 - `build/fe/`：前端 build 产物；项目根 `/build/` 保持 git ignored。
@@ -55,27 +55,23 @@ cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 | **功能变更**（新功能 / 行为修改 / API / 依赖升级） | `ref/changelogs/` | 新增 Profile 系统、删 env 模式、加 `dch profile env` |
 | **Debug / 性能 / 安全 review**（不引入新功能，只修问题或加固） | `ref/reviews/` | TOCTOU / shell 注入 / hook 超时审查 |
 
+**改任一 `ref/` 子目录都要同步该目录的 `INDEX.md`**（简表：`文件名 | 一句话概要`）。
+
 #### `ref/changelogs/` 规则
 
 - 文件名 `CHANGELOG_X.md`，X 递增整数。新建前 `ls ref/changelogs/` 找最大 X
-- **小改动**（一两个文件、几十行同主题）→ 追加到最新 `CHANGELOG_X.md`
-- **大改动**（多模块 / 上百行 / 新功能）→ 新建 `CHANGELOG_X+1.md`
-- 每次改 `ref/changelogs/` 都要同步 `ref/changelogs/INDEX.md`（简表：`CHANGELOG_X.md | 一句话概要`）
+- **小改动**（一两个文件、几十行同主题）→ 追加到最新 `CHANGELOG_X.md`；**大改动**（多模块 / 上百行 / 新功能）→ 新建 `CHANGELOG_X+1.md`
 - 单文件结构：标题 + 概要（2-3 行）+ 变更内容（按模块 bullet）。**不要写「踩坑细节 / 推演过程」**——那些去 `ref/reviews/`
 
 #### `ref/reviews/` 规则
 
 - 文件名 `REVIEW_X.md`，X 递增整数。新建前 `ls ref/reviews/` 找最大 X
-- 每份 review 单文件结构：触发场景 + 方法（双对抗 Agent / 范围 / 工具）+ 三态裁决清单 + 修复条目
-- 同步更新 `ref/reviews/INDEX.md`
+- 单文件结构：触发场景 + 方法（双对抗 Agent / 范围 / 工具）+ 三态裁决清单 + 修复条目
 
 ### 3. Plan / review 文档生命周期
 
-- 未终态 plan 放在当前环境的 plan 工作区；无更强契约时用 `<repo>/.refs/plans/<plan-id>.md`。
-- 未终态 review 草稿 / reviewer 原始输出放在当前 review 工作区；无更强契约时用 `<repo>/.refs/reviews/<review-id>.md` 或会话输出。
-- plan 到终态后，把最终文档和 plan 专属支持材料归档到 `ref/plans/`，更新 `ref/plans/INDEX.md`，并清理工作区副本。
-- review 到终态后，把最终记录归档到 `ref/reviews/REVIEW_X.md`，更新 `ref/reviews/INDEX.md`，并清理工作区副本。
-- `.refs/` 是未终态工作区，不要把终态记录只留在 `.refs/`。
+- 未终态 plan / review 工作副本放当前环境工作区；无更强契约时用 `<repo>/.refs/plans/<plan-id>.md` / `<repo>/.refs/reviews/<review-id>.md`。
+- 到终态后归档：plan 连同专属支持材料进 `ref/plans/`，review 进 `ref/reviews/REVIEW_X.md`；同步 INDEX，清理工作区副本。终态记录不要只留在 `.refs/`。
 
 ### 4. 改功能前先读历史记录
 
@@ -116,7 +112,7 @@ cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 - 推荐：`dch profile env <tool>` 输出 shell-eval 格式 + `~/.zshrc` 加子 shell wrapper（CHANGELOG_4）
 - 也可：把 env 写到 `<configDir>/settings.json` 的 `env` 块（**仅 claude code 支持**，codex 没有此机制）
 
-`dch profile env` 的输出格式严格校验：key 必须匹配 `^[A-Za-z_][A-Za-z0-9_]*$`，value 单引号包裹做转义，**杜绝 shell 注入**。active 为空 / env 空时静默无输出，让 wrapper 自然 fall-through 到原命令。
+`dch profile env` 的输出格式严格校验：key 必须匹配 `^[A-Za-z_][A-Za-z0-9_]*$`，value 单引号包裹做转义，**杜绝 shell 注入**——wrapper 会直接 `eval` 该输出，任何漏校验都是注入入口（CHANGELOG_4）。active 为空 / env 空时静默无输出，让 wrapper 自然 fall-through 到原命令。
 
 ### Hook 注入的环境变量（契约不变）
 
@@ -141,21 +137,18 @@ DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 
 ### 配置文件展示与编辑
 
-工具配置文件（`~/.claude/settings.json` / `~/.codex/config.toml` / `~/.config/opencode/opencode.json` / `~/.zshrc` 等）在 ConfigPanel 里只有三种 mode：
+工具配置文件（`~/.claude/settings.json` / `~/.codex/config.toml` / `~/.zshrc` 等）在 ConfigPanel 里只有三种 mode：
 
 - **view**（默认，markdown 文件除外）：CodeMirror 6 只读 + 语法高亮
 - **edit**：CodeMirror 6 可写 + 保存（带 TOCTOU 外部修改检测）
 - **render**（仅 markdown 文件，如 `CLAUDE.md`）：react-markdown + GFM + shiki 代码块
 
-**没有「列表」/「schema-driven 行内编辑」/「字段控件」这些概念了**（CHANGELOG_14 删掉）。曾经的 `src/schemas/` schema 系统、`src/client/components/fields/` 字段控件库、`src/client/components/schema-mode/SchemaScopeBody`、`src/descriptions.ts` 描述字典都已删除——配置文件展示就是「源文件 / 编辑 / markdown 渲染」三选一，简单直接。
-
-唯一保留的 schema 残余是 `~/.dch/profiles.json` 编辑 modal（`ProfileStoreEditor`）的 lint：用 `src/schemas/dch-store.ts` + `editor/schema-lint.ts` 走 codemirror-json-schema 给 dch 自身状态文件做 hover / completion / 报错。这跟工具配置 schema 没关系，是 dch 内部约束。
+**不要重新引入「列表」/「schema-driven 行内编辑」/「字段控件」**——schema 系统已整体删除（CHANGELOG_14）。唯一保留的 schema 残余是 `~/.dch/profiles.json` 编辑 modal（`ProfileStoreEditor`）的 lint：`src/schemas/dch-store.ts` + `editor/schema-lint.ts` 走 codemirror-json-schema。这是 dch 内部约束，跟工具配置 schema 无关。
 
 ### 单文件 ≤ 500 行
 
 - 代码文件**含注释 / 空行不超过 500 行**。超过后下一次改动必须先拆分 / 重构再加新逻辑（按职责拆 / pure 逻辑 vs IO 分层 / 一个 component 一个文件）
 - **例外**：测试文件、单份 changelog / review 可放宽到 ≤ 800 行；超 800 也要考虑按主题拆
-- 现存超标已知（不重构不让新加）：`ProfilePanel.tsx` 已拆；`bridge.ts` 接近上限待观察。`cli-profile.ts` 已通过 CHANGELOG_17 拆出 `cli-shared.ts` + `cli-backup.ts`（588 → 341 行 ✓）
 - 新文件创建时 first commit 就要保持 ≤ 500，宁可一开始就拆，也不要先怼到一份再后期拆
 
 ---
@@ -217,12 +210,3 @@ bun run cli profile remove claude-test --yes
 ```
 
 修改 `src-tauri/**` 后必须重新 `bun run dev`（Rust 后端要重编）；只改前端走 HMR 自动推送。
-
-## 已踩的坑（别再回退）
-
-每条都有对应 changelog：
-
-- **不要再加 env 切换模式**：曾经支持过「不切 symlink、只把 env 写到 user-level `settings.json`」，结果污染所有 cwd 而且 codex 没对应机制，CHANGELOG_3 已删干净
-- **`dch profile env` 必须严格校验 key/value**：CHANGELOG_4 的 wrapper 直接 `eval` 输出，任何漏校验都是 shell 注入入口
-- **UI 不要弹 `window.confirm`**：Tauri 2 webview 不支持，会卡死操作（CHANGELOG_5）
-- **新建 profile 表单一次填齐**：preHook / postHook / 模型配置一并采集，不要分步引导（CHANGELOG_5）
