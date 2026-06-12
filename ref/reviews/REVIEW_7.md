@@ -127,7 +127,7 @@ CHANGELOG_7 PR-3 H1 fix 只测了 `runHook` 函数级返回（hooks.test.ts:108�
 
 ## 关联 changelog
 
-- [CHANGELOG_12.md](../changelog/CHANGELOG_12.md)：本次修复落地
+- [CHANGELOG_12.md](../changelogs/CHANGELOG_12.md)：本次修复落地
 
 ## Agent 踩坑沉淀
 

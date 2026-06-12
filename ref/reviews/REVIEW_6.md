@@ -129,7 +129,7 @@ src/client/components/schema-mode/SchemaScopeBody.tsx
 
 ## 关联 changelog
 
-- [CHANGELOG_10.md](../changelog/CHANGELOG_10.md)：原 PR 自动刷新功能 + 本 review 8 fix + 12 test 落地
+- [CHANGELOG_10.md](../changelogs/CHANGELOG_10.md)：原 PR 自动刷新功能 + 本 review 8 fix + 12 test 落地
 
 ## Agent 踩坑沉淀
 

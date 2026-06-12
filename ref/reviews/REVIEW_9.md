@@ -2,7 +2,7 @@
 
 > base_commit: `8ad2fa0` → final_commit: `7d0bb75`
 > 完成时间:2026-05-15
-> 关联 changelog:[CHANGELOG_21.md](../changelog/CHANGELOG_21.md)
+> 关联 changelog:[CHANGELOG_21.md](../changelogs/CHANGELOG_21.md)
 > 关联 plan:[plans/dch-deep-review-20260515.md](../plans/dch-deep-review-20260515.md)
 
 ## 触发场景

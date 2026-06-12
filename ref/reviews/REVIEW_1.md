@@ -83,7 +83,7 @@ dev-config-hub 的 macOS 假设嵌在**核心抽象层**：symlink-as-switch / b
 
 ## 关联 changelog
 
-- [CHANGELOG_6.md](../changelog/CHANGELOG_6.md)：本轮修复落地
+- [CHANGELOG_6.md](../changelogs/CHANGELOG_6.md)：本轮修复落地
 
 ## 风险与已知限制
 

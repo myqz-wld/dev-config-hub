@@ -173,7 +173,7 @@ src/types.ts
 
 ## 关联 changelog
 
-- [CHANGELOG_8.md](../changelog/CHANGELOG_8.md)：本次修复在 PR-A / PR-B / PR-F 节内 + 末尾「REVIEW_3 fix」节追加
+- [CHANGELOG_8.md](../changelogs/CHANGELOG_8.md)：本次修复在 PR-A / PR-B / PR-F 节内 + 末尾「REVIEW_3 fix」节追加
 
 ## Agent 踩坑沉淀
 
