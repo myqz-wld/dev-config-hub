@@ -231,7 +231,7 @@ R_2：
 
 ## 关联 changelog
 
-- [CHANGELOG_8.md](../changelog/CHANGELOG_8.md)：本次修复在「REVIEW_4 fix」节追加（分 R_1 / R_2 两段）
+- [CHANGELOG_8.md](../changelogs/CHANGELOG_8.md)：本次修复在「REVIEW_4 fix」节追加（分 R_1 / R_2 两段）
 
 ## Agent 踩坑沉淀
 
