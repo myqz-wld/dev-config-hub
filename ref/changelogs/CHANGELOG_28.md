@@ -14,6 +14,7 @@ prompt-asset 维护轮：`CLAUDE.md` 去重压缩、`AGENTS.md` 收敛到入口�
 
 ### `CLAUDE.md`
 
+- §基础目录架构补 `scripts/` 条目，和 foundation v0.0.5 目录规则对齐；README 项目结构已包含 `scripts/`，无需重复改。
 - 删「已踩的坑（别再回退）」整节：4 条全部与 §项目特定约定 同证据重复（CHANGELOG_3/4/5）；唯一独有的「wrapper 直接 eval」根因并入 §profile.env 的注入校验规则。
 - §改动后必做 压缩：「同步 INDEX.md」4 处合并为 1 条加粗规则；生命周期 5 bullet → 2。
 - §配置文件展示 删 dead 路径 `~/.config/opencode/opencode.json`，删除历史压缩为一行 pitfall（CHANGELOG_14）。
