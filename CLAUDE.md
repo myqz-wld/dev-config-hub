@@ -19,6 +19,7 @@
 - `README.md`：面向用户的功能总览、启动方式、验证步骤和项目结构。
 - `src/`：Bun/React 前端、CLI、profile 业务逻辑和工具配置读取器。
 - `src-tauri/`：Tauri v2 Rust 后端；`src-tauri/target/` 是 Cargo/Tauri 标准产物目录，保持 git ignored。
+- `scripts/`：项目脚本和自动化辅助脚本。
 - `build/fe/`：前端 build 产物；项目根 `/build/` 保持 git ignored。
 - `ref/changelogs/INDEX.md`：终态 changelog 索引；功能、行为、API、依赖或结构变化写 `ref/changelogs/CHANGELOG_X.md`。
 - `ref/reviews/INDEX.md`：终态 review 索引；debug、性能、安全或 review-driven fix 写 `ref/reviews/REVIEW_X.md`。
