@@ -1,21 +1,11 @@
 # AGENTS.md
 
-> This repository-level entry point loads alongside the shared project rules.
-> Shared project rules live in `CLAUDE.md`: repository basics, base directory structure, required records after changes, plan/review lifecycle, project-specific invariants, and validation.
-> Keep this file focused on entry-specific tool mechanics; do not duplicate the full project rule set.
+> 本入口只记录与仓库共享规则的关系和必要入口差异；共享规则以 `CLAUDE.md` 为准。
 
-## Read Order
+## 读取顺序
 
-1. Read `CLAUDE.md` first, then follow its repository basics, base directory structure, change-record rules, plan/review lifecycle, project invariants, and validation flow. Paired-entry audits and `ref/` history checks are defined there.
+先读取 `CLAUDE.md`，并按其中的仓库基础、目录架构、改动后要求、计划 / 评审生命周期、项目不变量和验证流程执行。改动 `CLAUDE.md` 或 `AGENTS.md` 任一入口前，同时审计另一份，保持规则语义一致。
 
-## Entry Mechanics
+## 项目特定入口差异
 
-- Use `rg` for search and `apply_patch` for manual edits.
-- Do not write files through shell redirection or ad hoc scripts when `apply_patch` is enough.
-- Use the worktree or handoff tools provided by the current environment. When a worktree path is involved, run shell commands with `git -C <worktree>` or absolute paths.
-- For SDK sessions, MCP tools, skills, and prompt assets, follow the current environment's explicit contract. Do not invent tool workflows when no contract is present.
-- If an async teammate/review tool sends work to another session, report the dispatched work and end the turn instead of polling with `sleep`.
-
-## Entry Differences
-
-`CLAUDE.md` is the shared project source of truth. Add content here only when this entry point needs different tool mechanics to execute the same project rule.
+当前没有额外入口差异；只有当本入口确实需要不同于 `CLAUDE.md` 的运行时或工具机制时，才在这里补充。

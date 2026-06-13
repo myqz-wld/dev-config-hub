@@ -25,6 +25,12 @@ prompt-asset 维护轮：`CLAUDE.md` 去重压缩、`AGENTS.md` 收敛到入口�
 
 - Read Order 2-3 条与 Entry Mechanics Bun 行删除：均为 CLAUDE.md 共享规则复述；保留入口特有机制（rg/apply_patch、worktree、异步不轮询）。
 
+### `AGENTS.md` 2026-06-13 追加
+
+- 将入口文件从英文改为中文，和 `CLAUDE.md` 的仓库语言保持一致。
+- 删除剩余通用工具机制和异步协作流程，只保留读取 `CLAUDE.md` 与当前无额外入口差异的说明。
+
 ## 备注
 
 - 验证：src/ 与 9 文件 0 处 opencode 残留；结构树 18 个抽查条目全部存在于磁盘；死链 0；`git diff --check` 通过；独立 reviewer 确认 4 条 evidence-backed pitfall 全部在 §项目特定约定 保留。
+- 2026-06-13 追加验证：`rg -n "Read Order|Entry Mechanics|Entry Differences|apply_patch|\\brg\\b|sleep|handoff|prompt assets" AGENTS.md` 无匹配；`git diff --check -- AGENTS.md ref/changelogs/INDEX.md ref/changelogs/CHANGELOG_28.md` 通过。
