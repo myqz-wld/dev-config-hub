@@ -3,6 +3,7 @@
   "module": "src/cli.ts",
   "type": "module",
   "private": true,
+  "license": "MIT",
   "bin": {
     "dch": "src/cli.ts"
   },
