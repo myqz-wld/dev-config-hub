@@ -421,8 +421,9 @@ export function redactPlainTextContent(content: string): RedactResult {
  * + 选 parser。
  */
 export function redactByFilename(content: string, filename: string): RedactResult {
-  if (isSensitiveFile(filename)) return redactWholeFile(content, filename);
-  if (filename.endsWith(".json")) return redactJsonContent(content, filename);
-  if (filename.endsWith(".toml")) return redactTomlContent(content, filename);
+  const normalizedFilename = filename.toLowerCase();
+  if (isSensitiveFile(normalizedFilename)) return redactWholeFile(content, normalizedFilename);
+  if (normalizedFilename.endsWith(".json")) return redactJsonContent(content, filename);
+  if (normalizedFilename.endsWith(".toml")) return redactTomlContent(content, filename);
   return redactPlainTextContent(content);
 }

@@ -401,15 +401,17 @@ JSON schema 严格校验：必须 plain object + 所有 value 是 string；缺 k
 - **整文件凭据**（`auth.json` / `credentials.json`）：跳过 dedup（OAuth payload 跨 profile 必然不同），每个 location 独立 logical key。fill 后文件结构是 `{"placeholder": "<填入字符串>"}` 仍非真正的 OAuth payload —— 整文件凭据请用工具自身重新登录获取，不要期待 fill 重建出有效 OAuth
 - **profile.env 段**（`_meta.json` 的 `$.env.K`）：fan-out 阶段排除（fieldPath 与 `~/.dch/profiles.json` 顶层结构 `{ profiles: [...], active: {...} }` 不对齐），用户后续手改 profiles.json
 
-### 包含 / 排除规则
+### 打包规则
 
-- **包含**（configDir 相对路径）：
-  - 顶层：`CLAUDE.md` / `AGENTS.md` / `settings.json` / `settings.local.json` / `.mcp.json` / `auth.json` / `config.toml` / `credentials.json` / `version.json` / `hilo-skill-market.json`
-  - 目录递归：`templates/**` / `SOPs/**` / `plans/*.md` / `providers/**` / `agents/**` / `commands/**` / `skills/**` / `plugins/{installed_plugins.json,known_marketplaces.json,blocklist.json,cache/**,local/**,marketplaces/**}` / `.claude-plugin/**` / `projects/*/memory/**`
-- **排除**：`*.jsonl` 会话历史 / `*.sqlite` 数据库 / `*.log` / `*.lock` / `debug/` / `file-history/` / `session-env/` / `sessions/` / `paste-cache/` / `.cache/` / `cache/` / `backups/` / `statsig/` / `shell_snapshots/`
-- **共享资源**：`~/.dch/scripts/*` + `~/.agents/**`（默认带，`--no-shared` 关）
+- **profile 配置目录**：对每个已选 profile，递归打包 `profile.configDir` 下的所有真文件；不维护「包含文件名白名单」，新配置文件和用户自定义目录会自动进入备份。
+- **不会跟随 symlink**：configDir 内的文件 / 目录 symlink 会被跳过，避免备份越过 profile 边界扫到外部路径。
+- **排除规则大小写不敏感**：例如 `client.PEM`、`.NETRC`、`history.DB-WAL` 与小写写法同样会被排除。
+- **排除运行态 / 缓存 / 历史数据**：`*.jsonl` 会话历史、`*.sqlite*` / `*.db*` 数据库、`*.log`、`*.lock`、`*.bak.*`、`*.backup.*`、`.DS_Store`；任意深度的隐藏 `.cache/` / `.tmp/`；以及 configDir 根级 `debug/`、`file-history/`、`session-env/`、`sessions/`、`shell_snapshots/`、`shell-snapshots/`、`paste-cache/`、`cache/`、`backups/`、`ide/`、`state/`、`tasks/`、`statsig/`、`log/`、`tmp/`、`memories/` 等目录。
+- **排除不可安全脱敏的凭据文件**：`.netrc`、`.ssh/**`、常见 SSH 私钥名（`id_rsa` / `id_dsa` / `id_ecdsa` / `id_ed25519` / `ssh/id_*`）、`*.pem`、`*.key`、`*.p12`、`*.pfx`、`*.jks`、`*.keystore`。这是安全默认：会整体跳过这些文件，不区分公钥证书和私钥。
+- **排除少量根级维护文件**：`.last-cleanup`、`.personality_migration`、`installation_id`、`mcp-needs-auth-cache.json`、`plugins/install-counts-cache.json`、`.claude.json`。
+- **共享资源**：`~/.dch/scripts/*` + `~/.agents/**` 默认一起打包；`--no-shared` 可关闭。
 
-完整规则见 `src/profiles/backup-rules.ts`。
+实现规则见 `src/profiles/backup-rules.ts`。
 
 ### 加密迁移（含真凭据）
 
@@ -457,7 +459,7 @@ gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
 │   │   ├── backup-restore.ts # parseBackup / applyBackup / applyBackupWithSecrets（fan-out fill）
 │   │   ├── backup-restore-paths.ts / backup-restore-secrets.ts # restore 路径校验 / secrets 填回 helper
 │   │   ├── backup-manage.ts  # listBackups / deleteBackup / pinBackup（默认位 + 置顶 + 历史 三层管理）
-│   │   ├── backup-rules.ts   # INCLUDE / EXCLUDE glob + 敏感字段判断
+│   │   ├── backup-rules.ts   # 目录语义备份排除项 + 敏感字段判断
 │   │   ├── secrets-index.ts  # backup placeholder 全局 dedup + restore fieldPath 寻址 fan-out
 │   │   ├── field-path.ts     # fieldPath 解析 + 寻址（secrets-index 拆出，经其透传 export）
 │   │   └── redact.ts         # JSON / TOML / 整文件级凭据脱敏（含 valueHash 给 secrets-index）
