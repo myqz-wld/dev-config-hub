@@ -32,4 +32,26 @@ describe("ExportBackupModal copy", () => {
     expect(container.querySelector(".backup-rules summary")?.textContent).toBe("查看备份规则");
     expect(container.textContent).toContain("不会跟随配置目录里的 symlink");
   });
+
+  it("配置方案选中态使用备份页固定样式，不只依赖系统 checkbox 外观", () => {
+    const { getByText } = render(
+      <ExportBackupModal
+        profiles={profiles}
+        onClose={() => {}}
+        onToast={() => {}}
+      />,
+    );
+
+    const row = getByText("claude-main").closest<HTMLElement>(".backup-profile-choice");
+    const checkbox = row?.querySelector<HTMLInputElement>("input[type='checkbox']");
+    expect(row).toBeTruthy();
+    expect(checkbox).toBeTruthy();
+    expect(row!.className).toContain("selected");
+
+    window.dispatchEvent(new Event("blur"));
+    expect(row!.className).toContain("selected");
+
+    fireEvent.click(checkbox!);
+    expect(row!.className).not.toContain("selected");
+  });
 });

@@ -156,7 +156,11 @@ export function ExportBackupModal({
                 <label>选择配置方案 ({selected.size}/{profiles.length})</label>
                 <div className="form-env-block">
                   {profiles.map((p) => (
-                    <label key={p.id} className="form-env-item" style={{ cursor: "pointer" }}>
+                    <label
+                      key={p.id}
+                      className={`form-env-item backup-profile-choice${selected.has(p.id) ? " selected" : ""}`}
+                      style={{ cursor: "pointer" }}
+                    >
                       <input
                         type="checkbox"
                         checked={selected.has(p.id)}
