@@ -25,6 +25,7 @@
 - 导入流程统一使用「导入」口径，把密钥填写、跳过和手动补填提示改成可执行的用户任务说明。
 - 导出备份「保留为历史」开关改为固定文案，避免勾选后整句替换造成「按钮语义变了」的歧义。
 - 导出备份页新增「查看备份规则」折叠说明，说明包含范围、共享资源、默认脱敏、symlink 边界和排除项，并指向 README / `backup-rules.ts`。
+- 导出备份 profile 选择行新增固定选中样式与自绘 checkbox，避免窗口失焦 / 聚焦时系统原生 checkbox active/inactive 样式跳变。
 - 工具配置页选中态从数组下标改为稳定工具名，避免切回窗口触发 focus reload 后因工具列表重排导致选中应用跳变。
 
 ### 测试
@@ -32,6 +33,7 @@
 - 同步更新 ConfigPanel、AddProfileModal、ProfileStoreEditor、RestoreSecretsBody 的文案相关断言。
 - 新增 App 回归测试：focus reload 后工具列表重排仍保持当前选中的工具配置页。
 - 新增 ExportBackupModal 文案测试：勾选「保留为历史」后文案保持稳定，并展示备份规则入口。
+- 新增 ExportBackupModal 选中样式测试：profile 选择行使用固定 `selected` class，失焦事件不改变选中样式状态。
 
 ## 验证
 
