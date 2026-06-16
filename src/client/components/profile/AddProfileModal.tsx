@@ -98,7 +98,7 @@ export function AddProfileModal({
 
   const toolOptions = TOOLS.map((t) => ({ value: t, label: t }));
   const cloneOptions = [
-    { value: "", label: "（不 clone）" },
+    { value: "", label: "（不复制）" },
     ...sameTooLProfiles.map((p) => ({ value: p.id, label: p.id })),
   ];
 
@@ -106,12 +106,12 @@ export function AddProfileModal({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>新建 profile</h2>
+          <h2>新建配置方案</h2>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
           <div className="form-row">
-            <label>tool</label>
+            <label>工具</label>
             <Select
               value={form.tool}
               options={toolOptions}
@@ -119,7 +119,7 @@ export function AddProfileModal({
             />
           </div>
           <div className="form-row">
-            <label>id *</label>
+            <label>方案 ID *</label>
             <input
               type="text"
               value={form.id}
@@ -128,7 +128,7 @@ export function AddProfileModal({
             />
           </div>
           <div className="form-row">
-            <label>configDir</label>
+            <label>配置目录</label>
             <input
               type="text"
               value={form.dir}
@@ -137,7 +137,7 @@ export function AddProfileModal({
             />
           </div>
           <div className="form-row">
-            <label>description</label>
+            <label>说明</label>
             <input
               type="text"
               value={form.description}
@@ -146,17 +146,17 @@ export function AddProfileModal({
             />
           </div>
           <div className="form-row">
-            <label>从已有 profile clone</label>
+            <label>从已有方案复制</label>
             <Select
               value={form.from}
               options={cloneOptions}
               onChange={(v) => applyClone(v)}
-              placeholder="（不 clone）"
+              placeholder="（不复制）"
             />
           </div>
 
           <div className="form-row form-row-block">
-            <label>{main.filename} 内容（写入 <code>{form.dir || dirPlaceholder}/{main.filename}</code>；空则不创建）</label>
+            <label>{main.filename} 内容（将写入 <code>{form.dir || dirPlaceholder}/{main.filename}</code>；留空则暂不创建）</label>
             <textarea
               className="form-hook-input form-config-input"
               value={form.configContent}
@@ -167,9 +167,9 @@ export function AddProfileModal({
             />
           </div>
 
-          <div className="form-section-title">profile 元信息</div>
+          <div className="form-section-title">额外信息</div>
           <div className="form-row form-row-env">
-            <label>env</label>
+            <label>脚本变量</label>
             <div className="form-env-block">
               {Object.entries(form.env).map(([k, v]) => (
                 <div key={k} className="form-env-item">
@@ -184,12 +184,12 @@ export function AddProfileModal({
               <div className="form-env-add">
                 <input
                   type="text"
-                  placeholder="KEY"
+                  placeholder="变量名"
                   value={envKey}
                   onChange={(e) => setEnvKey(e.target.value)}
                   className={envKey && !ENV_KEY_RE.test(envKey) ? "invalid" : undefined}
                 />
-                <input type="text" placeholder="VALUE" value={envVal} onChange={(e) => setEnvVal(e.target.value)} />
+                <input type="text" placeholder="值" value={envVal} onChange={(e) => setEnvVal(e.target.value)} />
                 <button
                   className="btn-sm"
                   // REVIEW_8 H7-同源 / Group E7：env key 必须匹配 ENV_KEY_RE，否则 dch profile env
@@ -204,16 +204,16 @@ export function AddProfileModal({
               </div>
               {envKey && !ENV_KEY_RE.test(envKey) && (
                 <p className="form-hint form-hint-error">
-                  非法 KEY：必须匹配 <code>/^[A-Za-z_][A-Za-z0-9_]*$/</code>（字母 / 下划线开头 + 字母 / 数字 / _）
+                  变量名不符合规则：请以字母或下划线开头，只使用字母、数字和下划线。
                 </p>
               )}
               <p className="form-hint">
-                env 仅在 pre/post hook 子进程里可见；要让 claude / codex 进程拿到，参考 README「Shell wrapper」。
+                这些值只会提供给切换前/后的脚本；如果要让 Claude 或 Codex 本身也使用，请按 README 的 Shell wrapper 设置。
               </p>
             </div>
           </div>
           <div className="form-row form-row-block">
-            <label>preSwitch hook (bash)</label>
+            <label>切换前脚本 (bash)</label>
             <textarea
               className="form-hook-input"
               value={form.preHook}
@@ -224,7 +224,7 @@ export function AddProfileModal({
             />
           </div>
           <div className="form-row form-row-block">
-            <label>postSwitch hook (bash)</label>
+            <label>切换后脚本 (bash)</label>
             <textarea
               className="form-hook-input"
               value={form.postHook}
@@ -235,9 +235,8 @@ export function AddProfileModal({
             />
           </div>
           <p className="form-hint">
-            hook 通过 <code>bash -lc</code> 运行，可注入变量：
-            <code>DCH_PROFILE_ID</code> / <code>DCH_PROFILE_TOOL</code> / <code>DCH_PROFILE_CONFIG_DIR</code> /
-            <code>DCH_SWITCH_TO</code> / <code>DCH_SWITCH_FROM</code>，以及 profile.env。
+            脚本会通过 bash 运行，并自动获得当前方案、工具、配置目录、切换前后方案，以及上面填写的脚本变量。
+            需要精确变量名时请查看 README。
           </p>
         </div>
         <div className="modal-foot">

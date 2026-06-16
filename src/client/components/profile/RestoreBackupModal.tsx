@@ -150,13 +150,13 @@ export function RestoreBackupModal({
   };
 
   const renameError = (originalId: string, finalId: string): string | null => {
-    if (!finalId) return "id 不能为空";
+    if (!finalId) return "方案 ID 不能为空";
     if (!/^[a-zA-Z0-9_-]+$/.test(finalId)) return "只允许字母 / 数字 / _ / -";
     // 跟现有 profile 撞名（除了被还原的同名 profile 自身 — 还原是新建非覆盖）
-    if (profiles.some((p) => p.id === finalId)) return `撞名（已存在 profile ${finalId}）`;
+    if (profiles.some((p) => p.id === finalId)) return `已存在同名方案 ${finalId}`;
     // 跟同批其他还原 profile 撞名
     const others = Object.entries(renameMap).filter(([k]) => k !== originalId).map(([, v]) => v);
-    if (others.includes(finalId)) return `跟同批另一个还原 profile 重名`;
+    if (others.includes(finalId)) return "和本次导入中的另一个方案重名";
     return null;
   };
 
@@ -188,9 +188,9 @@ export function RestoreBackupModal({
         setResult(r);
         // REVIEW_9 D-MED-1: 成功 / 失败 / partial 三分支统一在外层 finally 清 secretsState
         if (r.errors.length > 0) {
-          onToast(`还原完成但有 ${r.errors.length} 个错误`, false);
+          onToast(`导入完成，但有 ${r.errors.length} 个错误`, false);
         } else {
-          onToast(`已还原 ${r.appliedProfiles.length} 个 profile`, true);
+          onToast(`已导入 ${r.appliedProfiles.length} 个配置方案`, true);
         }
       } else {
         // phase secrets：调 restoreApplyWithSecrets。skip 项不入 secretsMap，让 CLI 走 user-skip 语义。
@@ -208,9 +208,9 @@ export function RestoreBackupModal({
         });
         setResult(r);
         if (r.errors.length > 0) {
-          onToast(`还原完成但有 ${r.errors.length} 个错误`, false);
+          onToast(`导入完成，但有 ${r.errors.length} 个错误`, false);
         } else {
-          onToast(`已还原 ${r.appliedProfiles.length} 个 profile · 填值 ${r.secretsApplied} 处`, true);
+          onToast(`已导入 ${r.appliedProfiles.length} 个配置方案，已填入 ${r.secretsApplied} 处密钥`, true);
         }
       }
       await onReloadProfile();
@@ -219,7 +219,7 @@ export function RestoreBackupModal({
       // reload profile（让 ~/.dch-restored/ 已写的 N-1 个 profile 在主 panel 里立即可见）
       if (e instanceof PartialRestoreError) {
         setResult(e.result as ApplyBackupResult);
-        onToast(`部分还原：${e.result.errors.length} 错误，已应用 ${e.result.appliedProfiles.length} profile`, false);
+        onToast(`部分导入：${e.result.errors.length} 个错误，已导入 ${e.result.appliedProfiles.length} 个配置方案`, false);
         await onReloadProfile();
       } else {
         onToast(e instanceof Error ? e.message : String(e), false);
@@ -278,12 +278,12 @@ export function RestoreBackupModal({
                   type="text"
                   value={packPath}
                   onChange={(e) => setPackPath(e.target.value)}
-                  placeholder="~/.dch/backups/dch-backup-20260513-143025.dchpack 或 /tmp/x.dchpack"
+                  placeholder="~/.dch/backups/dch-backup-20260513-143025.dchpack 或 /tmp/example.dchpack"
                   spellCheck={false}
                   disabled={busy}
                 />
                 <p className="form-hint">
-                  支持 <code>~/...</code> / 绝对路径。读取预览不会写文件。
+                  支持 <code>~/...</code> 或绝对路径。查看内容不会写入任何文件。
                 </p>
               </div>
             </>
@@ -326,7 +326,7 @@ export function RestoreBackupModal({
           </button>
           {!preview && (
             <button className="btn primary" onClick={onPreview} disabled={busy || !packPath.trim()}>
-              {busy ? "读取中…" : "读取预览"}
+              {busy ? "读取中…" : "查看内容"}
             </button>
           )}
           {preview && !result && phase === "rename" && (
@@ -345,8 +345,8 @@ export function RestoreBackupModal({
                 ? "还原中…"
                 : phase === "rename"
                   ? hasSecrets
-                    ? `下一步：填 ${secretEntries!.length} 个 secret`
-                    : "确认还原"
+                    ? `下一步：填写 ${secretEntries!.length} 个密钥`
+                    : "开始导入"
                   : secretsButton.label}
             </button>
           )}

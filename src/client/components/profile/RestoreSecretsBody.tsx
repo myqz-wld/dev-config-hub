@@ -95,12 +95,12 @@ export function RestoreSecretsBody({
             borderRadius: 2,
           }}
         >
-          🔒 提示: 填写期间请关闭浏览器 / Tauri 开发者工具(React DevTools 可读 form state)
+          🔒 提示：填写期间请关闭开发者工具，避免明文密钥被旁路查看。
         </p>
       </div>
 
       <div className="form-section-title">
-        填 {total} 个去重 secret(共 {totalOccurrences} 处占位符将被 fan-out)
+        填写 {total} 个不同密钥项（会自动填入 {totalOccurrences} 处使用位置）
       </div>
 
       {entries.map((entry) => (
@@ -141,7 +141,7 @@ const SecretEntryRow = React.memo(function SecretEntryRow({
     <div className="form-row form-row-block" style={{ borderTop: "1px solid var(--border)", paddingTop: 8 }}>
       <label style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <code style={{ fontSize: 13 }}>{entry.name}</code>
-        <span className="profile-desc">{entry.count} 处 · {entry.hint}</span>
+        <span className="profile-desc">{entry.count} 处使用 · {entry.hint}</span>
         <CrossFieldBadge fieldNames={entry.fieldNames} size="md" />
       </label>
 
@@ -150,7 +150,7 @@ const SecretEntryRow = React.memo(function SecretEntryRow({
           type={reveal ? "text" : "password"}
           value={value}
           onChange={(e) => onValueChange(entry.name, e.target.value)}
-          placeholder={skipped ? "(已跳过 — 占位符保留)" : "粘贴真实凭据"}
+          placeholder={skipped ? "已跳过，保留占位符" : "粘贴真实密钥"}
           spellCheck={false}
           autoComplete="off"
           disabled={busy || skipped}
@@ -167,7 +167,7 @@ const SecretEntryRow = React.memo(function SecretEntryRow({
           className="btn-sm"
           onClick={() => setReveal((r) => !r)}
           disabled={busy || skipped}
-          title={reveal ? "隐藏" : "显示明文(注意旁观者)"}
+          title={reveal ? "隐藏" : "显示明文，注意周围环境"}
         >
           {reveal ? "🙈" : "👁"}
         </button>
@@ -184,13 +184,13 @@ const SecretEntryRow = React.memo(function SecretEntryRow({
 
       {empty && (
         <p className="form-hint" style={{ color: "var(--fg2)", marginTop: 4 }}>
-          ⏳ 待填(或勾选「跳过」保留占位符)
+          ⏳ 待填写，也可以勾选「跳过」保留占位符
         </p>
       )}
 
       <details style={{ marginTop: 4 }}>
         <summary className="form-hint" style={{ cursor: "pointer" }}>
-          出现位置({entry.locations.length})
+          使用位置 ({entry.locations.length})
         </summary>
         {previewLocations.map((loc, i) => (
           <p key={i} className="form-hint" style={{ marginLeft: 16, marginTop: 2, fontFamily: "ui-monospace, monospace", fontSize: 11 }}>
@@ -214,7 +214,7 @@ const SecretEntryRow = React.memo(function SecretEntryRow({
             >
               {showAllLocations
                 ? "收起 ▲"
-                : `+${entry.locations.length - 3} 处,点击展开全部 ▼`}
+                : `还有 ${entry.locations.length - 3} 处，点击展开全部 ▼`}
             </button>
           </p>
         )}
@@ -236,7 +236,7 @@ function computeBanner(total: number, filled: number, skipped: number, totalOccu
   // dark theme 友好色:用 styles.css 的 --yellow/--green/--blue/--fg* token + 半透明 wash
   if (skipped === total) {
     return {
-      text: `所有 ${total} 个 secret 都将跳过 — 占位符保留,restore 后请按 README 清单手改`,
+      text: `所有 ${total} 个密钥项都会跳过，占位符将保留。导入后请按清单手动填写。`,
       color: "var(--yellow)",
       bg: "rgba(227,179,65,.10)",
       fg: "var(--yellow)",
@@ -244,7 +244,7 @@ function computeBanner(total: number, filled: number, skipped: number, totalOccu
   }
   if (filled === total) {
     return {
-      text: `${total} 个 secret 已就绪 · 还原后将自动 fan-out 到 ${totalOccurrences} 处`,
+      text: `${total} 个密钥项已就绪，导入后会自动填入 ${totalOccurrences} 处。`,
       color: "var(--green)",
       bg: "rgba(63,185,80,.10)",
       fg: "var(--green)",
@@ -254,7 +254,7 @@ function computeBanner(total: number, filled: number, skipped: number, totalOccu
   if (pending === 0) {
     // 部分填 + 部分 skip,无 pending
     return {
-      text: `已填 ${filled} 个 · 跳过 ${skipped} 个 · 跳过项的占位符将保留`,
+      text: `已填 ${filled} 个，跳过 ${skipped} 个。跳过项的占位符将保留。`,
       color: "var(--fg2)",
       bg: "var(--bg2)",
       fg: "var(--fg1)",
@@ -262,7 +262,7 @@ function computeBanner(total: number, filled: number, skipped: number, totalOccu
   }
   // 还有未填未 skip 的
   return {
-    text: `已填 ${filled} / ${total} · 还有 ${pending} 个待处理`,
+    text: `已填 ${filled} / ${total}，还有 ${pending} 个待处理。`,
     color: "var(--blue)",
     bg: "rgba(88,166,255,.08)",
     fg: "var(--blue)",
@@ -283,7 +283,7 @@ export function computeSecretsButton(entries: SecretLogicalEntry[], state: Secre
   const pending = total - filled - skipped;
 
   if (pending > 0) return { label: `还有 ${pending} 个待处理`, hasError: true };
-  if (skipped === total) return { label: "保留占位符还原", hasError: false };
-  if (filled === total) return { label: "填值还原", hasError: false };
-  return { label: `还原（${filled} 填 / ${skipped} 跳过）`, hasError: false };
+  if (skipped === total) return { label: "保留占位符并导入", hasError: false };
+  if (filled === total) return { label: "填入密钥并导入", hasError: false };
+  return { label: `导入（${filled} 个已填 / ${skipped} 个跳过）`, hasError: false };
 }

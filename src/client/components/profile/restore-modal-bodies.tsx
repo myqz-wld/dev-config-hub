@@ -36,7 +36,7 @@ export function CloseConfirm({ filledCount, onCancel, onConfirm }: {
       }}
     >
       <p className="form-hint" style={{ color: "var(--yellow)", margin: 0, fontSize: 14 }}>
-        ⚠️ 已填 <strong>{filledCount}</strong> 个 secret。关闭将丢弃所有输入，需重头开始。
+        ⚠️ 已填写 <strong>{filledCount}</strong> 个密钥。关闭将丢弃所有输入，之后需要重新填写。
       </p>
       <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
         <button className="btn-sm" onClick={onCancel}>留下继续填</button>
@@ -69,7 +69,7 @@ export function RestorePreviewBody({
       {manifest.options.no_placeholder && (
         <div className="form-row form-row-block">
           <p className="form-hint" style={{ color: "var(--red)" }}>
-            ⚠️ 此包含明文凭据（来源 --no-placeholder 模式）
+            ⚠️ 这个备份包含未脱敏的密钥。
           </p>
         </div>
       )}
@@ -85,7 +85,7 @@ export function RestorePreviewBody({
             }}
           >
             <p className="form-hint" style={{ margin: 0, color: "var(--blue)" }}>
-              🔑 改名确认后下一步将填写 <strong>{secretEntries!.length}</strong> 个去重 secret（自动 fan-out 到所有 {totalOcc} 处出现位置）
+              🔑 下一步将填写 <strong>{secretEntries!.length}</strong> 个不同密钥项，并自动填入所有 {totalOcc} 处使用位置。
             </p>
             <UniqueSecretsList
               entries={secretEntries!}
@@ -96,7 +96,7 @@ export function RestorePreviewBody({
         </div>
       )}
 
-      <div className="form-section-title">待还原 profile（{plan.appliedProfiles.length}）</div>
+      <div className="form-section-title">将导入的配置方案（{plan.appliedProfiles.length}）</div>
       {plan.appliedProfiles.map((ap) => {
         const finalId = renameMap[ap.originalId] ?? ap.finalId;
         const errMsg = renameError(ap.originalId, finalId);
@@ -115,7 +115,7 @@ export function RestorePreviewBody({
               style={errMsg ? { borderColor: "var(--red)" } : undefined}
             />
             {errMsg && <p className="form-hint" style={{ color: "var(--red)" }}>{errMsg}</p>}
-            <p className="form-hint">configDir → <code>{ap.configDir}</code></p>
+            <p className="form-hint">配置目录 → <code>{ap.configDir}</code></p>
           </div>
         );
       })}
@@ -131,7 +131,7 @@ export function RestorePreviewBody({
 
       {plan.placeholders.length > 0 && (
         <>
-          <div className="form-section-title">待填占位符（{plan.placeholders.length}）</div>
+          <div className="form-section-title">还需要手动填写的密钥（{plan.placeholders.length}）</div>
           <div className="form-row form-row-block">
             <PlaceholdersList items={plan.placeholders} />
           </div>
@@ -166,16 +166,16 @@ export function RestoreReportBody({
   return (
     <>
       <div className="form-row form-row-block">
-        <p className="form-hint">✓ 已还原 {result.appliedProfiles.length} 个 profile（共享资源 {result.sharedActions.length} 项）。</p>
+        <p className="form-hint">✓ 已导入 {result.appliedProfiles.length} 个配置方案（共享资源 {result.sharedActions.length} 项）。</p>
         {secretsMetrics && (
           <p className="form-hint" style={{ color: secretsMetrics.applied > 0 ? "var(--green)" : "var(--fg2)" }}>
-            🔑 填值 {secretsMetrics.applied} 处 · 跳过 {secretsMetrics.skipped.length} 个 logical key
-            {secretsMetrics.unknown.length > 0 && ` · 未知 key ${secretsMetrics.unknown.length} 个（已忽略）`}
+            🔑 已填入 {secretsMetrics.applied} 处 · 跳过 {secretsMetrics.skipped.length} 个密钥项
+            {secretsMetrics.unknown.length > 0 && ` · ${secretsMetrics.unknown.length} 个未知项已忽略`}
           </p>
         )}
       </div>
 
-      <div className="form-section-title">已还原 profile</div>
+      <div className="form-section-title">已导入配置方案</div>
       {result.appliedProfiles.map((ap) => (
         <div key={ap.originalId} className="form-row">
           <code>{ap.originalId}</code>
@@ -188,9 +188,9 @@ export function RestoreReportBody({
 
       {result.placeholders.length > 0 && (
         <>
-          <div className="form-section-title">待填占位符（{result.placeholders.length}）</div>
+          <div className="form-section-title">还需要手动填写的密钥（{result.placeholders.length}）</div>
           <p className="form-hint">
-            填完真实凭据后跑 <code>dch profile use &lt;id&gt;</code>。
+            填完真实密钥后再切换到新方案；也可以运行 <code>dch profile use &lt;id&gt;</code>。
             点占位符旁的「编辑」按钮直接打开对应文件。
           </p>
           {result.placeholders.map((ph, i) => {
@@ -229,7 +229,7 @@ export function RestoreReportBody({
           }}
         >
           <p className="form-hint" style={{ margin: 0, color: "var(--yellow)" }}>
-            🔑 <strong>{plainTextFillFiles.length}</strong> 个 plain-text 文件（如 <code>.md</code> / <code>.sh</code>）的占位符未自动填回真值,请手动编辑这些文件填入对应 secret:
+            🔑 <strong>{plainTextFillFiles.length}</strong> 个普通文本文件（如 <code>.md</code> / <code>.sh</code>）无法自动写回密钥。请手动编辑这些文件：
           </p>
           {plainTextFillFiles.map((f, i) => (
             <p key={i} className="form-hint" style={{ marginLeft: 16, marginTop: 4, color: "var(--yellow)" }}>
@@ -250,9 +250,20 @@ export function RestoreReportBody({
 }
 
 export function SharedActionsList({ items }: { items: SharedAction[] }) {
+  const actionLabel = (action: SharedAction["action"] | string) => ({
+    created: "已新增",
+    "skipped-same": "已存在且相同",
+    overwritten: "已覆盖",
+    "backed-up-then-overwritten": "已先备份再覆盖",
+  } as Record<string, string>)[action] ?? action;
+  const categoryLabel = (category: SharedAction["category"] | string) => ({
+    dch_script: "脚本文件",
+    agents: "Agents 资源",
+  } as Record<string, string>)[category] ?? category;
   // 按 action 聚合：created N / overwritten M / skipped K
   const grouped = items.reduce<Record<string, number>>((acc, x) => {
-    acc[x.action] = (acc[x.action] ?? 0) + 1;
+    const label = actionLabel(x.action);
+    acc[label] = (acc[label] ?? 0) + 1;
     return acc;
   }, {});
   const summary = Object.entries(grouped).map(([k, v]) => `${k}: ${v}`).join(" · ");
@@ -261,7 +272,7 @@ export function SharedActionsList({ items }: { items: SharedAction[] }) {
       <summary className="form-hint">{summary}</summary>
       {items.map((x, i) => (
         <p key={i} className="form-hint" style={{ marginLeft: 16, marginTop: 4 }}>
-          [{x.category}] {x.relPath} → {x.action}
+          [{categoryLabel(x.category)}] {x.relPath} → {actionLabel(x.action)}
         </p>
       ))}
     </details>

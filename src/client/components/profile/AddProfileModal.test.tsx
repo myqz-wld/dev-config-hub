@@ -32,8 +32,8 @@ describe("AddProfileModal env KEY regex (REVIEW_8 / Group E7)", () => {
 
   function envInputs(container: HTMLElement) {
     const inputs = Array.from(container.querySelectorAll("input"));
-    const keyInput = inputs.find((i) => i.placeholder === "KEY") as HTMLInputElement | undefined;
-    const valInput = inputs.find((i) => i.placeholder === "VALUE") as HTMLInputElement | undefined;
+    const keyInput = inputs.find((i) => i.placeholder === "变量名") as HTMLInputElement | undefined;
+    const valInput = inputs.find((i) => i.placeholder === "值") as HTMLInputElement | undefined;
     const addBtn = Array.from(container.querySelectorAll("button"))
       .find((b) => b.textContent === "+") as HTMLButtonElement | undefined;
     return { keyInput, valInput, addBtn };
@@ -64,7 +64,7 @@ describe("AddProfileModal env KEY regex (REVIEW_8 / Group E7)", () => {
 
     expect(addBtn!.disabled).toBe(true);
     expect(container.querySelector(".form-hint-error")).toBeTruthy();
-    expect(container.querySelector(".form-hint-error")?.textContent).toContain("非法 KEY");
+    expect(container.querySelector(".form-hint-error")?.textContent).toContain("变量名不符合规则");
   });
 
   it("T3: 含空格 KEY (MY KEY) → disabled", async () => {

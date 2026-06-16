@@ -77,7 +77,7 @@ export function ProfileStoreEditor({
       }
       const newMtime = await saveFileIfMtime(filePath, content, enterEditMtimeRef.current ?? null);
       enterEditMtimeRef.current = newMtime;
-      onToast("已保存 profiles.json", true);
+      onToast("配置方案状态文件已保存", true);
       onSaved();
       onClose();
     } catch (e) {
@@ -113,7 +113,7 @@ export function ProfileStoreEditor({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>编辑 <code>~/.dch/profiles.json</code></h2>
+          <h2>高级编辑 <code>~/.dch/profiles.json</code></h2>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
@@ -122,23 +122,22 @@ export function ProfileStoreEditor({
           ) : (
             <>
               <p className="form-hint">
-                schema-aware 编辑（lint / hover / completion）。这里是改 profile 系统状态的唯一 raw 入口
-                —— 用于添加跨平台 hook 的 object 形式（<code>{`{ posix?, powershell?, cmd? }`}</code>）等
-                ProfilePanel UI 不直接支持的字段。
+                这是直接修改配置方案状态文件的高级入口，适合处理普通界面暂不支持的字段。
+                保存前请确认内容仍是合法 JSON。
               </p>
               {conflict && (
                 <div className="schema-conflict">
                   <div className="schema-conflict-msg">
                     {conflict.kind === "mismatch"
-                      ? "⚠️ 文件已被外部修改。继续保存会覆盖外部改动。"
-                      : "⚠️ 文件已被外部删除。继续保存等于重新创建。"}
+                      ? "⚠️ 这份文件刚刚被其他程序修改。继续保存会覆盖对方的改动。"
+                      : "⚠️ 这份文件刚刚被删除。继续保存会重新创建它。"}
                   </div>
                   <div className="schema-conflict-actions">
                     <button
                       className="btn-sm"
                       disabled={saving}
                       onClick={reloadFromDisk}
-                    >重新加载（放弃我的改动）</button>
+                    >使用磁盘版本（放弃我的改动）</button>
                     <button
                       className="btn-sm danger"
                       disabled={saving}
@@ -147,7 +146,7 @@ export function ProfileStoreEditor({
                         enterEditMtimeRef.current = null;
                         setConflict(null);
                       }}
-                    >保留我的改动（保存会覆盖）</button>
+                    >保留我的改动（保存时覆盖）</button>
                     <button
                       className="btn-sm"
                       disabled={saving}

@@ -21,7 +21,7 @@ export function UniqueSecretsList({
   totalOccurrences?: number;
   /** summary 文字色(默认 var(--blue)) */
   summaryColor?: string;
-  /** summary 前缀(默认 `🔑 unique secret 清单`) */
+  /** summary 前缀(默认 `🔑 密钥清单`) */
   summaryPrefix?: string;
   /** 列表底部提示行(可选;通常用于 Export 完成报告说明 fan-out) */
   footerHint?: React.ReactNode;
@@ -29,18 +29,18 @@ export function UniqueSecretsList({
   const k = totalLogicalKeys ?? entries.length;
   const occ = totalOccurrences ?? entries.reduce((s, e) => s + e.count, 0);
   const color = summaryColor ?? "var(--blue)";
-  const prefix = summaryPrefix ?? "🔑 unique secret 清单";
+  const prefix = summaryPrefix ?? "🔑 密钥清单";
 
   return (
     <details open style={{ marginTop: 8 }}>
       <summary className="form-hint" style={{ cursor: "pointer", color }}>
-        {prefix}({k} 个,按字段名排序)
+        {prefix}（{k} 个，按名称排序）
       </summary>
       <div style={{ marginTop: 6, paddingLeft: 12, borderLeft: "2px solid rgba(88,166,255,.25)" }}>
         {entries.map((e) => (
           <p key={e.name} className="form-hint" style={{ margin: "4px 0" }}>
             <code>{e.name}</code>
-            <span style={{ color: "var(--fg2)" }}> · count={e.count} · {e.hint}</span>
+            <span style={{ color: "var(--fg2)" }}> · {e.count} 处使用 · {e.hint}</span>
             <CrossFieldBadge fieldNames={e.fieldNames} size="sm" />
           </p>
         ))}
@@ -51,7 +51,7 @@ export function UniqueSecretsList({
         )}
         {!footerHint && occ > k && (
           <p className="form-hint" style={{ margin: "8px 0 0", color: "var(--fg2)" }}>
-            还原时只需填这 {k} 个值(自动 fan-out 到所有 {occ} 处出现位置)。
+            导入时只需填写这 {k} 个值，系统会自动填入所有 {occ} 处使用位置。
           </p>
         )}
       </div>
@@ -70,7 +70,7 @@ export function SecretsSummaryList({ idx }: { idx: SecretsIndex }) {
       totalOccurrences={idx.total_occurrences}
       footerHint={
         <>
-          还原时只需填这 {idx.total_logical_keys} 个值(自动 fan-out 到所有 {idx.total_occurrences} 处出现位置)。
+          导入时只需填写这 {idx.total_logical_keys} 个值，系统会自动填入所有 {idx.total_occurrences} 处使用位置。
         </>
       }
     />

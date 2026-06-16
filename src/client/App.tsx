@@ -40,7 +40,7 @@ export function App() {
       setProfileActive(active);
     } catch (e) {
       if (silent) console.warn("loadProfileData silent fail:", e);
-      else flash(`加载 profile 失败: ${e instanceof Error ? e.message : String(e)}`, false);
+      else flash(`加载配置方案失败: ${e instanceof Error ? e.message : String(e)}`, false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -186,7 +186,7 @@ export function App() {
     }
   };
 
-  if (loading) return <div className="center"><div className="spinner" /><span>读取配置中...</span></div>;
+  if (loading) return <div className="center"><div className="spinner" /><span>正在读取配置...</span></div>;
   if (error) return <div className="center error-text">加载失败: {error}</div>;
 
   return (
@@ -204,8 +204,8 @@ export function App() {
             >
               <div className="nav-icon profiles">⇄</div>
               <div className="nav-text">
-                <div className="nav-name">Profiles</div>
-                <div className="nav-ver">快速切换 · hook</div>
+                <div className="nav-name">配置方案</div>
+                <div className="nav-ver">快速切换 · 脚本</div>
               </div>
             </button>
           </div>

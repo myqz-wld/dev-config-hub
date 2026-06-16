@@ -11,16 +11,16 @@ export function HookOutputModal({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>Hook 输出 — {data.id} / {data.which}</h2>
+          <h2>脚本运行结果 — {data.id} / {data.which}</h2>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
           {!r ? (
-            <p>未配置该 hook。</p>
+            <p>未配置该脚本。</p>
           ) : (
             <>
               <div className="form-row">
-                <label>退出码</label>
+                <label>结果码</label>
                 <code className={r.exitCode === 0 ? "ok" : "fail"}>{r.exitCode}{r.timedOut ? " (超时)" : ""}</code>
               </div>
               <div className="form-row">
@@ -29,13 +29,13 @@ export function HookOutputModal({
               </div>
               {r.stdout && (
                 <div className="form-row form-row-block">
-                  <label>stdout</label>
+                  <label>正常输出</label>
                   <pre className="raw">{r.stdout}</pre>
                 </div>
               )}
               {r.stderr && (
                 <div className="form-row form-row-block">
-                  <label>stderr</label>
+                  <label>错误输出</label>
                   <pre className="raw">{r.stderr}</pre>
                 </div>
               )}

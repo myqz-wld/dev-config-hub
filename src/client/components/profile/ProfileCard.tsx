@@ -30,28 +30,28 @@ export function ProfileCard({
         <div className="profile-card-id">
           {isActive && <span className="profile-active-dot" />}
           <code>{profile.id}</code>
-          {profile.isDefault && <span className="badge default">default</span>}
+          {profile.isDefault && <span className="badge default">默认</span>}
         </div>
         <div className="profile-card-meta">
-          {envCount > 0 && <span className="badge env">env:{envCount}</span>}
-          {hasPreHook && <span className="badge hook">pre</span>}
-          {hasPostHook && <span className="badge hook">post</span>}
+          {envCount > 0 && <span className="badge env">变量 {envCount}</span>}
+          {hasPreHook && <span className="badge hook">切换前</span>}
+          {hasPostHook && <span className="badge hook">切换后</span>}
         </div>
       </div>
       <div className="profile-card-body">
         <div className="profile-row">
-          <span className="profile-row-label">configDir</span>
+          <span className="profile-row-label">配置目录</span>
           <code>{profile.configDir}</code>
         </div>
         {profile.description && (
           <div className="profile-row">
-            <span className="profile-row-label">desc</span>
+            <span className="profile-row-label">说明</span>
             <span className="profile-desc">{profile.description}</span>
           </div>
         )}
         {envCount > 0 && (
           <div className="profile-row">
-            <span className="profile-row-label">env</span>
+            <span className="profile-row-label">脚本变量</span>
             <div className="profile-env-list">
               {Object.entries(profile.env ?? {}).map(([k, v]) => (
                 <span key={k} className="tag"><code>{k}</code>=<code>{maskValue(k, v)}</code></span>
@@ -61,33 +61,33 @@ export function ProfileCard({
         )}
         {hasPreHook && (
           <div className="profile-row">
-            <span className="profile-row-label">preSwitch</span>
+            <span className="profile-row-label">切换前脚本</span>
             <pre className="profile-hook-script">{hookToString(profile.hooks!.preSwitch)}</pre>
           </div>
         )}
         {hasPostHook && (
           <div className="profile-row">
-            <span className="profile-row-label">postSwitch</span>
+            <span className="profile-row-label">切换后脚本</span>
             <pre className="profile-hook-script">{hookToString(profile.hooks!.postSwitch)}</pre>
           </div>
         )}
       </div>
       <div className="profile-card-actions">
         <button className="btn primary" disabled={busy} onClick={() => onUse(profile.id)}>
-          🔗 切换到此 profile
+          🔗 切换到此方案
         </button>
         {hasPreHook && (
           <button className="btn-sm" disabled={busy} onClick={() => onTestHook(profile.id, "pre")}>
-            test pre
+            测试切换前
           </button>
         )}
         {hasPostHook && (
           <button className="btn-sm" disabled={busy} onClick={() => onTestHook(profile.id, "post")}>
-            test post
+            测试切换后
           </button>
         )}
         {onExport && (
-          <button className="btn-sm" disabled={busy} onClick={() => onExport(profile.id)} title="只导出此 profile + 共享资源">
+          <button className="btn-sm" disabled={busy} onClick={() => onExport(profile.id)} title="只备份此方案和共享资源">
             📦 导出
           </button>
         )}
@@ -98,7 +98,7 @@ export function ProfileCard({
           </button>
         ) : (
           <>
-            <span className="profile-confirm-hint">确认删除？configDir 不会动</span>
+            <span className="profile-confirm-hint">确认删除？配置目录不会被删除</span>
             <button className="btn-sm" disabled={busy} onClick={() => setConfirmingDel(false)}>
               取消
             </button>

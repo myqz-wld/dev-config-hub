@@ -22,7 +22,7 @@ export function CrossFieldBadge({
   const sm = size === "sm";
   return (
     <span
-      title={`同一 secret 在 ${fieldNames.length} 个不同字段名下出现:${fieldNames.join(" / ")}`}
+      title={`同一个密钥以 ${fieldNames.length} 个不同名称出现：${fieldNames.join(" / ")}`}
       style={{
         marginLeft: sm ? 6 : 0,
         fontSize: sm ? 10 : 11,
@@ -33,7 +33,7 @@ export function CrossFieldBadge({
         border: "1px solid rgba(227,179,65,.35)",
       }}
     >
-      {sm ? `⚡${fieldNames.length}` : `⚡ 跨 ${fieldNames.length} 字段名`}
+      {sm ? `⚡${fieldNames.length}` : `⚡ ${fieldNames.length} 个名称`}
     </span>
   );
 }

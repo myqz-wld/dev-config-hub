@@ -109,7 +109,7 @@ describe("ProfileStoreEditor mtime CAS (REVIEW_8 H7 / Group E3)", () => {
 
     // 关键断言：conflict banner 弹出
     expect(container.querySelector(".schema-conflict")).toBeTruthy();
-    expect(container.querySelector(".schema-conflict-msg")?.textContent).toContain("外部修改");
+    expect(container.querySelector(".schema-conflict-msg")?.textContent).toContain("其他程序修改");
     // onClose / onSaved 不应被调用（save 失败保留 modal 让用户决策）
     expect(onClose).not.toHaveBeenCalled();
     expect(onSaved).not.toHaveBeenCalled();
@@ -132,10 +132,10 @@ describe("ProfileStoreEditor mtime CAS (REVIEW_8 H7 / Group E3)", () => {
     await act(async () => { fireEvent.click(saveBtn!); });
     await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
 
-    expect(container.querySelector(".schema-conflict-msg")?.textContent).toContain("已被外部删除");
+    expect(container.querySelector(".schema-conflict-msg")?.textContent).toContain("刚刚被删除");
   });
 
-  it("T4: 「重新加载」按钮 → 重新调 readFileWithMtime 拿新内容 + 关闭 banner", async () => {
+  it("T4: 「使用磁盘版本」按钮 → 重新调 readFileWithMtime 拿新内容 + 关闭 banner", async () => {
     saveFileIfMtimeImpl = () =>
       Promise.reject(new MockMtimeMismatchError(1_000, 5_000));
 
@@ -164,9 +164,9 @@ describe("ProfileStoreEditor mtime CAS (REVIEW_8 H7 / Group E3)", () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
     expect(container.querySelector(".schema-conflict")).toBeTruthy();
 
-    // 点「重新加载」
+    // 点「使用磁盘版本」
     const reloadBtn = Array.from(container.querySelectorAll("button"))
-      .find((b) => b.textContent?.includes("重新加载")) as HTMLButtonElement | undefined;
+      .find((b) => b.textContent?.includes("使用磁盘版本")) as HTMLButtonElement | undefined;
     expect(reloadBtn).toBeTruthy();
     await act(async () => { fireEvent.click(reloadBtn!); });
     await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
