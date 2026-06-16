@@ -192,13 +192,13 @@ export function ExportBackupModal({
                     onChange={(e) => setKeep(e.target.checked)}
                     disabled={busy}
                   />
-                  <span>
-                    {keep
-                      ? <>保存为 <code>dch-backup-&lt;时间&gt;.dchpack</code>，不会被下次备份覆盖</>
-                      : <>写入默认备份 <code>latest.dchpack</code>，下次备份会覆盖它</>}
-                  </span>
+                  <span>保存为历史备份，不覆盖默认备份</span>
                 </label>
               </div>
+              <p className="form-hint">
+                不勾选时写入默认备份 <code>latest.dchpack</code>，下次直接备份会覆盖；勾选后写入
+                <code>dch-backup-&lt;时间&gt;.dchpack</code>，作为单独快照保留。
+              </p>
 
               <div className="form-row">
                 <label>密钥处理</label>
@@ -235,6 +235,7 @@ export function ExportBackupModal({
               <p className="form-hint">
                 备份保存在 <code>~/.dch/backups/</code>。完成后可在 Finder 打开。
               </p>
+              <BackupRulesDisclosure />
             </>
           )}
         </div>
@@ -256,6 +257,24 @@ export function ExportBackupModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function BackupRulesDisclosure() {
+  return (
+    <details className="backup-rules">
+      <summary>查看备份规则</summary>
+      <ul>
+        <li>包含所选配置方案目录内的普通文件；自定义配置文件也会进入备份。</li>
+        <li>默认同时包含 <code>~/.dch/scripts/*</code> 和 <code>~/.agents/**</code>，可关闭「包含共享资源」。</li>
+        <li>默认会把 token、API key 等密钥替换为占位符；导入后再按提示填回。</li>
+        <li>不会跟随配置目录里的 symlink，避免备份越过配置方案边界。</li>
+        <li>跳过会话历史、数据库、日志、缓存、临时文件，以及私钥、证书等不适合打包的凭据文件。</li>
+      </ul>
+      <p className="form-hint">
+        完整规则见 README 的「备份与还原」/「打包规则」，实现位于 <code>src/profiles/backup-rules.ts</code>。
+      </p>
+    </details>
   );
 }
 

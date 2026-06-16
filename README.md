@@ -306,7 +306,7 @@ dch profile backup-rm dch-backup-XXX.dchpack [--yes]
 
 - ProfilePanel 顶部按钮：`📦 导出备份` / `📚 备份历史` / `📥 导入备份`
 - 单 profile 卡片：`📦 导出` 按钮（只导该 profile + 共享资源）
-- 导出 modal 含「保留为历史」开关（默认 false = 覆盖 latest.dchpack；勾选 = 写时间戳历史副本）
+- 导出 modal 含「保留为历史」开关（默认 false = 覆盖 latest.dchpack；勾选 = 写时间戳历史副本），并可展开查看备份规则
 - 备份历史 modal 三区显示（默认位 / 置顶 / 历史），每行：filename / 时间 / 大小 / profile 数 / 占位符数 / 来源主机；行操作：还原 / 置顶 / 删除
 - 还原 modal 显示来源元数据 / 撞名改名 / 共享资源 diff / 占位符待填清单
 

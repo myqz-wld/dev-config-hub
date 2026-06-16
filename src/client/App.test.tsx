@@ -1,11 +1,21 @@
 import { describe, expect, it, mock, afterEach } from "bun:test";
-import { render, cleanup, act } from "@testing-library/react";
+import { render, cleanup, act, fireEvent } from "@testing-library/react";
 
 // Mock bridge：T7 套首次 loadAllVersions reject、retry 成功；T8 套首屏 reloadingRef guard 验 spawn ≤ 3。
 let versionsCallCount = 0;
 let versionsImpl: () => Promise<{ shell: string; claude: string; codex: string }> = () =>
   Promise.resolve({ shell: "5.9", claude: "1.0.0", codex: "0.1" });
 let filesCallCount = 0;
+const mockTool = (name: string, icon: string) => ({
+  name,
+  version: "1.0.0",
+  icon,
+  description: `${name} desc`,
+  scopes: [],
+});
+let filesImpl = () => Promise.resolve([mockTool("Test Tool", "claude")]);
+const visibleToolTitle = (container: HTMLElement) =>
+  container.querySelector(".panel-host:not(.panel-hidden) .panel:not(.profile-panel) h1")?.textContent ?? "";
 
 mock.module("./bridge.ts", () => ({
   getHomeDir: () => Promise.resolve("/Users/test"),
@@ -15,13 +25,7 @@ mock.module("./bridge.ts", () => ({
   },
   loadAllFiles: () => {
     filesCallCount += 1;
-    return Promise.resolve([{
-      name: "Test Tool",
-      version: "1.0.0",
-      icon: "claude",
-      description: "test",
-      scopes: [],
-    }]);
+    return filesImpl();
   },
   saveFile: () => Promise.resolve(),
   loadProfileDataDirect: () => Promise.resolve({
@@ -38,6 +42,7 @@ describe("App.load() setError(null) (CHANGELOG_10 R_1·L1 fix)", () => {
     filesCallCount = 0;
     versionsImpl = () =>
       Promise.resolve({ shell: "5.9", claude: "1.0.0", codex: "0.1" });
+    filesImpl = () => Promise.resolve([mockTool("Test Tool", "claude")]);
     cleanup();
   });
 
@@ -107,5 +112,41 @@ describe("App.load() setError(null) (CHANGELOG_10 R_1·L1 fix)", () => {
     expect(versionsCallCount).toBe(1);
     // loadAllFiles 至少跑过：首屏一次 + focus 一次（具体次数受 dedupe 窗口和 reloadingRef 影响）
     expect(filesCallCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it("T9: focus reload 后工具列表重排，仍按工具名保持当前选中项", async () => {
+    filesImpl = () => Promise.resolve([
+      mockTool("Alpha App", "claude"),
+      mockTool("Beta App", "codex"),
+    ]);
+
+    const { container } = render(<App />);
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+    const betaButton = Array.from(container.querySelectorAll<HTMLButtonElement>(".nav-item"))
+      .find((btn) => btn.textContent?.includes("Beta App"));
+    expect(betaButton).toBeTruthy();
+
+    await act(async () => { fireEvent.click(betaButton!); });
+    expect(betaButton!.className).toContain("on");
+    expect(visibleToolTitle(container)).toContain("Beta App");
+
+    filesImpl = () => Promise.resolve([
+      mockTool("Beta App", "codex"),
+      mockTool("Alpha App", "claude"),
+    ]);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((r) => setTimeout(r, 200));
+    });
+
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>(".nav-item"));
+    const betaAfter = buttons.find((btn) => btn.textContent?.includes("Beta App"));
+    const alphaAfter = buttons.find((btn) => btn.textContent?.includes("Alpha App"));
+
+    expect(betaAfter?.className).toContain("on");
+    expect(alphaAfter?.className).not.toContain("on");
+    expect(visibleToolTitle(container)).toContain("Beta App");
   });
 });
