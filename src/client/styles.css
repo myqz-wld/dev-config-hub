@@ -358,6 +358,10 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .form-env-add input { flex: 1; padding: 4px 8px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); color: var(--fg0); font: inherit; font-size: 12px; }
 .form-hint { color: var(--fg3); font-size: 11px; line-height: 1.4; }
 .form-hint code { color: var(--cyan); }
+.backup-rules { background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); padding: 8px 10px; font-size: 12px; }
+.backup-rules summary { cursor: pointer; color: var(--fg1); font-weight: 600; }
+.backup-rules ul { margin: 8px 0 8px 18px; color: var(--fg2); line-height: 1.5; }
+.backup-rules li + li { margin-top: 4px; }
 
 code.ok { color: var(--green); }
 code.fail { color: var(--red); }

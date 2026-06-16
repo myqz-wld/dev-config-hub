@@ -11,13 +11,13 @@ import { PanelVisibilityProvider } from "./components/panel-visibility.tsx";
 
 const ICONS: Record<string, string> = { terminal: ">_", claude: "C", codex: "X" };
 
-type View = { kind: "tool"; index: number } | { kind: "profile" };
+type View = { kind: "tool"; name: string | null } | { kind: "profile" };
 
 export function App() {
   const [tools, setTools] = useState<ToolConfig[]>([]);
   const [profileStore, setProfileStore] = useState<ProfileStore | null>(null);
   const [profileActive, setProfileActive] = useState<ProfileActive | null>(null);
-  const [view, setView] = useState<View>({ kind: "tool", index: 0 });
+  const [view, setView] = useState<View>({ kind: "tool", name: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -189,6 +189,13 @@ export function App() {
   if (loading) return <div className="center"><div className="spinner" /><span>正在读取配置...</span></div>;
   if (error) return <div className="center error-text">加载失败: {error}</div>;
 
+  const selectedToolName =
+    view.kind === "tool"
+      ? tools.some((t) => t.name === view.name)
+        ? view.name
+        : tools[0]?.name ?? null
+      : null;
+
   return (
     <div className="app">
       <nav className="sidebar">
@@ -213,8 +220,8 @@ export function App() {
           {tools.map((t, i) => (
             <div className="nav-row" key={t.name}>
               <button
-                className={`nav-item nav-tag nav-tool-${t.icon} ${i % 2 === 0 ? "tilt-left" : "tilt-right"}${view.kind === "tool" && i === view.index ? " on" : ""}`}
-                onClick={() => setView({ kind: "tool", index: i })}
+                className={`nav-item nav-tag nav-tool-${t.icon} ${i % 2 === 0 ? "tilt-left" : "tilt-right"}${view.kind === "tool" && t.name === selectedToolName ? " on" : ""}`}
+                onClick={() => setView({ kind: "tool", name: t.name })}
               >
                 <div className={`nav-icon ${t.icon}`}>{ICONS[t.icon]}</div>
                 <div className="nav-text">
@@ -242,7 +249,7 @@ export function App() {
           </div>
         </PanelVisibilityProvider>
         {tools.map((t, i) => {
-          const isVisible = view.kind === "tool" && i === view.index;
+          const isVisible = view.kind === "tool" && t.name === selectedToolName;
           return (
             <PanelVisibilityProvider key={t.name} visible={isVisible}>
               <div className={isVisible ? "panel-host" : "panel-host panel-hidden"}>
