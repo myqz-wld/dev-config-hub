@@ -15,6 +15,8 @@ import { ExportBackupModal } from "./profile/ExportBackupModal.tsx";
 import { RestoreBackupModal } from "./profile/RestoreBackupModal.tsx";
 import { BackupHistoryModal } from "./profile/BackupHistoryModal.tsx";
 
+const hookActionLabel = (which: "pre" | "post") => which === "pre" ? "切换前脚本" : "切换后脚本";
+
 /**
  * CHANGELOG_13：ProfilePanel 改受控组件。
  *
@@ -84,7 +86,7 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
         if (failedHook) {
           setHookOutput({
             id,
-            which: failedHook.hook === "preSwitch" ? "pre" : "post",
+            which: hookActionLabel(failedHook.hook === "preSwitch" ? "pre" : "post"),
             result: failedHook,
           });
         }
@@ -104,14 +106,14 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
     try {
       // REVIEW_7 H2：单 hook = hookTimeoutMs + 5s grace
       const r = await dchProfile.testHook(id, which, store.preferences.hookTimeoutMs);
-      setHookOutput({ id, which, result: r });
-      if (!r) onToast(`profile ${id} 未配置 ${which}Switch hook`, true);
+      setHookOutput({ id, which: hookActionLabel(which), result: r });
+      if (!r) onToast(`${id} 未配置${hookActionLabel(which)}`, true);
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
     }
   };
 
-  if (!store || !active) return <div className="empty">读取 profile 中...</div>;
+  if (!store || !active) return <div className="empty">正在读取配置方案...</div>;
 
   const profiles = store.profiles.filter((p) => p.tool === tool);
   const toolActive = active[tool];
@@ -119,9 +121,9 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
   return (
     <div className="panel profile-panel">
       <div className="panel-head">
-        <h1>Profiles<span className="ver">{store.profiles.length} 个</span></h1>
+        <h1>配置方案<span className="ver">{store.profiles.length} 个</span></h1>
         <p className="panel-desc">
-          状态文件 <code>~/.dch/profiles.json</code> · hook 超时 <code>{store.preferences.hookTimeoutMs}ms</code>
+          保存位置 <code>~/.dch/profiles.json</code> · 切换脚本超时 <code>{store.preferences.hookTimeoutMs}ms</code>
         </p>
       </div>
 
@@ -137,45 +139,45 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
           </button>
         ))}
         <div className="profile-tabs-spacer" />
-        <button className="btn-sm" onClick={() => { setExportPresetIds(undefined); setShowExport(true); }} title="备份所有 profile + 共享资源到 .dchpack（默认覆盖 latest.dchpack）">
+        <button className="btn-sm" onClick={() => { setExportPresetIds(undefined); setShowExport(true); }} title="备份所有配置方案和共享资源">
           📦 导出备份
         </button>
-        <button className="btn-sm" onClick={() => setShowHistory(true)} title="备份历史：默认位 / 置顶 / 历史 三组管理">
+        <button className="btn-sm" onClick={() => setShowHistory(true)} title="查看、置顶、还原或删除备份">
           📚 备份历史
         </button>
-        <button className="btn-sm" onClick={() => { setRestorePresetPath(undefined); setShowRestore(true); }} title="从 .dchpack 还原（按新 profile 加入，不动现有 active）">
+        <button className="btn-sm" onClick={() => { setRestorePresetPath(undefined); setShowRestore(true); }} title="从 .dchpack 导入为新的配置方案">
           📥 导入备份
         </button>
         {/* PR-I 新入口：编辑 profiles.json */}
-        <button className="btn-sm" onClick={() => setShowStoreEditor(true)} title="编辑 ~/.dch/profiles.json (schema-aware)">
-          编辑 store
+        <button className="btn-sm" onClick={() => setShowStoreEditor(true)} title="直接编辑 ~/.dch/profiles.json">
+          高级编辑
         </button>
         <PreferencesEditor store={store} onChange={() => onReloadProfile()} onToast={onToast} />
       </div>
 
       <div className="profile-status">
         <div>
-          <span className="profile-status-label">当前 active</span>
+          <span className="profile-status-label">当前使用</span>
           <code>{toolActive.id ?? "<未设置>"}</code>
         </div>
         <div>
           <span className="profile-status-label">~/.{tool}</span>
-          <code>{toolActive.symlinkTarget ?? "(非 symlink)"}</code>
+          <code>{toolActive.symlinkTarget ?? "(尚未接管目录)"}</code>
         </div>
         {!toolActive.symlinkTarget && (
           <button
             className="btn ghost btn-init"
             disabled={busy}
-            onClick={() => handle(() => dchProfile.init(tool), `已 init ${tool}`)}
+            onClick={() => handle(() => dchProfile.init(tool), `已初始化 ${tool}`)}
           >
-            init {tool} (转 symlink)
+            初始化 {tool} 配置目录
           </button>
         )}
       </div>
 
       <div className="profile-list">
         {profiles.length === 0 ? (
-          <div className="empty">无 profile。点「+ 新建」或先「init {tool}」</div>
+          <div className="empty">暂无配置方案。点「+ 新建」或先初始化 {tool} 配置目录。</div>
         ) : (
           profiles.map((p) => (
             <ProfileCard
@@ -194,7 +196,7 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
 
       <div className="profile-actions">
         <button className="btn primary" onClick={() => setShowAdd(true)} disabled={busy}>
-          + 新建 profile
+          + 新建配置方案
         </button>
       </div>
 
@@ -220,7 +222,7 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
             const collision = store.profiles.find((p) => normalizeProfileDir(p.configDir, home) === dirNorm);
             if (collision) {
               onToast(
-                `拒绝创建：${dir} 已被 profile ${collision.id} 占用 (configDir 必须唯一)。请改 configDir。`,
+                `不能创建：${dir} 已被 ${collision.id} 使用。请换一个配置目录。`,
                 false,
               );
               return;
@@ -240,12 +242,12 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
                   } catch (e) {
                     // profile 已落盘但配置文件没写成 — 给清晰指引而不是默默丢错
                     throw new Error(
-                      `profile ${form.id} 已建，但写 ${dir}/${main.filename} 失败：${e instanceof Error ? e.message : String(e)}。请到 ConfigPanel 手动补，或删除该 profile 重建。`,
+                      `${form.id} 已创建，但写入 ${dir}/${main.filename} 失败：${e instanceof Error ? e.message : String(e)}。请到配置文件页手动补上，或删除后重新创建。`,
                     );
                   }
                 }
               },
-              `已添加 ${form.id}${content ? ` + ${main.filename}` : ""}`,
+              `已新建 ${form.id}${content ? `，并写入 ${main.filename}` : ""}`,
             );
             // 失败保留 modal，让用户改完再提交；成功才关
             if (ok) setShowAdd(false);

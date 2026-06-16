@@ -95,7 +95,7 @@ describe("ConfigPanel TOCTOU banner (CHANGELOG_10 R_2·H1-followup)", () => {
 
     // banner 应出现
     expect(container.querySelector(".schema-conflict")).toBeTruthy();
-    expect(container.querySelector(".schema-conflict-msg")?.textContent).toContain("外部修改");
+    expect(container.querySelector(".schema-conflict-msg")?.textContent).toContain("其他程序修改");
 
     // 核心断言：保存按钮 disabled = true
     saveBtn = Array.from(container.querySelectorAll("button"))
@@ -206,7 +206,7 @@ describe("ConfigPanel TOCTOU banner (CHANGELOG_10 R_2·H1-followup)", () => {
     expect(onSave).toHaveBeenCalledTimes(1);
     // 关键断言：banner 弹出（catch 路径触发，不等父级 reload）
     expect(container.querySelector(".schema-conflict")).toBeTruthy();
-    expect(container.querySelector(".schema-conflict-msg")?.textContent).toContain("外部修改");
+    expect(container.querySelector(".schema-conflict-msg")?.textContent).toContain("其他程序修改");
   });
 
   it("T6: onSave reject MtimeMismatchError 后 banner 弹出 + 取消编辑能退出", async () => {
@@ -273,13 +273,13 @@ describe("ConfigPanel TOCTOU banner (CHANGELOG_10 R_2·H1-followup)", () => {
     );
   });
 
-  // REVIEW_8 R2 R2-7 / R3 G4：CAS 失败后用户在 banner 上点「重新加载」按钮，scope.content /
+  // REVIEW_8 R2 R2-7 / R3 G4：CAS 失败后用户在 banner 上点「使用磁盘版本」按钮，scope.content /
   // loadedMtimeUs 应是 reload 后的最新值（G4: App.tsx 在 catch isMtimeMismatch 后主动调
-  // loadFilesOnly，让父级推 scope 更新 → ConfigPanel banner 弹出 + 「重新加载」按钮 setBuf
+  // loadFilesOnly，让父级推 scope 更新 → ConfigPanel banner 弹出 +「使用磁盘版本」按钮 setBuf
   // 拿到的是新 content/新 mtime）。
-  // 本测在 ConfigPanel 单元层验：rerender 推新 scope 后，「重新加载」按钮把 buf / enterEditMtimeRef
+  // 本测在 ConfigPanel 单元层验：rerender 推新 scope 后，「使用磁盘版本」按钮把 buf / enterEditMtimeRef
   // 切到新 scope，下次 save 用新 mtime 不再撞 CAS。
-  it("T8 (R2-7 / G4): banner 弹出后「重新加载」按钮使下次 save 用最新 mtime（不再撞 CAS）", async () => {
+  it("T8 (R2-7 / G4): banner 弹出后「使用磁盘版本」按钮使下次 save 用最新 mtime（不再撞 CAS）", async () => {
     const onSave = mock(() => Promise.resolve());
     const onToast = mock(() => {});
     const tool = makeTool('{"theme":"dark"}', 1000);
@@ -301,9 +301,9 @@ describe("ConfigPanel TOCTOU banner (CHANGELOG_10 R_2·H1-followup)", () => {
     // banner 应弹出（content 变了）
     expect(container.querySelector(".schema-conflict")).toBeTruthy();
 
-    // 用户点「重新加载（放弃我的改动）」按钮
+    // 用户点「使用磁盘版本（放弃我的改动）」按钮
     const reloadBtn = Array.from(container.querySelectorAll("button"))
-      .find((b) => b.textContent?.includes("重新加载")) as HTMLButtonElement | undefined;
+      .find((b) => b.textContent?.includes("使用磁盘版本")) as HTMLButtonElement | undefined;
     expect(reloadBtn).toBeTruthy();
     await act(async () => { fireEvent.click(reloadBtn!); });
 
@@ -311,7 +311,7 @@ describe("ConfigPanel TOCTOU banner (CHANGELOG_10 R_2·H1-followup)", () => {
     expect(container.querySelector(".schema-conflict")).toBeNull();
 
     // 现在 save 应用新 mtime=3000 而非 stale 1000（旧实现 R2-7 的问题：scope.content/mtime
-    // 没真 reload，「重新加载」按钮只复用旧 scope 仍是 stale）
+    // 没真 reload，「使用磁盘版本」按钮只复用旧 scope 仍是 stale）
     const saveBtn = Array.from(container.querySelectorAll("button"))
       .find((b) => b.textContent === "保存") as HTMLButtonElement | undefined;
     await act(async () => { fireEvent.click(saveBtn!); });

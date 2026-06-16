@@ -93,11 +93,11 @@ export function ExportBackupModal({
 
   const onStart = async () => {
     if (selected.size === 0) {
-      onToast("请至少选一个 profile", false);
+      onToast("请至少选择一个配置方案", false);
       return;
     }
     if (noPlaceholder && !confirmRaw) {
-      onToast("请勾选下方明确同意框确认明文凭据", false);
+      onToast("请先勾选风险确认，再导出含明文密钥的备份", false);
       return;
     }
     setBusy(true);
@@ -138,13 +138,13 @@ export function ExportBackupModal({
               <p className="form-hint">✓ 备份完成({formatBytes(result.bytes)})</p>
               <pre className="raw">{result.outFile}</pre>
               <p className="form-hint">
-                {keep ? "已保留为历史副本" : "已覆盖默认位 latest.dchpack"} · 包含 {result.manifest.profiles.length} 个 profile
+                {keep ? "已保留为历史备份" : "已覆盖默认备份 latest.dchpack"} · 包含 {result.manifest.profiles.length} 个配置方案
                 {result.manifest.secrets_index && result.manifest.secrets_index.entries.length > 0
-                  ? <> · 🔑 <strong>{result.manifest.secrets_index.total_logical_keys}</strong> 个 unique secret(合并自 {result.manifest.secrets_index.total_occurrences} 处占位符)</>
-                  : <>,{result.manifest.placeholders.length} 处脱敏</>}
+                  ? <> · 🔑 <strong>{result.manifest.secrets_index.total_logical_keys}</strong> 个不同密钥项，来自 {result.manifest.secrets_index.total_occurrences} 处脱敏位置</>
+                  : <>，{result.manifest.placeholders.length} 处已脱敏</>}
                 。
                 <br />
-                还原方式:CLI 跑 <code>dch profile restore &lt;path&gt;</code>,或 ProfilePanel → 📥 导入备份。
+                导入方式：使用 <code>dch profile restore &lt;path&gt;</code>，或回到配置方案页点「📥 导入备份」。
               </p>
               {result.manifest.secrets_index && result.manifest.secrets_index.entries.length > 0 && (
                 <SecretsSummaryList idx={result.manifest.secrets_index} />
@@ -153,7 +153,7 @@ export function ExportBackupModal({
           ) : (
             <>
               <div className="form-row form-row-block">
-                <label>选择 profile({selected.size}/{profiles.length})</label>
+                <label>选择配置方案 ({selected.size}/{profiles.length})</label>
                 <div className="form-env-block">
                   {profiles.map((p) => (
                     <label key={p.id} className="form-env-item" style={{ cursor: "pointer" }}>
@@ -164,7 +164,7 @@ export function ExportBackupModal({
                         disabled={busy}
                       />
                       <code>{p.id}</code>
-                      <span className="profile-desc"> {p.tool} · {p.configDir}</span>
+                      <span className="profile-desc"> {p.tool} · 配置目录 {p.configDir}</span>
                     </label>
                   ))}
                 </div>
@@ -179,7 +179,7 @@ export function ExportBackupModal({
                     onChange={(e) => setIncludeShared(e.target.checked)}
                     disabled={busy}
                   />
-                  <span>~/.dch/scripts/* + ~/.agents/**(hook 引用必需)</span>
+                  <span>包含 ~/.dch/scripts/* 和 ~/.agents/**（切换脚本可能会用到）</span>
                 </label>
               </div>
 
@@ -194,14 +194,14 @@ export function ExportBackupModal({
                   />
                   <span>
                     {keep
-                      ? <>勾选后 → <code>dch-backup-&lt;TS&gt;.dchpack</code>(不会被下次 backup 覆盖)</>
-                      : <>不勾 → 覆盖默认位 <code>latest.dchpack</code>(下次 backup 也覆盖)</>}
+                      ? <>保存为 <code>dch-backup-&lt;时间&gt;.dchpack</code>，不会被下次备份覆盖</>
+                      : <>写入默认备份 <code>latest.dchpack</code>，下次备份会覆盖它</>}
                   </span>
                 </label>
               </div>
 
               <div className="form-row">
-                <label>明文凭据</label>
+                <label>密钥处理</label>
                 <label style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
                   <input
                     type="checkbox"
@@ -209,16 +209,16 @@ export function ExportBackupModal({
                     onChange={(e) => { setNoPlaceholder(e.target.checked); setConfirmRaw(false); }}
                     disabled={busy}
                   />
-                  <span>--no-placeholder(保留原始 token / API key)</span>
+                  <span>保留原始密钥，不做脱敏</span>
                 </label>
               </div>
 
               {noPlaceholder && (
                 <div className="form-row form-row-block">
                   <p className="form-hint" style={{ color: "var(--red)", borderLeft: "3px solid var(--red)", paddingLeft: 12 }}>
-                    ⚠️ 备份包将含明文 token / API key。请只通过加密渠道(gpg / age / 1Password / 本地)使用。
+                    ⚠️ 备份包将包含未脱敏的密钥或令牌。请只通过加密工具、密码管理器或本机保存。
                     <br />
-                    通过明文邮件 / 公开 git repo 分享 = 凭据泄露。
+                    不要通过明文邮件、聊天窗口或公开仓库分享。
                   </p>
                   <label style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
                     <input
@@ -227,14 +227,13 @@ export function ExportBackupModal({
                       onChange={(e) => setConfirmRaw(e.target.checked)}
                       disabled={busy}
                     />
-                    <span>我已了解风险,确认导出含明文凭据的备份包</span>
+                    <span>我已了解风险，确认导出含明文密钥的备份包</span>
                   </label>
                 </div>
               )}
 
               <p className="form-hint">
-                输出位置:默认 <code>~/.dch/backups/dch-backup-&lt;TS&gt;.dchpack</code>。
-                完成后可在 Finder 打开。
+                备份保存在 <code>~/.dch/backups/</code>。完成后可在 Finder 打开。
               </p>
             </>
           )}
@@ -275,11 +274,11 @@ function BackupProgress({ elapsedMs, profileCount, keep }: {
   keep: boolean;
 }) {
   const stage =
-    elapsedMs < 300 ? "扫描 profile 与共享资源…" :
-    elapsedMs < 3000 ? "脱敏凭据 + 写临时目录…" :
-    "压缩归档(gzip -1)…";
+    elapsedMs < 300 ? "收集配置方案和共享资源…" :
+    elapsedMs < 3000 ? "脱敏密钥并准备文件…" :
+    "压缩备份包…";
   const eta = profileCount === 1 ? "约 1-3 秒" : profileCount <= 2 ? "约 2-5 秒" : "约 3-15 秒";
-  const target = keep ? "历史副本 dch-backup-<TS>.dchpack" : "默认位 latest.dchpack";
+  const target = keep ? "历史备份 dch-backup-<时间>.dchpack" : "默认备份 latest.dchpack";
   return (
     <div style={{
       display: "flex", flexDirection: "column", alignItems: "center",
@@ -288,7 +287,7 @@ function BackupProgress({ elapsedMs, profileCount, keep }: {
       <div className="spinner" />
       <div style={{ fontSize: 16, fontWeight: 500 }}>{stage}</div>
       <div style={{ fontSize: 13, opacity: 0.7, textAlign: "center", lineHeight: 1.6 }}>
-        正在备份 {profileCount} 个 profile + 共享资源到{target}<br />
+        正在备份 {profileCount} 个配置方案和共享资源到 {target}<br />
         预计{eta} · 已耗时 <code>{(elapsedMs / 1000).toFixed(1)}s</code>
       </div>
       <div style={{ fontSize: 12, opacity: 0.5, textAlign: "center" }}>

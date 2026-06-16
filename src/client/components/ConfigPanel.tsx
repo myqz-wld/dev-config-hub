@@ -13,6 +13,20 @@ const Chev = ({ open }: { open: boolean }) => (
 
 type Mode = "view" | "edit" | "render";
 
+const SCOPE_LEVEL_LABEL: Record<ConfigScope["level"], string> = {
+  global: "全局",
+  user: "个人",
+  project: "项目",
+  local: "本地",
+};
+
+const SCOPE_FORMAT_LABEL: Record<ConfigScope["format"], string> = {
+  json: "JSON",
+  toml: "TOML",
+  dotfile: "文本",
+  markdown: "Markdown",
+};
+
 function defaultModeFor(format: ConfigScope["format"]): Mode {
   return format === "markdown" ? "render" : "view";
 }
@@ -79,7 +93,7 @@ function Scope({
   // 一次（哪怕内容相同），大文件性能差。
   const langExt = useMemo(() => languageExtensionFor(scope.format), [scope.format]);
 
-  const renderMarkdownToggleLabel = mode === "render" ? "源文件" : "渲染";
+  const renderMarkdownToggleLabel = mode === "render" ? "源文件" : "预览";
   const renderMarkdownToggleNext: Mode = mode === "render" ? "view" : "render";
 
   return (
@@ -87,7 +101,7 @@ function Scope({
       <header className="scope-head" onClick={() => setOpen(!open)}>
         <div className="scope-left">
           <Chev open={open} />
-          <span className={`badge ${scope.level}`}>{scope.level}</span>
+          <span className={`badge ${scope.level}`}>{SCOPE_LEVEL_LABEL[scope.level]}</span>
           <code className="scope-path">{scope.label}</code>
           {!scope.exists && <span className="badge miss">不存在</span>}
         </div>
@@ -98,7 +112,7 @@ function Scope({
                 <button
                   className="btn-sm"
                   onClick={(e) => { e.stopPropagation(); setMode(renderMarkdownToggleNext); }}
-                  title={mode === "render" ? "查看源文件" : "渲染 markdown"}
+                  title={mode === "render" ? "查看源文件" : "查看预览"}
                 >{renderMarkdownToggleLabel}</button>
               )}
               <button
@@ -107,7 +121,7 @@ function Scope({
               >编辑</button>
             </>
           )}
-          <span className="fmt">{scope.format}</span>
+          <span className="fmt">{SCOPE_FORMAT_LABEL[scope.format]}</span>
         </div>
       </header>
       {open && scope.exists && (
@@ -117,7 +131,7 @@ function Scope({
               {externalChanged && (
                 <div className="schema-conflict">
                   <div className="schema-conflict-msg">
-                    ⚠️ 文件已被外部修改。继续保存会覆盖外部改动。
+                    ⚠️ 这份文件刚刚被其他程序修改。继续保存会覆盖对方的改动。
                   </div>
                   <div className="schema-conflict-actions">
                     <button
@@ -131,7 +145,7 @@ function Scope({
                         enterEditMtimeRef.current = scope.loadedMtimeUs;
                         setExternalChanged(false);
                       }}
-                    >重新加载（放弃我的改动）</button>
+                    >使用磁盘版本（放弃我的改动）</button>
                     <button
                       className="btn-sm danger"
                       // CHANGELOG_10 R_2·H1-followup（双方一致 ✅ HIGH）：buf 没动过时禁用「保留我的改动」
@@ -145,7 +159,7 @@ function Scope({
                         enterEditMtimeRef.current = null;
                         setExternalChanged(false);
                       }}
-                    >保留我的改动（保存会覆盖）</button>
+                    >保留我的改动（保存时覆盖）</button>
                     <button
                       className="btn-sm"
                       disabled={saving}

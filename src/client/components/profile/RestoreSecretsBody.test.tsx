@@ -37,39 +37,39 @@ describe("computeSecretsButton — derived label / hasError", () => {
     expect(r.label).toContain("2 个待处理");
   });
 
-  it("部分填部分跳过（无 pending）→ no error + 「还原（K 填 / M 跳过）」", () => {
+  it("部分填部分跳过（无 pending）→ no error + 导入汇总文案", () => {
     const r = computeSecretsButton(entries, {
       secretsMap: { "A-1": "x" },
       skipMap: { "B-1": true, "C-1": true },
     });
     expect(r.hasError).toBe(false);
-    expect(r.label).toBe("还原（1 填 / 2 跳过）");
+    expect(r.label).toBe("导入（1 个已填 / 2 个跳过）");
   });
 
-  it("全跳过 → no error + 「保留占位符还原」", () => {
+  it("全跳过 → no error + 保留占位符导入文案", () => {
     const r = computeSecretsButton(entries, {
       secretsMap: {},
       skipMap: { "A-1": true, "B-1": true, "C-1": true },
     });
     expect(r.hasError).toBe(false);
-    expect(r.label).toBe("保留占位符还原");
+    expect(r.label).toBe("保留占位符并导入");
   });
 
-  it("全填 → no error + 「填值还原」", () => {
+  it("全填 → no error + 填入密钥导入文案", () => {
     const r = computeSecretsButton(entries, {
       secretsMap: { "A-1": "x", "B-1": "y", "C-1": "z" },
       skipMap: {},
     });
     expect(r.hasError).toBe(false);
-    expect(r.label).toBe("填值还原");
+    expect(r.label).toBe("填入密钥并导入");
   });
 
   it("空 entries（不该到 step 3）→ filled=skipped=pending=0 → no error；分支次序 skipped===total 先命中", () => {
     const r = computeSecretsButton([], { secretsMap: {}, skipMap: {} });
     // 实现里 total = 0 / filled = 0 / skipped = 0 / pending = 0
-    // 分支次序：pending > 0（false） → skipped === total（true，0===0 命中） → "保留占位符还原"
+    // 分支次序：pending > 0（false） → skipped === total（true，0===0 命中） → "保留占位符并导入"
     expect(r.hasError).toBe(false);
-    expect(r.label).toBe("保留占位符还原");
+    expect(r.label).toBe("保留占位符并导入");
   });
 
   it("skip 同时也填了 value → skip 优先（filled 不算）", () => {
@@ -79,7 +79,7 @@ describe("computeSecretsButton — derived label / hasError", () => {
       skipMap: { "A-1": true, "B-1": true, "C-1": true },
     });
     expect(r.hasError).toBe(false);
-    expect(r.label).toBe("保留占位符还原");
+    expect(r.label).toBe("保留占位符并导入");
   });
 
   it("空字符串 value 不算 filled（length === 0 短路）", () => {

@@ -178,7 +178,7 @@ export function BackupHistoryModal({
             <div className="empty" style={{ padding: 32, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
               <div className="spinner" />
               <span>读取备份列表中…</span>
-              <span style={{ fontSize: "0.85em", opacity: 0.7 }}>每个备份需解析 manifest 摘要 (~50-100ms)</span>
+              <span style={{ fontSize: "0.85em", opacity: 0.7 }}>每个备份都需要读取摘要信息，通常很快</span>
             </div>
           ) : !items || items.length === 0 ? (
             <div className="empty">
@@ -187,8 +187,8 @@ export function BackupHistoryModal({
           ) : (
             <>
               <BackupGroup
-                title="📌 默认位（每次 backup 覆盖）"
-                hint="这是 dch profile backup 默认写入的位置。每次 backup 都会覆盖，最新一次的内容。"
+                title="📌 默认备份（每次会覆盖）"
+                hint="这是默认保存的位置。每次直接备份都会覆盖它，因此总是最新一次的内容。"
                 items={groups!.default}
                 busy={busy || refreshing}
                 confirmDel={confirmDel}
@@ -199,7 +199,7 @@ export function BackupHistoryModal({
               />
               <BackupGroup
                 title="⭐ 置顶（不会被覆盖）"
-                hint="置顶的备份不会被下次 backup 覆盖，永久保留直到手动删除。"
+                hint="置顶的备份不会被下次备份覆盖，会一直保留到你手动删除。"
                 items={groups!.pinned}
                 busy={busy || refreshing}
                 confirmDel={confirmDel}
@@ -209,7 +209,7 @@ export function BackupHistoryModal({
                 onDelete={onDelete}
               />
               <BackupGroup
-                title="📜 历史（--keep 创建）"
+                title="📜 历史备份"
                 hint="勾选「保留为历史」的备份。可以「置顶」永久保留，或删除清理空间。"
                 items={groups!.history}
                 busy={busy || refreshing}
@@ -288,7 +288,7 @@ function BackupRow({
         <div className="profile-card-id">
           <code>{item.filename}</code>
           {item.pinned && <span className="badge env" style={{ marginLeft: 6 }}>📌 置顶</span>}
-          {item.category === "default" && <span className="badge default" style={{ marginLeft: 6 }}>默认位</span>}
+          {item.category === "default" && <span className="badge default" style={{ marginLeft: 6 }}>默认备份</span>}
           {m?.noPlaceholder && <span className="badge env" style={{ marginLeft: 6, color: "#c00" }}>明文凭据</span>}
         </div>
         <div className="profile-card-meta">
@@ -299,12 +299,12 @@ function BackupRow({
         {m ? (
           <>
             <div className="profile-row">
-              <span className="profile-row-label">profile</span>
+              <span className="profile-row-label">配置方案</span>
               <span>{m.profileCount} 个：{m.profileIds.join(", ") || "—"}</span>
             </div>
             <div className="profile-row">
-              <span className="profile-row-label">占位符</span>
-              <span>{m.placeholderCount} 处脱敏</span>
+              <span className="profile-row-label">脱敏位置</span>
+              <span>{m.placeholderCount} 处</span>
             </div>
             <div className="profile-row">
               <span className="profile-row-label">来源</span>
@@ -313,7 +313,7 @@ function BackupRow({
           </>
         ) : (
           <div className="profile-row" style={{ color: "#c00" }}>
-            ⚠ manifest 解析失败：{item.manifestError ?? "未知"}
+            ⚠ 备份摘要读取失败：{item.manifestError ?? "未知"}
           </div>
         )}
         <div className="profile-row">
@@ -326,7 +326,7 @@ function BackupRow({
           📥 还原此备份
         </button>
         <button className="btn-sm" disabled={busy} onClick={onPin}>
-          {item.pinned ? "取消置顶" : item.category === "default" ? "📌 置顶（复制副本）" : "📌 置顶"}
+          {item.pinned ? "取消置顶" : item.category === "default" ? "📌 置顶（先复制）" : "📌 置顶"}
         </button>
         <div className="profile-card-actions-spacer" />
         {!confirming ? (

@@ -16,13 +16,13 @@ export function PreferencesEditor({
   const update = async (k: "hookTimeoutMs", v: number) => {
     // REVIEW_4 M5：与 dch-store.ts schema 1000-600000 + cli-profile.ts cmdConfig 三方对齐
     if (!Number.isInteger(v) || v < 1000 || v > 600000) {
-      onToast(`hookTimeoutMs 必须是 1000-600000 之间的整数（1s ~ 10 分钟）`, false);
+      onToast("切换脚本超时必须是 1000-600000 之间的整数（1 秒到 10 分钟）", false);
       setDraftMs(store.preferences.hookTimeoutMs);  // R_2 R-M2：还原 input
       return;
     }
     try {
       await dchProfile.config(k, v);
-      onToast(`${k} = ${v}`, true);
+      onToast(`切换脚本超时已改为 ${v}ms`, true);
       onChange();
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
@@ -36,7 +36,7 @@ export function PreferencesEditor({
       {open && (
         <div className="prefs-popover">
           <div className="form-row">
-            <label>hook 超时(ms)</label>
+            <label>切换脚本超时 (ms)</label>
             <input
               type="number"
               min={1000}
