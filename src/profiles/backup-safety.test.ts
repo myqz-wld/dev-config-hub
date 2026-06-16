@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, writeFile, symlink, rm, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { IS_WIN } from "../platform.ts";
 import { validateRestorePath } from "./backup-restore.ts";
 import type { Manifest } from "./backup.ts";
@@ -54,7 +54,9 @@ async function setupTmpHomeWithProfiles(opts: {
     await mkdir(dir, { recursive: true });
     if (p.files) {
       for (const [name, content] of Object.entries(p.files)) {
-        await writeFile(join(dir, name), content);
+        const filePath = join(dir, name);
+        await mkdir(dirname(filePath), { recursive: true });
+        await writeFile(filePath, content);
       }
     }
   }
@@ -200,6 +202,42 @@ describe.skipIf(IS_WIN)("backup safety roundtrip (REVIEW_8 Group D)", () => {
       } finally {
         await rm(tmpExtract, { recursive: true, force: true });
       }
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  test("CHANGELOG_29: 私钥 / keystore / .db 运行态文件不进入目录语义备份", async () => {
+    const { home } = await setupTmpHomeWithProfiles({
+      profiles: [{
+        id: "secret-files",
+        configDir: "~/.claude-secret-files",
+        files: {
+          "settings.json": "{}",
+          "ssh/id_ed25519": "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----\n",
+          "certs/client.key": "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n",
+          "certs/CLIENT.PEM": "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n",
+          ".NETRC": "machine example.com login user password hunter2\n",
+          "history.DB": "sqlite bytes",
+          "usage.DB-WAL": "wal bytes",
+        },
+      }],
+    });
+    try {
+      const outFile = join(home, ".dch/backups/secret-files.dchpack");
+      const r = await runCli(home, ["profile", "backup", "--out", outFile, "--no-shared", "--yes", "--json"]);
+      expect(r.exitCode).toBe(0);
+
+      const proc = Bun.spawn(["tar", "-tzf", outFile], { stdout: "pipe" });
+      const list = await new Response(proc.stdout).text();
+      await proc.exited;
+      expect(list).toContain("profiles/secret-files/configDir/settings.json");
+      expect(list).not.toContain("id_ed25519");
+      expect(list).not.toContain("client.key");
+      expect(list).not.toContain("CLIENT.PEM");
+      expect(list).not.toContain(".NETRC");
+      expect(list).not.toContain("history.DB");
+      expect(list).not.toContain("usage.DB-WAL");
     } finally {
       await rm(home, { recursive: true, force: true });
     }

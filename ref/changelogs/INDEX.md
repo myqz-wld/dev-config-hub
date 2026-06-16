@@ -32,3 +32,4 @@
 | [CHANGELOG_26.md](CHANGELOG_26.md) | 补 `.refs/` 忽略规则，并对齐基础工程模板的入口与 ref 索引结构 |
 | [CHANGELOG_27.md](CHANGELOG_27.md) | foundation 二轮对齐：CLAUDE.md 补 review 过期规则节，落地 expiry 脚本 |
 | [CHANGELOG_28.md](CHANGELOG_28.md) | 入口资产去重并中文化；README 过期支持清理；CLAUDE.md 补 `scripts/` 目录规则 |
+| [CHANGELOG_29.md](CHANGELOG_29.md) | 备份规则改为目录语义：profile configDir 默认整目录打包，只按运行态/缓存/历史排除清单跳过 |

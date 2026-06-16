@@ -1,84 +1,72 @@
 /**
  * 备份/还原的 path / 字段规则常量。
  *
- * - INCLUDE_PATTERNS：configDir 内**白名单**相对路径，递归匹配
- * - EXCLUDE_PATTERNS：硬性**黑名单**，即使白名单也排除（jsonl 历史 / 缓存 / 数据库 / lock）
+ * - configDir 默认按目录语义打包：所有真文件都会纳入，除非命中 EXCLUDE_PATTERNS。
+ * - EXCLUDE_PATTERNS：硬性**黑名单**（jsonl 历史 / 缓存 / 数据库 / lock / 临时目录）
  * - SENSITIVE_KEY_PATTERNS：敏感字段名子串（case-insensitive），用于占位符替换
  * - SENSITIVE_FILES：整文件级敏感（OAuth credentials / auth），整体置为占位符
  *
- * 命中顺序：先 EXCLUDE 黑名单，再 INCLUDE 白名单。
+ * 命中顺序：先 EXCLUDE 黑名单；未命中即包含。
  *
- * 维护说明：新增一类配置文件时把相对路径加到 INCLUDE；新增一类历史/缓存目录加到 EXCLUDE。
+ * 维护说明：新增一类历史/缓存/运行态目录时加到 EXCLUDE。不要为普通配置文件加白名单，
+ * 否则新工具或用户自定义资产容易漏备份。
  */
-
-export const INCLUDE_PATTERNS: string[] = [
-  "CLAUDE.md",
-  "AGENTS.md",
-  "settings.json",
-  "settings.local.json",
-  "hilo-skill-market.json",
-  "version.json",
-  ".mcp.json",
-  "auth.json",
-  "config.toml",
-  "credentials.json",
-
-  "templates/**",
-  "SOPs/**",
-  "plans/*.md",
-  "providers/**",
-  "agents/**",
-  "commands/**",
-  "skills/**",
-
-  "plugins/installed_plugins.json",
-  "plugins/known_marketplaces.json",
-  "plugins/blocklist.json",
-  "plugins/cache/**",
-  "plugins/local/**",
-  "plugins/marketplaces/**",
-  ".claude-plugin/**",
-
-  "projects/*/memory/**",
-];
 
 export const EXCLUDE_PATTERNS: string[] = [
   "**/*.jsonl",
+  "**/*.db",
+  "**/*.db-shm",
+  "**/*.db-wal",
+  "**/*.db-journal",
   "**/*.sqlite",
   "**/*.sqlite-shm",
   "**/*.sqlite-wal",
+  "**/*.sqlite-journal",
+  "**/*.sqlite3",
+  "**/*.sqlite3-shm",
+  "**/*.sqlite3-wal",
+  "**/*.sqlite3-journal",
   "**/*.log",
   "**/*.lock",
   "**/*.bak.*",
   "**/*.backup.*",
   "**/.DS_Store",
 
-  // **REVIEW_9 B-MED-3 / B-claude M1**: 子目录段统一加 `**/` 前缀让任意深度匹配。旧实现仅
-  // root 级匹配 → INCLUDE 子树(`templates/**` / `agents/**` / `plugins/local/**` 等)内嵌
-  // 的 `.cache/` / `.tmp/` / `debug/` 等都漏过滤。Bun.Glob `**/x/**` 同时匹配
-  // `x/foo` (root) 与 `nested/x/foo` (深度)。
-  //
-  // 例外:`cache/**` 保留 root-only — `plugins/cache/**` 是 INCLUDE 主动允许的 plugin
-  // marketplace 合法 cache 数据,跨深度匹配会误伤;靠 `**/.cache/**` (隐藏目录)兜底子树内
-  // 真临时目录。
-  "**/debug/**",
-  "**/file-history/**",
-  "**/session-env/**",
-  "**/sessions/**",
-  "**/shell_snapshots/**",
-  "**/shell-snapshots/**",
-  "**/paste-cache/**",
+  "**/.netrc",
+  "**/.ssh/**",
+  "**/id_rsa",
+  "**/id_dsa",
+  "**/id_ecdsa",
+  "**/id_ed25519",
+  "**/ssh/id_*",
+  "**/*.pem",
+  "**/*.key",
+  "**/*.p12",
+  "**/*.pfx",
+  "**/*.jks",
+  "**/*.keystore",
+
+  // 隐藏 cache/tmp 目录在任意深度都视为运行态；普通 state/tasks/log 等目录只排 root 级，
+  // 避免把用户自定义 agents/skills/providers/commands 子树里的同名持久资产静默漏备份。
   "**/.cache/**",
-  "cache/**",
-  "**/backups/**",
-  "**/ide/**",
-  "**/state/**",
-  "**/tasks/**",
-  "**/statsig/**",
-  "**/log/**",
-  "**/tmp/**",
   "**/.tmp/**",
-  "**/memories/**",
+
+  "debug/**",
+  "file-history/**",
+  "session-env/**",
+  "sessions/**",
+  "shell_snapshots/**",
+  "shell-snapshots/**",
+  "paste-cache/**",
+  "cache/**",
+  "backups/**",
+  "ide/**",
+  "state/**",
+  "tasks/**",
+  "statsig/**",
+  "log/**",
+  "tmp/**",
+  "memories/**",
 
   ".last-cleanup",
   ".personality_migration",
@@ -121,22 +109,19 @@ export const NON_SENSITIVE_KEY_EXACT = new Set<string>([
  */
 const PATH_LIKE_SUFFIX_RE = /(_path|_file|_url|_endpoint|_dir|_directory)$/i;
 
-const includeMatchers = INCLUDE_PATTERNS.map((p) => new Bun.Glob(p));
-const excludeMatchers = EXCLUDE_PATTERNS.map((p) => new Bun.Glob(p));
+const excludeMatchers = EXCLUDE_PATTERNS.map((p) => new Bun.Glob(p.toLowerCase()));
 
 /**
- * 单条相对路径是否应纳入备份。先黑后白；命中黑名单立即返回 false。
+ * 单条相对路径是否应纳入备份。命中黑名单返回 false；否则默认包含。
  *
  * relPath 必须是 POSIX 风格相对路径（如 `templates/changelog.template.md`，无前导 /）。
  */
 export function shouldIncludePath(relPath: string): boolean {
+  const normalizedRelPath = relPath.toLowerCase();
   for (const g of excludeMatchers) {
-    if (g.match(relPath)) return false;
+    if (g.match(normalizedRelPath)) return false;
   }
-  for (const g of includeMatchers) {
-    if (g.match(relPath)) return true;
-  }
-  return false;
+  return true;
 }
 
 const sensitiveLower = SENSITIVE_KEY_PATTERNS.map((s) => s.toLowerCase());
@@ -151,5 +136,5 @@ export function isSensitiveKey(key: string): boolean {
 
 /** 整文件级敏感 — 整体替换为 placeholder。 */
 export function isSensitiveFile(filename: string): boolean {
-  return SENSITIVE_FILES.has(filename);
+  return SENSITIVE_FILES.has(filename.toLowerCase());
 }

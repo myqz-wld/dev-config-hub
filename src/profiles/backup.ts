@@ -8,7 +8,7 @@
  *
  * 关键设计：
  * - tar -h deref symlink（新机器路径不一致，保留 symlink 无意义）
- * - 配置文件按 INCLUDE/EXCLUDE 双门 walk + 按文件名分发 redact
+ * - 配置文件按目录语义 walk，命中 EXCLUDE 才跳过 + 按文件名分发 redact
  * - 占位符 `<<DCH_PLACEHOLDER:KEY_NAME>>` + manifest.placeholders[] 精确路径
  *
  * **REVIEW_9 G6 拆模块**: 共享 types (FORMAT_VERSION / ManifestProfile /

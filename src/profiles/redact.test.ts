@@ -135,6 +135,35 @@ describe("redactByFilename", () => {
     expect(r.placeholders[0]?.fieldName).toBe("CREDENTIALS");
   });
 
+  it("Credentials.JSON / AUTH.JSON 大小写变体仍按整文件凭据脱敏", () => {
+    const oauthPayload = JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "access-token-value-should-not-leak",
+        refreshToken: "refresh-token-value-should-not-leak",
+      },
+    });
+
+    const credentials = redactByFilename(oauthPayload, "Credentials.JSON");
+    expect(credentials.placeholders[0]?.fieldName).toBe("CREDENTIALS");
+    expect(credentials.content).not.toContain("access-token-value-should-not-leak");
+    expect(credentials.content).not.toContain("refresh-token-value-should-not-leak");
+
+    const auth = redactByFilename(oauthPayload, "AUTH.JSON");
+    expect(auth.placeholders[0]?.fieldName).toBe("AUTH");
+    expect(auth.content).not.toContain("access-token-value-should-not-leak");
+    expect(auth.content).not.toContain("refresh-token-value-should-not-leak");
+  });
+
+  it(".JSON / .TOML 扩展名大小写变体仍走结构化脱敏", () => {
+    const json = redactByFilename('{"api_key":"secret-json"}', "Settings.JSON");
+    expect(json.placeholders[0]?.fieldName).toBe("api_key");
+    expect(json.content).not.toContain("secret-json");
+
+    const toml = redactByFilename('token = "secret-toml"', "Config.TOML");
+    expect(toml.placeholders[0]?.fieldName).toBe("token");
+    expect(toml.content).not.toContain("secret-toml");
+  });
+
   it("非 JSON / TOML（CLAUDE.md / 脚本）→ 走 redactPlainTextContent regex 替换（REVIEW_8 M2/D5）", () => {
     // 旧行为：fall-through 原样返回 → 内含 sk-ant-... 的 markdown 备份会泄漏
     // 新行为：HIGH_CONFIDENCE_PATTERNS 命中 token 替换为 placeholder
