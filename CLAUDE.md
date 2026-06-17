@@ -3,20 +3,20 @@
 > This file is the repository-level shared SSOT for Dev Config Hub. It records the repository foundation, directory architecture, post-change requirements, plan/review lifecycle, review expiry rules, file-size guardrails, project-specific invariants, and validation workflow.
 > `AGENTS.md` is the companion entry. It records only runtime/tooling mechanism differences; shared rules live here to avoid drift between the two entries.
 
-## Repository Foundation
+## Repository Baseline
 
 - Primary development and test environment is macOS, while the product supports macOS, Windows 10+, and Linux. Preserve platform-specific profile switching: POSIX symlinks on macOS/Linux and NTFS junctions on Windows.
-- Package manager/runtime: **use Bun consistently** (do not mix npm / pnpm / yarn)
-- Rust >= 1.77 (Tauri v2 backend)
-- Before changing either `CLAUDE.md` or `AGENTS.md`, audit the other entry at the same time so their rule semantics stay aligned
+- Package manager/runtime: **use Bun consistently**; do not mix npm, pnpm, or yarn.
+- Rust >= 1.77 for the Tauri v2 backend.
+- Before changing either `CLAUDE.md` or `AGENTS.md`, audit the other entry at the same time so their rule semantics stay aligned.
 
-## Base Directory Architecture
+## Base Directory Structure
 
-When creating or maintaining the repository, place files according to this structure. Unless the project already has a stronger contract, do not create parallel directories for the same kind of file:
+Create or maintain files in this structure. Do not create parallel directories for the same file type unless the project already has a stronger convention.
 
-- `CLAUDE.md`: shared project SSOT (this file).
-- `AGENTS.md`: entry/tooling mechanism differences; references the shared rules in this file.
-- `UI_COPY_LANGUAGE.md`: language rules for user-visible UI/CLI copy. New or changed user-facing UI/CLI copy must follow it; if the requested copy language or support scope differs from that file, update that file first.
+- `CLAUDE.md`: shared workflow for repository baseline, directory structure, after-change requirements, plan/review lifecycle, review expiry, file-size guardrail, project-specific invariants, and validation.
+- `AGENTS.md`: entry and tool differences; it references and follows the shared rules in `CLAUDE.md`.
+- `UI_COPY_LANGUAGE.md`: SSOT for user-facing UI/CLI copy language and locale mode.
 - `README.md`: user-facing feature overview, startup instructions, validation steps, and project structure.
 - `src/`: Bun/React frontend, CLI, profile business logic, and tool config readers.
 - `src-tauri/`: Tauri v2 Rust backend. `src-tauri/target/` is the standard Cargo/Tauri output directory and must stay git ignored.
@@ -27,9 +27,9 @@ When creating or maintaining the repository, place files according to this struc
 - `ref/plans/INDEX.md`: final plan index. Completed plans are archived under `ref/plans/`.
 - `ref/conventions/INDEX.md`: index of promoted project conventions. Convention bodies use `ref/conventions/<X>-<topic>.md`.
 - `ref/conventions/tally.md`: tally entry for repeated user feedback / repeated agent pitfalls.
-- `.refs/`: must be in `.gitignore`; contains only non-final plan/review working copies, never final records.
+- `.refs/`: must be in `.gitignore`; store only non-final plan/review working copies here, never final records.
 
-## Documentation And UI/CLI Copy Language
+## UI/CLI Copy Language
 
 Write active project documentation and maintainer/agent-facing instructions in English by default, including changelogs, plans, reviews, and conventions. Exceptions are `UI_COPY_LANGUAGE.md`, user-facing UI/CLI copy governed by that file, locale examples, quoted/source text, and explicit non-English trigger anchors or examples.
 
@@ -46,26 +46,20 @@ cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 
 ## Required After Changes
 
-Before starting meaningful code or documentation changes, run `ls ref/conventions/ ref/changelogs/ ref/plans/ ref/reviews/ 2>/dev/null || true` to see existing project records. Missing directories are setup work, not an error.
+Before starting meaningful code or documentation changes, run `ls ref/conventions ref/changelogs ref/plans ref/reviews 2>/dev/null || true` to see existing project records. Missing directories are setup work, not an error. After changes, apply these gates before any project-specific validation.
 
-### 1. Decide Whether To Update README.md
+### 1. README Update Gate
 
-**README.md is the "feature overview"**: the user-facing capability list. Ask three questions:
+`README.md` is the user-facing feature overview. Update the matching section when a change affects user-visible behavior, user-facing UI/CLI copy, file structure, startup steps, dependencies, ports, or validation steps. Pure bug fixes and internal refactors that do not change user perception do not require README changes.
 
-1. Did you add or change **user-visible behavior or user-facing UI/CLI copy**? (CLI subcommands, UI controls, config keys, symlink-switching semantics, hook-injected variables, user-visible copy) -> update the relevant section and follow `UI_COPY_LANGUAGE.md`; if the language requirements differ, update that file first
-2. Did you change **file structure / create a new module**? -> update the "Project Structure" section
-3. Did you change **startup instructions / dependencies / validation steps**? -> update the "Quick Start" section
-
-Pure bug fixes / internal refactors that do not change user perception -> do not touch README; record them in `ref/changelogs/` or `ref/reviews/`.
-
-### 2. Write A Changelog Or Review (**required; choose one**)
+### 2. Changelog Or Review Gate
 
 | Type | Write to | Examples |
 |---|---|---|
 | **Feature change** (new feature / behavior change / API / dependency upgrade) | `ref/changelogs/` | Add profile system, remove env mode, add `dch profile env` |
 | **Debug / performance / security review** (no new feature; only fixes or hardening) | `ref/reviews/` | TOCTOU / shell injection / hook timeout review |
 
-**Any change under a `ref/` subdirectory must also update that directory's `INDEX.md`** (compact table: `filename | one-line summary`).
+Every meaningful change must record either a changelog or a review. Any change under a `ref/` subdirectory must also update that directory's `INDEX.md`.
 
 #### `ref/changelogs/` Rules
 
@@ -78,14 +72,13 @@ Pure bug fixes / internal refactors that do not change user perception -> do not
 - Filename: `REVIEW_X.md`, where X is an incrementing integer. Before creating a file, run `ls ref/reviews/` and find the largest X.
 - Single-file structure: trigger scenario + method (two-adversary agents / scope / tools) + three-state verdict checklist + fix items.
 
-### 3. Plan / Review Document Lifecycle
+### 3. Plan / Review Lifecycle
 
-- Non-final plan/review working copies live in the current environment workspace. Without a stronger contract, use `<repo>/.refs/plans/<plan-id>.md` / `<repo>/.refs/reviews/<review-id>.md`.
-- Once final, archive the plan and its dedicated supporting materials into `ref/plans/`, archive the review into `ref/reviews/REVIEW_X.md`, sync the relevant INDEX, and clean up the workspace copy. Final records must not exist only in `.refs/`.
+Non-final plan/review working copies live in the current environment workspace. Without a stronger contract, use `<repo>/.refs/plans/<plan-id>.md` or `<repo>/.refs/reviews/<review-id>.md`. At final handoff, archive terminal plans to `ref/plans/`, archive terminal reviews to `ref/reviews/REVIEW_X.md`, sync the relevant index, and clean up workspace drafts.
 
-### 4. Read Historical Records Before Changing Features
+### 4. Historical Records Gate
 
-Before modifying any module, **run `ls ref/changelogs/ ref/conventions/ ref/reviews/ ref/plans/` and browse the relevant entries** to understand recorded design decisions, project conventions, plans, and review conclusions.
+Before modifying a feature area, run `ls ref/changelogs ref/conventions ref/reviews ref/plans 2>/dev/null || true` and read relevant entries so recorded design decisions, project conventions, plans, and review conclusions are not silently reversed.
 
 ---
 
