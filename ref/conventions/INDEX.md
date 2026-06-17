@@ -1,23 +1,23 @@
-# Conventions 索引
+# Conventions Index
 
-> **目录定位**：项目特定约定的累积载体，与 `changelogs/` `reviews/` `plans/` 同级。
->
-> **目的**：让项目入口文件只放设计原则和流程性约定；动态累积的重复反馈、重复踩坑和已评审约定沉淀到本目录。
->
-> **流程**：候选放 `tally.md`，count ≥ 3 走「决策对抗」三态裁决后升级 → 新建 `<X>-<topic>.md`（X 递增整数）+ 本 INDEX 加行 + tally 删该候选条。详根 `CLAUDE.md` §反复反馈→升级约定。
+Project-specific convention records live here under `ref/`, alongside `ref/changelogs/`, `ref/reviews/`, and `ref/plans/`.
 
-## 升级后约定
+Purpose: keep entry instructions stable while repeated feedback, recurring mistakes, and reviewed conventions accumulate as separate records.
 
-> 每个 `.md` 单文件 = 一条已升级的项目特定约定。改动相关代码前 `ls ref/conventions/` + 浏览相关条目，避免推翻已有约定。
+Promotion flow: record candidates in `tally.md`; when `count >= 3`, run the configured review/decision process, create `<X>-<topic>.md`, add a row here, and remove the promoted tally candidate.
 
-| 文件 | 主题（≤ 80 字） | 升级日期 | 关联 changelog | 关联 review |
-|------|---------------|---------|--------------|------------|
-| <第一条升级后填> | | | | |
+## Promoted Conventions
 
-## 候选状态
+Each `.md` record is one promoted project convention. Before changing related code, list `ref/conventions/` and read relevant records so existing decisions are not silently reversed.
 
-详 [tally.md](tally.md)（用户反馈候选 / Agent 踩坑候选两 section）。
+| File | Topic | Promoted Date | Related Changelog | Related Review |
+|---|---|---|---|---|
+| _No promoted conventions yet._ | — | — | — | — |
 
-## 入口文件关系
+## Candidate Status
 
-根 `CLAUDE.md` 保存高频项目不变量和执行流程。新的可复用项目约定写入本目录单文件，并在本 INDEX 登记。
+See [tally.md](tally.md) for user-feedback and agent-pitfall candidates.
+
+## Entry Relationship
+
+Project `CLAUDE.md` keeps high-frequency invariants and workflow rules. New reusable project conventions are recorded in this directory and registered in this index.

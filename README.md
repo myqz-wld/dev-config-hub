@@ -1,127 +1,127 @@
 # Dev Config Hub
 
-本地桌面应用，用于可视化查看和编辑开发工具的配置文件，并在 **Claude Code / Codex CLI 的多套认证 profile 间快速切换**（订阅 vs API Key 等场景）。
+A local desktop app for visually viewing and editing development-tool config files, and for quickly switching between multiple **Claude Code / Codex CLI authentication profiles** (subscription vs API key, and similar scenarios).
 
-基于 [Tauri v2](https://v2.tauri.app/)（Rust + WebView）构建，前后端均跑在 [Bun](https://bun.sh/) 上。**支持 macOS / Windows 10+ / Linux**（Win profile 切换自动用 NTFS junction 替代 symlink，无须开 Developer Mode 或提权）。
+Built on [Tauri v2](https://v2.tauri.app/) (Rust + WebView), with both frontend and backend running on [Bun](https://bun.sh/). **Supports macOS / Windows 10+ / Linux**. On Windows, profile switching automatically uses NTFS junctions instead of symlinks, with no Developer Mode or elevated privileges required.
 
-## 平台支持矩阵
+## Platform Support Matrix
 
-| 平台 | 状态 | 说明 |
+| Platform | Status | Notes |
 |---|---|---|
-| **macOS 12+ (Apple Silicon / Intel)** | **GA** | 主要开发与测试平台；symlink + bash hook + zsh shell reader |
-| **Windows 10 1703+ / 11** | **beta** | symlink 自动走 junction（无需 SeCreateSymbolicLinkPrivilege / Developer Mode）；hook 默认走 PowerShell（hook 字符串形式按 PowerShell 解析；object 形式 `{posix?, powershell?, cmd?}` 显式分平台）；shell reader 改读 `$PROFILE` |
-| **Linux** | **beta** | symlink 与 macOS 同款行为；hook 走 bash；shell reader 读 zsh + bash 配置 |
+| **macOS 12+ (Apple Silicon / Intel)** | **GA** | Primary development and test platform; symlink + bash hook + zsh shell reader |
+| **Windows 10 1703+ / 11** | **beta** | Symlink automatically uses junctions (no SeCreateSymbolicLinkPrivilege / Developer Mode required); hooks use PowerShell by default (string hooks are parsed as PowerShell; object hooks `{posix?, powershell?, cmd?}` explicitly split by platform); shell reader reads `$PROFILE` |
+| **Linux** | **beta** | Same symlink behavior as macOS; hooks use bash; shell reader reads zsh + bash config |
 
-Win 端真机 E2E 留待 CI 验证（参见 [REVIEW_1](ref/reviews/REVIEW_1.md)）。
+Windows real-machine E2E remains pending CI validation (see [REVIEW_1](ref/reviews/REVIEW_1.md)).
 
-## 支持的工具
+## Supported Tools
 
-| 工具 | 配置文件 | 格式 |
+| Tool | Config Files | Format |
 |------|---------|------|
-| **Shell** | macOS/Linux：`~/.zprofile`, `~/.zshrc`, `~/.bashrc` ／ Windows：`$PROFILE`（PowerShell 5.1 + 7） | dotfile / .ps1 |
+| **Shell** | macOS/Linux: `~/.zprofile`, `~/.zshrc`, `~/.bashrc` / Windows: `$PROFILE` (PowerShell 5.1 + 7) | dotfile / .ps1 |
 | **Claude Code** | `~/.claude/settings.json`, `settings.local.json`, `CLAUDE.md`, `.mcp.json` | JSON / Markdown |
 | **Codex CLI** | `~/.codex/config.toml` | TOML |
 
-## 核心能力
+## Core Capabilities
 
-- **配置可视化**：按工具分组展示所有配置文件
-- **源文件查看 + 直接编辑保存**：CodeMirror 6 语法高亮 + 行号 + 折叠 + 搜索（Cmd+F）；编辑模式带外部修改 TOCTOU 检测
-- **Markdown 渲染**：`CLAUDE.md` 等 markdown 文件默认走 react-markdown + GFM + shiki 代码块
-- **自动检测工具版本**
-- **CLI + GUI 双入口**：`dch` 子命令完整覆盖功能；`dch gui` / `bun run dev` 启动桌面窗口
-- **Profile 快速切换**：维护多套 Claude / Codex 配置（如 `claude-pro` / `claude-api`、`codex-plus` / `codex-api`），一键原子切换 `~/.claude` / `~/.codex` symlink，全局生效
-- **切换前 / 后 Hook**：每个 profile 可定义 `preSwitch` / `postSwitch` shell 脚本，用于自动 kill 残留进程、起 VPN、健康探测、osascript 通知等。`preSwitch` 失败会中断切换
-- **shell wrapper 注入 env**：`dch profile env` + `~/.zshrc` 子 shell wrapper，让 profile.env 落到 claude / codex 进程本身（OAuth / API 走代理）
-- **备份与还原（.dchpack）**：所有 profile + 共享资源（hook 脚本 + `~/.agents/`）打成单文件，跨机器迁移 / 本地灾备 / 分享 profile 给同事。**默认脱敏 token / API key 为占位符**安全分享；CLI + UI 双入口；还原时 secrets-index 全局 dedup（实测 148 处占位符 → 32 logical key），用户填一次按 fieldPath fan-out 到所有 location（CLI `--fill-secrets` / `--secrets-json` + UI step 3「填 K 个 secret」）
+- **Config visualization**: display all config files grouped by tool
+- **Source-file viewing + direct edit/save**: CodeMirror 6 syntax highlighting + line numbers + folding + search (Cmd+F); edit mode includes external-modification TOCTOU detection
+- **Markdown rendering**: markdown files such as `CLAUDE.md` use react-markdown + GFM + shiki code blocks by default
+- **Automatic tool version detection**
+- **CLI + GUI dual entry points**: `dch` subcommands cover all functionality; `dch gui` / `bun run dev` starts the desktop window
+- **Fast profile switching**: maintain multiple Claude / Codex configs (for example `claude-pro` / `claude-api`, `codex-plus` / `codex-api`) and atomically switch the global `~/.claude` / `~/.codex` symlink with one action
+- **Pre/post switch hooks**: each profile can define `preSwitch` / `postSwitch` shell scripts for automatically killing leftover processes, starting VPN, health checks, osascript notifications, etc. `preSwitch` failure aborts the switch
+- **Shell wrapper env injection**: `dch profile env` + a `~/.zshrc` subshell wrapper injects `profile.env` into the claude / codex process itself (OAuth / API through proxy)
+- **Backup and restore (.dchpack)**: package all profiles + shared resources (hook scripts + `~/.agents/`) into one file for cross-machine migration / local disaster recovery / sharing profiles with teammates. **Tokens / API keys are placeholder-redacted by default** for safe sharing; CLI + UI entry points are both supported. During restore, secrets-index globally deduplicates placeholders (observed: 148 placeholders -> 32 logical keys), so the user fills once and fan-out writes to every location by `fieldPath` (CLI `--fill-secrets` / `--secrets-json` + UI step 3 "fill K secrets").
 
-## 环境要求
+## Requirements
 
-- [Bun](https://bun.sh/) ≥ 1.1（Windows 用 `irm bun.sh/install.ps1 | iex` 安装）
-- [Rust](https://rustup.rs/) ≥ 1.77
-- 平台：macOS 12+ / **Windows 10 1703+**（Win 用 junction 不需要 Developer Mode）/ Linux（GTK + WebKitGTK）
+- [Bun](https://bun.sh/) >= 1.1 (on Windows, install with `irm bun.sh/install.ps1 | iex`)
+- [Rust](https://rustup.rs/) >= 1.77
+- Platform: macOS 12+ / **Windows 10 1703+** (Windows uses junctions and does not require Developer Mode) / Linux (GTK + WebKitGTK)
 
-## 快速开始
+## Quick Start
 
 ```bash
-# 安装依赖
+# Install dependencies
 bun install
 
-# 开发模式（Tauri 桌面窗口 + HMR）
+# Development mode (Tauri desktop window + HMR)
 bun run dev
 
-# 构建生产包
+# Build production package
 bun run build
 
-# 装到 /Applications（macOS）
+# Install to /Applications (macOS)
 bunx tauri build --bundles app
 cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 
-# 装到 Windows（产物 .msi 在 src-tauri/target/release/bundle/msi/）
+# Install on Windows (the .msi output is under src-tauri/target/release/bundle/msi/)
 # bunx tauri build --bundles msi
-# 双击安装即可
+# Double-click to install
 
-# CLI 模式
-bun run cli                                # 总览
-bun run cli claude                         # 查看 Claude Code 配置
-bun run cli edit ~/.claude/settings.json   # 用 $EDITOR 编辑（Win 默认 notepad）
-bun run cli gui                            # 启动桌面窗口
+# CLI mode
+bun run cli                                # overview
+bun run cli claude                         # view Claude Code config
+bun run cli edit ~/.claude/settings.json   # edit with $EDITOR (Windows defaults to notepad)
+bun run cli gui                            # start desktop window
 
-# Profile 子命令
-bun run cli profile                              # 列出所有 profile
-bun run cli profile init claude                  # 把 ~/.claude 转成 symlink/junction 并建立默认 profile
+# Profile subcommands
+bun run cli profile                              # list all profiles
+bun run cli profile init claude                  # convert ~/.claude to symlink/junction and create default profile
 bun run cli profile add claude claude-api --dir ~/.claude-api --env ANTHROPIC_API_KEY=sk-...
-bun run cli profile use claude-api               # 原子切换 + 跑 pre/post hook
+bun run cli profile use claude-api               # atomic switch + run pre/post hooks
 ```
 
-首次 `bun run dev` 需要编译 Rust 依赖，约 2-3 分钟，后续启动秒开。
+The first `bun run dev` must compile Rust dependencies and takes about 2-3 minutes; later starts are near-instant.
 
-## CLI 用法
+## CLI Usage
 
-通过 `bun link` 注册全局命令后可直接使用 `dch`：
+After registering the global command with `bun link`, use `dch` directly:
 
 ```bash
 bun link
 
-dch                   # 总览所有工具
-dch shell             # Shell 配置
-dch claude            # Claude Code 配置
-dch codex             # Codex CLI 配置
-dch all               # 全部展示
-dch gui               # 启动桌面窗口（等同于 bun run dev）
-dch edit <file>       # 用 $EDITOR 编辑指定配置文件
+dch                   # overview of all tools
+dch shell             # Shell config
+dch claude            # Claude Code config
+dch codex             # Codex CLI config
+dch all               # show everything
+dch gui               # start desktop window (same as bun run dev)
+dch edit <file>       # edit a specific config file with $EDITOR
 
-# Profile 管理
-dch profile                                  # 列出所有 profile（按 tool 分组，标记 active）
-dch profile show <id>                        # 打印 profile JSON
-dch profile add <claude|codex> <id> [...]    # 添加 profile：--dir / --env K=V / --from / --desc
-dch profile edit <id>                        # $EDITOR 打开 ~/.dch/profiles.json
-dch profile remove <id> [--yes]              # 删除 profile（不删 configDir）
-dch profile use <id>                         # 原子切换 ~/.claude / ~/.codex symlink + 跑 pre/post hook
-dch profile current [tool]                   # 查询当前 active
-dch profile env <claude|codex>               # 输出 active profile.env 为 shell-eval 格式
-dch profile init <claude|codex>              # 把 ~/.claude / ~/.codex 转成 symlink，建立 default profile
-dch profile hook test <id> <pre|post>        # 单独运行 hook 测试
-dch profile config hookTimeoutMs <ms>        # 设置 hook 超时
-dch profile backup [opts]                    # 备份所有 profile + 共享资源到 .dchpack
-                                             # 默认覆盖 ~/.dch/backups/latest.dchpack（默认位）
-                                             # [--keep] 保留为 dch-backup-<TS>.dchpack 历史副本
+# Profile management
+dch profile                                  # list all profiles (grouped by tool, active marked)
+dch profile show <id>                        # print profile JSON
+dch profile add <claude|codex> <id> [...]    # add profile: --dir / --env K=V / --from / --desc
+dch profile edit <id>                        # open ~/.dch/profiles.json in $EDITOR
+dch profile remove <id> [--yes]              # delete profile (does not delete configDir)
+dch profile use <id>                         # atomically switch ~/.claude / ~/.codex symlink + run pre/post hooks
+dch profile current [tool]                   # query current active profile
+dch profile env <claude|codex>               # output active profile.env in shell-eval format
+dch profile init <claude|codex>              # convert ~/.claude / ~/.codex to symlink and create default profile
+dch profile hook test <id> <pre|post>        # run one hook for testing
+dch profile config hookTimeoutMs <ms>        # set hook timeout
+dch profile backup [opts]                    # back up all profiles + shared resources to .dchpack
+                                             # overwrites ~/.dch/backups/latest.dchpack by default (default slot)
+                                             # [--keep] keep as dch-backup-<TS>.dchpack history copy
                                              # [--out <file>] [--profiles <id1,id2>] [--no-shared]
                                              # [--no-placeholder] [--yes]
-dch profile restore <pack> [opts]            # 还原 .dchpack（自动加 -restored-<TS> 后缀避免撞名）
+dch profile restore <pack> [opts]            # restore .dchpack (auto-adds -restored-<TS> suffix to avoid name collisions)
                                              # [--prefix <p>] [--rename OLD=NEW,...]
                                              # [--dry-run] [--yes]
-                                             # [--fill-secrets] 交互式逐个填回 K 个唯一凭据（隐藏输入）
-                                             # [--secrets-json <file>] 从 JSON 文件喂入（CI / 自动化）
-dch profile backups                          # 列出所有 .dchpack（默认位 / 置顶 / 历史 三组）
-dch profile backup-rm <file> [--yes]         # 删除指定备份（basename 或绝对路径，同名 .pinned 一并删）
-dch profile backup-pin <file> [--unpin]      # 置顶（默认位 → 复制副本 + 置顶；其他 → 原地置顶）
+                                             # [--fill-secrets] interactively fill K unique secrets (hidden input)
+                                             # [--secrets-json <file>] feed from JSON file (CI / automation)
+dch profile backups                          # list all .dchpack files (default / pinned / history groups)
+dch profile backup-rm <file> [--yes]         # delete a backup (basename or absolute path; deletes same-name .pinned too)
+dch profile backup-pin <file> [--unpin]      # pin (default slot -> copy + pin; others -> pin in place)
 ```
 
-## Profile 系统
+## Profile System
 
-### 数据模型
+### Data Model
 
-所有 profile 持久化在 `~/.dch/profiles.json`：
+All profiles are persisted in `~/.dch/profiles.json`:
 
 ```jsonc
 {
@@ -135,7 +135,7 @@ dch profile backup-pin <file> [--unpin]      # 置顶（默认位 → 复制副�
       "description": "Claude Code via API key",
       "hooks": {
         "preSwitch":  "pkill -f 'claude' || true",
-        "postSwitch": "osascript -e 'display notification \"切到 API\" with title \"dch\"'"
+        "postSwitch": "osascript -e 'display notification \"Switched to API\" with title \"dch\"'"
       }
     }
   ],
@@ -146,29 +146,29 @@ dch profile backup-pin <file> [--unpin]      # 置顶（默认位 → 复制副�
 }
 ```
 
-> `profile.env` 默认只在 `preSwitch` / `postSwitch` 脚本里可见（用于 hook 内 curl 走代理等）。**要让 env 也注入到 claude / codex 进程本身**（如 OAuth 登录走 HTTP 代理），用 `dch profile env <tool>` + zshrc shell wrapper（见下「shell wrapper」节）。或者把 env 写到 `<configDir>/settings.json` 的 `env` 块（仅 claude code 支持，codex 没有这个机制）。
+> By default, `profile.env` is visible only inside `preSwitch` / `postSwitch` scripts (for hook-local curl proxy settings, etc.). **To also inject env into the claude / codex process itself** (such as OAuth login through an HTTP proxy), use `dch profile env <tool>` + a zshrc shell wrapper (see the "Shell wrapper" section below). Alternatively, write env into the `env` block in `<configDir>/settings.json` (Claude Code only; Codex has no such mechanism).
 
-### Hook 注入的环境变量
+### Hook-Injected Environment Variables
 
-执行 `preSwitch` / `postSwitch` 脚本时注入以下变量：
+When running `preSwitch` / `postSwitch` scripts, the following variables are injected:
 
 ```
-DCH_PROFILE_ID         切到的 profile id
+DCH_PROFILE_ID         profile id being switched to
 DCH_PROFILE_TOOL       claude | codex
-DCH_PROFILE_CONFIG_DIR 该 profile 的绝对路径
-DCH_SWITCH_TO          目标 profile id（同 DCH_PROFILE_ID）
-DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
+DCH_PROFILE_CONFIG_DIR absolute path of that profile
+DCH_SWITCH_TO          target profile id (same as DCH_PROFILE_ID)
+DCH_SWITCH_FROM        previous active profile id (may be empty after first init)
 ```
 
-**Hook 脚本两种形式**（types.ts `HookScript = string | { posix?, powershell?, cmd? }`）：
+**Two hook script forms** (`types.ts` `HookScript = string | { posix?, powershell?, cmd? }`):
 
 ```jsonc
-// 形式 1：string（向后兼容；按当前平台默认 shell 跑）
+// Form 1: string (backward-compatible; runs with the current platform's default shell)
 "hooks": {
-  "preSwitch": "echo hello"   // POSIX → bash -lc / Win → powershell -NoProfile -Command
+  "preSwitch": "echo hello"   // POSIX -> bash -lc / Win -> powershell -NoProfile -Command
 }
 
-// 形式 2：object（推荐用于带平台特定语法的脚本）
+// Form 2: object (recommended for scripts with platform-specific syntax)
 "hooks": {
   "preSwitch": {
     "posix":      "pkill -f 'claude' || true",
@@ -177,28 +177,28 @@ DCH_SWITCH_FROM        先前 active profile id（首次 init 后可能为空）
 }
 ```
 
-变量在 PowerShell 内通过 `$env:DCH_PROFILE_ID` 访问；POSIX 通过 `$DCH_PROFILE_ID`。
+PowerShell accesses variables through `$env:DCH_PROFILE_ID`; POSIX uses `$DCH_PROFILE_ID`.
 
-`preSwitch` 退出码非零会中断切换、不更新 active 状态、不跑 postSwitch。`postSwitch` 失败仅警告。
+A nonzero `preSwitch` exit code aborts the switch, does not update active state, and does not run `postSwitch`. `postSwitch` failure only warns.
 
-### 切换语义
+### Switching Semantics
 
-`dch profile use <id>` 做这几件事：
+`dch profile use <id>` does the following:
 
-1. 跑 `preSwitch` hook（含 profile.env），失败则中断
-2. 原子修改 `~/.claude` / `~/.codex` symlink 指向 `profile.configDir`
-   - **macOS / Linux**：`ln -s` 临时名 + `mv` 覆盖（POSIX rename 原子）
-   - **Windows**：`fs.symlink(target, path, 'junction')` NTFS reparse point；要求 target 是绝对路径目录、不能跨分区（profile configDir 都在用户主目录下，全部满足）
-3. 写回 `~/.dch/profiles.json` 的 `active.<tool>`
-4. 跑 `postSwitch` hook
+1. Run the `preSwitch` hook (with `profile.env`); abort on failure
+2. Atomically modify the `~/.claude` / `~/.codex` symlink to point at `profile.configDir`
+   - **macOS / Linux**: temporary `ln -s` name + overwrite with `mv` (POSIX rename is atomic)
+   - **Windows**: `fs.symlink(target, path, 'junction')` NTFS reparse point; target must be an absolute directory path and cannot cross partitions (profile configDirs are all under the user home, so they satisfy this)
+3. Write back `active.<tool>` in `~/.dch/profiles.json`
+4. Run the `postSwitch` hook
 
-第一次切换前必须跑一次 `dch profile init <tool>`：会把现有真实目录 `~/.claude` / `~/.codex` mv 到 `~/.<tool>-default`，再 ln -s / 建 junction 回去并注册成 default profile。
+Before the first switch, run `dch profile init <tool>` once: it moves the existing real `~/.claude` / `~/.codex` directory to `~/.<tool>-default`, then symlinks / junctions back to it and registers it as the default profile.
 
-### Shell wrapper（让 profile.env 注入到 claude / codex 进程）
+### Shell Wrapper (Inject `profile.env` Into Claude / Codex Processes)
 
-dch 切 profile 不会启动 claude / codex 进程，所以 `profile.env` 默认到不了 OAuth 登录 / API 调用的进程里。在 shell 启动文件里加 wrapper，每次跑 `claude` / `codex` 时从 active profile.env 取 env 注入：
+dch does not start the claude / codex process when switching profiles, so `profile.env` does not reach the OAuth login / API call process by default. Add wrappers in the shell startup file so each `claude` / `codex` run reads env from the active profile.env and injects it:
 
-**macOS / Linux**（`~/.zshrc` 或 `~/.bashrc`）：
+**macOS / Linux** (`~/.zshrc` or `~/.bashrc`):
 
 ```bash
 claude() (
@@ -211,7 +211,7 @@ codex() (
 )
 ```
 
-**Windows**（PowerShell `$PROFILE`）：
+**Windows** (PowerShell `$PROFILE`):
 
 ```powershell
 function claude {
@@ -225,302 +225,302 @@ function claude {
   }
   & claude.exe @args
 }
-# codex wrapper 同模式
+# codex wrapper follows the same pattern
 ```
 
-要点：
+Key points:
 
-- POSIX 子 shell `(...)` 包裹：env 只对 claude / codex 进程生效，**不污染父 shell**
-- `exec command claude` 替换子 shell 进程，少一层 fork，且绕过 wrapper 自身防止递归
-- Win PowerShell function 用 `[Environment]::SetEnvironmentVariable(..., "Process")` 写 process-scoped env（不污染当前 shell session 之外的进程）
-- `dch profile env <tool>` active 为空 / env 空 → 静默无输出，wrapper 自然 fall-through 到原命令
-- profile.env key 走严格 `^[A-Za-z_][A-Za-z0-9_]*$` 校验 + value 单引号包裹，**无 shell 注入风险**
+- POSIX subshell `(...)` wrapper: env affects only the claude / codex process and **does not pollute the parent shell**
+- `exec command claude` replaces the subshell process, avoids one extra fork, and bypasses the wrapper itself to prevent recursion
+- Windows PowerShell function writes process-scoped env with `[Environment]::SetEnvironmentVariable(..., "Process")` (does not pollute processes outside the current shell session)
+- `dch profile env <tool>` active empty / env empty -> silent output, so the wrapper naturally falls through to the original command
+- profile.env keys use strict `^[A-Za-z_][A-Za-z0-9_]*$` validation + single-quoted values, so there is **no shell-injection risk**
 
-切换 profile 后**新跑**的 claude / codex 自动用新 profile 的 env，无需 reload shell。
+After switching profiles, newly started claude / codex processes automatically use the new profile env; no shell reload required.
 
-## 备份与还原（.dchpack）
+## Backup And Restore (.dchpack)
 
-把所有 profile + 共享资源（`~/.dch/scripts/` hook 脚本 + `~/.agents/` 全局 agent/skill）打成单文件 `.dchpack`，用于跨机器迁移 / 本地灾备 / 分享 profile 给同事。**默认脱敏 token / API key 为占位符**，安全分享。
+Package all profiles + shared resources (`~/.dch/scripts/` hook scripts + `~/.agents/` global agents/skills) into one `.dchpack` file for cross-machine migration / local disaster recovery / sharing profiles with teammates. **Tokens / API keys are placeholder-redacted by default** for safe sharing.
 
-### 三层备份模型
+### Three-Tier Backup Model
 
-`~/.dch/backups/` 下的备份按用途分三组：
+Backups under `~/.dch/backups/` are grouped by purpose:
 
-| 类别 | 文件名模式 | 行为 | 用途 |
+| Category | Filename Pattern | Behavior | Purpose |
 |---|---|---|---|
-| **📌 默认位** | `latest.dchpack`（固定） | 每次 `dch profile backup` 覆盖 | 最新一次备份；类比 git working tree 的"当前快照" |
-| **⭐ 置顶** | 任意 + 同名 `.pinned` sidecar | 不会被覆盖 | 重要里程碑保留，永久留存直到手动删 |
-| **📜 历史** | `dch-backup-<YYYYMMDD-HHMMSS>.dchpack` | `--keep` 创建，无 sidecar | 显式快照，按时间累积 |
+| **📌 Default slot** | `latest.dchpack` (fixed) | Overwritten by each `dch profile backup` | Latest backup; analogous to the "current snapshot" in a git working tree |
+| **⭐ Pinned** | Any file + same-name `.pinned` sidecar | Never overwritten | Important milestone kept permanently until manually deleted |
+| **📜 History** | `dch-backup-<YYYYMMDD-HHMMSS>.dchpack` | Created by `--keep`, no sidecar | Explicit snapshots accumulated over time |
 
-「置顶默认位」语义：复制 `latest.dchpack` → `dch-backup-<TS>.dchpack` + 加 `.pinned` sidecar。原 `latest.dchpack` 仍是默认位，下次 backup 继续覆盖；置顶副本永久保留。
+"Pin default slot" semantics: copy `latest.dchpack` -> `dch-backup-<TS>.dchpack` + add `.pinned` sidecar. The original `latest.dchpack` remains the default slot and the next backup still overwrites it; the pinned copy is retained permanently.
 
-### 命令
+### Commands
 
 ```bash
-# 备份所有 profile + 共享资源 → ~/.dch/backups/latest.dchpack（覆盖默认位）
+# Back up all profiles + shared resources -> ~/.dch/backups/latest.dchpack (overwrite default slot)
 dch profile backup
 
-# 保留为历史副本（不覆盖默认位）
+# Keep as a history copy (do not overwrite default slot)
 dch profile backup --keep
-# → ~/.dch/backups/dch-backup-<YYYYMMDD-HHMMSS>.dchpack
+# -> ~/.dch/backups/dch-backup-<YYYYMMDD-HHMMSS>.dchpack
 
-# 备份子集
+# Back up a subset
 dch profile backup --profiles claude-pro,codex-pro --out /tmp/share.dchpack
 
-# 不脱敏（保留原始 token / API key，强制二次确认）
+# Do not redact (keep raw token / API key; requires second confirmation)
 dch profile backup --no-placeholder
 
-# 还原（自动加 -restored-<TS> 后缀避免撞名；不切 active）
+# Restore (auto-adds -restored-<TS> suffix to avoid name collisions; does not switch active)
 dch profile restore ~/.dch/backups/latest.dchpack
 
-# 交互式填回 K 个唯一凭据（隐藏输入；ENTER 跳过；Ctrl+C 中止）
+# Interactively fill K unique secrets (hidden input; ENTER skips; Ctrl+C aborts)
 dch profile restore <file> --fill-secrets
 
-# CI / 自动化场景：从 JSON 文件喂入凭据，全自动 fan-out 到所有 location
+# CI / automation: feed secrets from a JSON file and automatically fan out to all locations
 echo '{"ANTHROPIC_AUTH_TOKEN-1":"sk-ant-...","API_KEY-1":"sk-..."}' > secrets.json
 dch profile restore <file> --secrets-json secrets.json --yes
-# 缺 key → 计入 skipped（保留占位符）；多 key → 计入 unknown（warn 不 fail）
+# Missing key -> counted as skipped (placeholder kept); extra key -> counted as unknown (warn, do not fail)
 
-# dry-run 看冲突 / 唯一凭据总览（去重后）/ 共享资源 diff
+# dry-run conflicts / unique secret overview (after dedup) / shared resource diff
 dch profile restore <file> --dry-run
 
-# 改名指定 profile
+# Rename specific profile
 dch profile restore <file> --rename claude-pro=claude-pro-v2,codex-pro=codex-pro-v2
 
-# 全局后缀
+# Global suffix
 dch profile restore <file> --prefix -from-mac
 
-# 列出所有备份（按 default / pinned / history 三组分组）
+# List all backups (grouped by default / pinned / history)
 dch profile backups
 
-# 置顶 / 取消置顶
-dch profile backup-pin latest.dchpack       # 默认位 → 复制副本 + 置顶
+# Pin / unpin
+dch profile backup-pin latest.dchpack       # default slot -> copy + pin
 dch profile backup-pin dch-backup-XXX.dchpack
-dch profile backup-pin <file> --unpin       # 取消置顶
+dch profile backup-pin <file> --unpin       # unpin
 
-# 删除指定备份（同名 .pinned sidecar 一并删）
+# Delete a backup (also deletes same-name .pinned sidecar)
 dch profile backup-rm dch-backup-XXX.dchpack [--yes]
 ```
 
 ### UX
 
-- ProfilePanel 顶部按钮：`📦 导出备份` / `📚 备份历史` / `📥 导入备份`
-- 单 profile 卡片：`📦 导出` 按钮（只导该 profile + 共享资源）
-- 导出 modal 含「保留为历史」开关（默认 false = 覆盖 latest.dchpack；勾选 = 写时间戳历史副本），并可展开查看备份规则
-- 备份历史 modal 三区显示（默认位 / 置顶 / 历史），每行：filename / 时间 / 大小 / profile 数 / 占位符数 / 来源主机；行操作：还原 / 置顶 / 删除
-- 还原 modal 显示来源元数据 / 撞名改名 / 共享资源 diff / 占位符待填清单
+- ProfilePanel top buttons: `📦 Export Backup` / `📚 Backup History` / `📥 Import Backup`
+- Single profile card: `📦 Export` button (exports only that profile + shared resources)
+- Export modal includes a "Keep as history" toggle (default false = overwrite `latest.dchpack`; checked = write a timestamped history copy) and expandable backup-rule details
+- Backup history modal shows three sections (default slot / pinned / history), each row: filename / time / size / profile count / placeholder count / source host; row actions: restore / pin / delete
+- Restore modal shows source metadata / name-collision rename / shared resource diff / placeholders-to-fill checklist
 
-### 跨机器迁移完整流程
+### Complete Cross-Machine Migration Flow
 
-**老机器**：
+**Old machine**:
 
 ```bash
 dch profile backup
-# → ~/.dch/backups/latest.dchpack（加 --keep 则另存 dch-backup-<YYYYMMDD-HHMMSS>.dchpack）
-# 用 AirDrop / scp / U 盘把 .dchpack 传到新机器
+# -> ~/.dch/backups/latest.dchpack (add --keep to save as dch-backup-<YYYYMMDD-HHMMSS>.dchpack instead)
+# Transfer the .dchpack to the new machine with AirDrop / scp / USB drive
 ```
 
-**新机器**（首次安装 dch + 还原）：
+**New machine** (first install dch + restore):
 
 ```bash
 git clone <dev-config-hub repo> && cd dev-config-hub
 bunx tauri build --bundles app
 cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 
-# 关键：先 init 让 ~/.claude / ~/.codex 变成 symlink + 建 default profile
-# 不 init 直接 use 会报「target 不存在，请先跑: dch profile init」
+# Important: init first so ~/.claude / ~/.codex become symlinks and default profiles are created
+# Using without init reports: target does not exist; run first: dch profile init
 dch profile init claude && dch profile init codex
 
-# 还原
-dch profile restore <pack> --dry-run    # 看冲突 / 占位符 / 共享 diff
-dch profile restore <pack>              # 真还原（不切 active）
+# Restore
+dch profile restore <pack> --dry-run    # inspect conflicts / placeholders / shared diff
+dch profile restore <pack>              # real restore (does not switch active)
 
-# 编辑提示的占位符文件填回真凭据，然后切换
+# Fill real credentials back into the placeholder files reported by the prompt, then switch
 dch profile use <id>
 ```
 
-### 凭据填回（迁移到新机器后）
+### Filling Credentials Back In (After Migrating To A New Machine)
 
-backup 阶段所有敏感字段被替换为 `<<DCH_PLACEHOLDER:KEY_NAME>>`，并按 `(fieldName, sha256(value))` 全局合并成 `manifest.secrets_index` —— **实测一次 4 profile 备份 148 处占位符 → 32 logical key（4.6x dedup 压缩）**，restore 时填一次按 fieldPath 自动 fan-out 到所有 location。
+During backup, all sensitive fields are replaced with `<<DCH_PLACEHOLDER:KEY_NAME>>` and globally merged into `manifest.secrets_index` by `(fieldName, sha256(value))`. **Observed in one 4-profile backup: 148 placeholders -> 32 logical keys (4.6x dedup compression)**. During restore, filling once automatically fans out to all locations by `fieldPath`.
 
-#### 三种填法
+#### Three Fill Methods
 
-**1. UI 4 步流程**（推荐桌面用户）
+**1. UI 4-step flow** (recommended for desktop users)
 
-`📥 导入备份` → preview → rename conflicts → **填 K 个 secret**（新增）→ apply+report。
+`📥 Import Backup` -> preview -> rename conflicts -> **fill K secrets** (new) -> apply+report.
 
-step 2（rename）顶部蓝色 banner 同步列出 K 个 logical key 清单（不只是数字），让用户改名前就清楚下一步要填什么；step 3（填写）显示：
+The blue banner at the top of step 2 (rename) also lists the K logical keys (not just a number), so users know what they will need to fill before renaming. Step 3 (fill) shows:
 
-- monospace logical key 名（`ANTHROPIC_AUTH_TOKEN-1`）+ count + hint（`13 occurrences across 2 profiles`）
-- password input + 👁 eye icon toggle 显示明文
-- 「跳过」checkbox（保留占位符让用户后续手改）
-- details 折叠 N 个 packPath 出现位置（默认前 3，>3 显「+M more」）
-- 顶部 banner 4 状态：全跳过黄 / 全填绿 / 部分填中性 / 待处理蓝
+- monospace logical key name (`ANTHROPIC_AUTH_TOKEN-1`) + count + hint (`13 occurrences across 2 profiles`)
+- password input + eye icon toggle to reveal plaintext
+- "Skip" checkbox (keeps the placeholder for later manual editing)
+- details disclosure with N packPath occurrences (first 3 by default; when >3, show "+M more")
+- top banner with 4 states: all skipped yellow / all filled green / partial filled neutral / pending blue
 
-`📦 导出备份` 完成后 result 区也展示 K 个 unique secret 清单（数字 + 列每个 logical key 名 + count + hint），让用户备份完就知道将来 restore 要填几个、每个长什么样。
+After `📦 Export Backup` completes, the result area also shows the K unique-secret list (number + each logical key name + count + hint), so users know immediately how many values a future restore will require and what each key looks like.
 
-**2. CLI 交互模式**（隐藏输入）
+**2. CLI interactive mode** (hidden input)
 
 ```bash
 $ dch profile restore latest.dchpack --fill-secrets --yes
-填入 32 个唯一凭据 (148 处占位符 · ENTER 跳过 · Ctrl+C 中止)
+Fill 32 unique secrets (148 placeholders · ENTER skips · Ctrl+C aborts)
 
 [1/32] ANTHROPIC_AUTH_TOKEN-1 (count=4, 4 occurrences across 2 profiles)
   ↳ profiles/claude-default/configDir/providers/opus.json
   ↳ profiles/claude-pro/configDir/providers/opus.json
   ↳ profiles/claude-default/configDir/providers/sonnet.json
   ↳ +1 more
-Value (隐藏，ENTER 跳过): ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●
+Value (hidden, ENTER skips): ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●
 
 ...
 ```
 
-raw mode disable echo（用户敲键盘看不到任何字符，不泄露密码长度）；try/finally 恢复 raw mode 防 ctrl+c 让终端 stuck；非 TTY（CI / pipe）fall back 明文 line。
+Raw mode disables echo (typed characters are not shown, so password length is not leaked); `try/finally` restores raw mode so Ctrl+C does not leave the terminal stuck; non-TTY (CI / pipe) falls back to plaintext lines.
 
-**3. CLI JSON 自动化**（CI / 脚本场景）
+**3. CLI JSON automation** (CI / script scenarios)
 
 ```bash
 $ echo '{"ANTHROPIC_AUTH_TOKEN-1":"sk-ant-...","API_KEY-1":"sk-...","Authorization-1":"Bearer ..."}' > secrets.json
 $ dch profile restore latest.dchpack --secrets-json secrets.json --yes
-✓ 已还原 4 个 profile
-凭据填入: 已填 34 处 · 跳过 29 个 logical key · 未知 0
-剩余占位符 114 处（fan-out 后未替换的，多为 _meta.json env 段，需手改 ~/.dch/profiles.json）
+✓ Restored 4 profiles
+Secrets filled: filled 34 occurrences · skipped 29 logical keys · unknown 0
+Remaining placeholders: 114 occurrences (not replaced after fan-out, mostly _meta.json env sections; manually edit ~/.dch/profiles.json)
 ```
 
-JSON schema 严格校验：必须 plain object + 所有 value 是 string；缺 key 计入 `secretsSkipped`（保留占位符）；多 key 计入 `secretsUnknown`（warn 不 fail）。**secret value 永不打到 stdout**。
+JSON schema validation is strict: it must be a plain object and every value must be a string. Missing keys count as `secretsSkipped` (placeholder kept); extra keys count as `secretsUnknown` (warn, do not fail). **Secret values are never printed to stdout**.
 
-#### 安全约束
+#### Security Constraints
 
-- `manifest.secrets_index` 内**绝不**含 valueHash 或任何真值（hash 仅 backup 内存阶段做 group key，分配 logical key 后立即丢弃）
-- UI 端 secret 仅在调 `restoreApplyWithSecrets` 时一次性走 Tauri Rust tempfile route：webview TS 永远拿不到 tempfile 路径 / `OpenOptions::create_new(true).mode(0o600)` 限本用户读写 / drop guard 强制 `remove_file` cleanup
-- CLI 隐藏输入 + JSON 自动化都不会把真值打到 stdout（日志只用 logical key 名 / count / hint）
-- 旧 dchpack（无 `secrets_index`）restore 时自动 fall back 到原 dump 清单，向后兼容
+- `manifest.secrets_index` **never** contains `valueHash` or any real value (hash is used only as an in-memory group key during backup and is discarded immediately after assigning the logical key)
+- UI secrets cross the Tauri Rust tempfile route only once when calling `restoreApplyWithSecrets`: webview TS never sees the tempfile path / `OpenOptions::create_new(true).mode(0o600)` restricts read/write to the current user / drop guard forces `remove_file` cleanup
+- CLI hidden input and JSON automation never print real values to stdout (logs use only logical key names / count / hint)
+- Old dchpacks without `secrets_index` automatically fall back to the original dump list during restore, preserving backward compatibility
 
-#### 已知限定
+#### Known Limits
 
-- **整文件凭据**（`auth.json` / `credentials.json`）：跳过 dedup（OAuth payload 跨 profile 必然不同），每个 location 独立 logical key。fill 后文件结构是 `{"placeholder": "<填入字符串>"}` 仍非真正的 OAuth payload —— 整文件凭据请用工具自身重新登录获取，不要期待 fill 重建出有效 OAuth
-- **profile.env 段**（`_meta.json` 的 `$.env.K`）：fan-out 阶段排除（fieldPath 与 `~/.dch/profiles.json` 顶层结构 `{ profiles: [...], active: {...} }` 不对齐），用户后续手改 profiles.json
+- **Whole-file credentials** (`auth.json` / `credentials.json`): skipped by dedup (OAuth payloads necessarily differ across profiles), so each location gets its own logical key. After fill, the file shape is `{"placeholder": "<filled string>"}`, still not a real OAuth payload. Use the tool itself to log in again for whole-file credentials; do not expect fill to reconstruct a valid OAuth payload.
+- **`profile.env` sections** (`_meta.json` `$.env.K`): excluded from fan-out (fieldPath does not align with the top-level `~/.dch/profiles.json` shape `{ profiles: [...], active: {...} }`), so users manually edit profiles.json afterward.
 
-### 打包规则
+### Packaging Rules
 
-- **profile 配置目录**：对每个已选 profile，递归打包 `profile.configDir` 下的所有真文件；不维护「包含文件名白名单」，新配置文件和用户自定义目录会自动进入备份。
-- **不会跟随 symlink**：configDir 内的文件 / 目录 symlink 会被跳过，避免备份越过 profile 边界扫到外部路径。
-- **排除规则大小写不敏感**：例如 `client.PEM`、`.NETRC`、`history.DB-WAL` 与小写写法同样会被排除。
-- **排除运行态 / 缓存 / 历史数据**：`*.jsonl` 会话历史、`*.sqlite*` / `*.db*` 数据库、`*.log`、`*.lock`、`*.bak.*`、`*.backup.*`、`.DS_Store`；任意深度的隐藏 `.cache/` / `.tmp/`；以及 configDir 根级 `debug/`、`file-history/`、`session-env/`、`sessions/`、`shell_snapshots/`、`shell-snapshots/`、`paste-cache/`、`cache/`、`backups/`、`ide/`、`state/`、`tasks/`、`statsig/`、`log/`、`tmp/`、`memories/` 等目录。
-- **排除不可安全脱敏的凭据文件**：`.netrc`、`.ssh/**`、常见 SSH 私钥名（`id_rsa` / `id_dsa` / `id_ecdsa` / `id_ed25519` / `ssh/id_*`）、`*.pem`、`*.key`、`*.p12`、`*.pfx`、`*.jks`、`*.keystore`。这是安全默认：会整体跳过这些文件，不区分公钥证书和私钥。
-- **排除少量根级维护文件**：`.last-cleanup`、`.personality_migration`、`installation_id`、`mcp-needs-auth-cache.json`、`plugins/install-counts-cache.json`、`.claude.json`。
-- **共享资源**：`~/.dch/scripts/*` + `~/.agents/**` 默认一起打包；`--no-shared` 可关闭。
+- **Profile config directories**: for each selected profile, recursively package every real file under `profile.configDir`; there is no maintained "included filename whitelist", so new config files and user-defined directories automatically enter the backup.
+- **Symlinks are not followed**: file/directory symlinks inside configDir are skipped to prevent backups from crossing profile boundaries and scanning external paths.
+- **Exclude rules are case-insensitive**: for example, `client.PEM`, `.NETRC`, and `history.DB-WAL` are excluded the same way as lowercase spellings.
+- **Runtime / cache / history data is excluded**: `*.jsonl` session history, `*.sqlite*` / `*.db*` databases, `*.log`, `*.lock`, `*.bak.*`, `*.backup.*`, `.DS_Store`; hidden `.cache/` / `.tmp/` at any depth; and root-level configDir directories such as `debug/`, `file-history/`, `session-env/`, `sessions/`, `shell_snapshots/`, `shell-snapshots/`, `paste-cache/`, `cache/`, `backups/`, `ide/`, `state/`, `tasks/`, `statsig/`, `log/`, `tmp/`, `memories/`.
+- **Credential files that cannot be safely redacted are excluded**: `.netrc`, `.ssh/**`, common SSH private-key names (`id_rsa` / `id_dsa` / `id_ecdsa` / `id_ed25519` / `ssh/id_*`), `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`. This is the safe default: these files are skipped entirely without distinguishing public certificates from private keys.
+- **A small set of root-level maintenance files is excluded**: `.last-cleanup`, `.personality_migration`, `installation_id`, `mcp-needs-auth-cache.json`, `plugins/install-counts-cache.json`, `.claude.json`.
+- **Shared resources**: `~/.dch/scripts/*` + `~/.agents/**` are packaged by default; `--no-shared` disables this.
 
-实现规则见 `src/profiles/backup-rules.ts`。
+Implementation rules live in `src/profiles/backup-rules.ts`.
 
-### 加密迁移（含真凭据）
+### Encrypted Migration (Including Real Credentials)
 
-`--no-placeholder` 模式保留原始 token，需自己加密外层：
+`--no-placeholder` mode keeps raw tokens, so encrypt the outer file yourself:
 
 ```bash
 dch profile backup --no-placeholder --keep
 gpg --symmetric --cipher-algo AES256 ~/.dch/backups/dch-backup-<TS>.dchpack
-# 传输 .gpg → 新机器 gpg --decrypt → dch profile restore（无占位符 → 立即可用）
+# Transfer .gpg -> new machine, then gpg --decrypt -> dch profile restore (no placeholders -> immediately usable)
 ```
 
-## 项目结构
+## Project Structure
 
-测试文件（`*.test.ts(x)` / `fs_tests.rs`）与被测文件同目录，树中省略。
+Test files (`*.test.ts(x)` / `fs_tests.rs`) live next to the files they test and are omitted from this tree.
 
 ```
-├── AGENTS.md                 # 配套 agent 入口：只记录入口特定工具机制差异
-├── CLAUDE.md                 # 共享项目规则：Bun first / 记录流程 / 项目不变量 / 验证流程
-├── README.md                 # 用户视角功能总览、启动方式和项目结构
-├── build/fe/                 # 前端 build 产物（git ignored）
+├── AGENTS.md                 # Companion agent entry: only entry-specific tool mechanics differences
+├── CLAUDE.md                 # Shared project rules: Bun first / record workflow / project invariants / validation workflow
+├── README.md                 # User-facing feature overview, startup instructions, and project structure
+├── build/fe/                 # Frontend build output (git ignored)
 ├── src/
-│   ├── platform.ts           # 跨平台抽象：IS_DARWIN/IS_WIN/IS_LINUX、HOME、defaultShellRunner、defaultEditor
-│   ├── cli.ts                # CLI 入口
-│   ├── cli-colors.ts         # ANSI 颜色常量（cli.ts + cli-profile.ts 共享）
-│   ├── cli-profile.ts        # `dch profile ...` 子命令实现，支持 --json
-│   ├── cli-shared.ts         # cli-profile / cli-backup 共享 helper（JSON_MODE / parseFlags / readStdinLine 等）
-│   ├── cli-backup.ts         # `dch profile backup / restore / backups / backup-rm / backup-pin` 实现
-│   ├── format-bytes.ts       # 字节数格式化（CLI + 前端共用单一来源）
-│   ├── types.ts              # 共享类型（ConfigScope / ToolConfig）
-│   ├── schemas/              # 唯一保留：dch profiles.json 的 schema-aware 编辑器用
-│   │   ├── types.ts          # FieldSchema / ToolSchema 类型
-│   │   ├── dch-store.ts      # ~/.dch/profiles.json schema（ProfileStoreEditor 走 lint）
-│   │   └── to-json-schema.ts # FieldSchema → JSON Schema（codemirror-json-schema 用）
-│   ├── utils.ts              # 文件读取等工具
-│   ├── profiles/             # Profile 系统核心（Bun-only）
+│   ├── platform.ts           # Cross-platform abstraction: IS_DARWIN/IS_WIN/IS_LINUX, HOME, defaultShellRunner, defaultEditor
+│   ├── cli.ts                # CLI entry
+│   ├── cli-colors.ts         # ANSI color constants (shared by cli.ts + cli-profile.ts)
+│   ├── cli-profile.ts        # `dch profile ...` subcommand implementation, supports --json
+│   ├── cli-shared.ts         # Shared helper for cli-profile / cli-backup (JSON_MODE / parseFlags / readStdinLine, etc.)
+│   ├── cli-backup.ts         # `dch profile backup / restore / backups / backup-rm / backup-pin` implementation
+│   ├── format-bytes.ts       # Byte formatting (single shared source for CLI + frontend)
+│   ├── types.ts              # Shared types (ConfigScope / ToolConfig)
+│   ├── schemas/              # Only remaining use: schema-aware editor for dch profiles.json
+│   │   ├── types.ts          # FieldSchema / ToolSchema types
+│   │   ├── dch-store.ts      # ~/.dch/profiles.json schema (ProfileStoreEditor lint)
+│   │   └── to-json-schema.ts # FieldSchema -> JSON Schema (for codemirror-json-schema)
+│   ├── utils.ts              # File-reading utilities, etc.
+│   ├── profiles/             # Profile system core (Bun-only)
 │   │   ├── types.ts          # Profile / ProfileStore / HookScript / HookResult / ...
-│   │   ├── defaults.ts       # 新建 profile 的 configDir 默认值（UI / CLI 单一来源）
-│   │   ├── store.ts          # ~/.dch/profiles.json 读写 + 跨平台 collapseHome
-│   │   ├── store-shape.ts    # store default 补全（前端 / CLI 同源防分叉）
-│   │   ├── hooks.ts          # 执行 pre/post shell 脚本（平台分流）+ pickScriptForRunner
-│   │   ├── symlink.ts        # 符号链接切换（macOS/Linux symlink + Win junction）
-│   │   ├── manager.ts        # CRUD + switch 调度（共用核心）
-│   │   ├── backup.ts         # createBackup（.dchpack 归档 + secrets_index 集成）
-│   │   ├── backup-shared.ts  # 备份共享 types + fs / 子进程 helper
-│   │   ├── backup-restore.ts # parseBackup / applyBackup / applyBackupWithSecrets（fan-out fill）
-│   │   ├── backup-restore-paths.ts / backup-restore-secrets.ts # restore 路径校验 / secrets 填回 helper
-│   │   ├── backup-manage.ts  # listBackups / deleteBackup / pinBackup（默认位 + 置顶 + 历史 三层管理）
-│   │   ├── backup-rules.ts   # 目录语义备份排除项 + 敏感字段判断
-│   │   ├── secrets-index.ts  # backup placeholder 全局 dedup + restore fieldPath 寻址 fan-out
-│   │   ├── field-path.ts     # fieldPath 解析 + 寻址（secrets-index 拆出，经其透传 export）
-│   │   └── redact.ts         # JSON / TOML / 整文件级凭据脱敏（含 valueHash 给 secrets-index）
-│   ├── readers/              # 各工具的配置读取器（平台分流：Win 路径/PowerShell）
-│   │   ├── shell.ts          # POSIX zsh/bash / Win PowerShell $PROFILE
+│   │   ├── defaults.ts       # Default configDir values for new profiles (single source for UI / CLI)
+│   │   ├── store.ts          # ~/.dch/profiles.json read/write + cross-platform collapseHome
+│   │   ├── store-shape.ts    # Store default completion (shared by frontend / CLI to prevent drift)
+│   │   ├── hooks.ts          # Run pre/post shell scripts (platform split) + pickScriptForRunner
+│   │   ├── symlink.ts        # Symlink switching (macOS/Linux symlink + Windows junction)
+│   │   ├── manager.ts        # CRUD + switch orchestration (shared core)
+│   │   ├── backup.ts         # createBackup (.dchpack archive + secrets_index integration)
+│   │   ├── backup-shared.ts  # Shared backup types + fs / subprocess helpers
+│   │   ├── backup-restore.ts # parseBackup / applyBackup / applyBackupWithSecrets (fan-out fill)
+│   │   ├── backup-restore-paths.ts / backup-restore-secrets.ts # restore path validation / secrets fill helpers
+│   │   ├── backup-manage.ts  # listBackups / deleteBackup / pinBackup (three-tier default + pinned + history management)
+│   │   ├── backup-rules.ts   # Directory-semantic backup excludes + sensitive field detection
+│   │   ├── secrets-index.ts  # Global backup placeholder dedup + restore fieldPath addressing fan-out
+│   │   ├── field-path.ts     # fieldPath parsing + addressing (split from secrets-index and re-exported through it)
+│   │   └── redact.ts         # JSON / TOML / whole-file credential redaction (includes valueHash for secrets-index)
+│   ├── readers/              # Config readers for each tool (platform split: Windows paths/PowerShell)
+│   │   ├── shell.ts          # POSIX zsh/bash / Windows PowerShell $PROFILE
 │   │   ├── claude-code.ts
 │   │   └── codex.ts
-│   └── client/               # Tauri 前端（React）
+│   └── client/               # Tauri frontend (React)
 │       ├── index.html / main.tsx / App.tsx / styles.css / dev-server.ts
-│       ├── bridge.ts         # Tauri IPC 桥接 + dchProfile.* 包装 + readFileWithMtime + getHomeDir
-│       ├── bridge-core.ts    # dch CLI invoke primitive（bridge / bridge-backup 共用底座）
-│       ├── bridge-mtime.ts   # mtime CAS 错误类型 + classifier（TOCTOU 检测）
-│       ├── bridge-backup.ts  # backup IPC（restoreApplyWithSecrets / restorePreviewSecrets 等）
-│       ├── backup-cache.ts   # 备份历史 modal 跨 mount 缓存（避免重 spawn dch CLI）
-│       ├── format-bytes.ts   # 兼容 re-export → ../format-bytes.ts
+│       ├── bridge.ts         # Tauri IPC bridge + dchProfile.* wrappers + readFileWithMtime + getHomeDir
+│       ├── bridge-core.ts    # dch CLI invoke primitive (shared base for bridge / bridge-backup)
+│       ├── bridge-mtime.ts   # mtime CAS error type + classifier (TOCTOU detection)
+│       ├── bridge-backup.ts  # Backup IPC (restoreApplyWithSecrets / restorePreviewSecrets, etc.)
+│       ├── backup-cache.ts   # Cross-mount cache for backup history modal (avoids respawning dch CLI)
+│       ├── format-bytes.ts   # Compatibility re-export -> ../format-bytes.ts
 │       └── components/
-│           ├── ConfigPanel.tsx           # 配置主面板（view / edit / markdown render 三模式）
+│           ├── ConfigPanel.tsx           # Main config panel (view / edit / markdown render modes)
 │           ├── ProfilePanel.tsx
-│           ├── Select.tsx                # 自定义下拉框（替代原生 <select> 深色主题）
-│           ├── editor/                   # CodeMirror 6 包装
-│           │   ├── CMEditor.tsx          # React 19 受控包装（自包，非 @uiw）
-│           │   ├── theme.ts              # one-dark + 项目颜色 token
-│           │   ├── languages.ts          # ConfigScope.format → CM6 lang 扩展
-│           │   └── schema-lint.ts        # codemirror-json-schema 包装（仅 ProfileStoreEditor 用）
-│           ├── markdown/                 # react-markdown + shiki 代码块（MarkdownView / highlighter）
+│           ├── Select.tsx                # Custom dropdown (replaces native <select> for dark theme)
+│           ├── editor/                   # CodeMirror 6 wrapper
+│           │   ├── CMEditor.tsx          # React 19 controlled wrapper (self-wrapped, not @uiw)
+│           │   ├── theme.ts              # one-dark + project color tokens
+│           │   ├── languages.ts          # ConfigScope.format -> CM6 language extension
+│           │   └── schema-lint.ts        # codemirror-json-schema wrapper (ProfileStoreEditor only)
+│           ├── markdown/                 # react-markdown + shiki code blocks (MarkdownView / highlighter)
 │           ├── panel-visibility.tsx
-│           └── profile/                  # ProfilePanel 拆出来的子组件
+│           └── profile/                  # Components split out of ProfilePanel
 │               ├── AddProfileModal.tsx
 │               ├── ProfileCard.tsx
-│               ├── ProfileStoreEditor.tsx  # ~/.dch/profiles.json 的 schema-aware modal
-│               ├── ExportBackupModal.tsx   # 导出 .dchpack（profile 多选 + 共享开关 + keep / 占位符开关）
-│               ├── RestoreBackupModal.tsx  # 导入 .dchpack（4 步：preview + 改名 + 填 K 个 secret + apply+report）
-│               ├── restore-modal-bodies.tsx / restore-modal-helpers.ts # RestoreBackupModal 拆出的步骤 body / helper
-│               ├── RestoreSecretsBody.tsx  # step 3「填 K 个 secret」的 K logical key 表单
-│               ├── UniqueSecretsList.tsx / CrossFieldBadge.tsx # 去重凭据清单 + ⚡跨字段名标签
-│               ├── BackupHistoryModal.tsx  # 备份历史（默认位 / 置顶 / 历史 三组 + 还原 / 置顶 / 删除）
+│               ├── ProfileStoreEditor.tsx  # schema-aware modal for ~/.dch/profiles.json
+│               ├── ExportBackupModal.tsx   # Export .dchpack (profile multi-select + shared toggle + keep / placeholder toggle)
+│               ├── RestoreBackupModal.tsx  # Import .dchpack (4 steps: preview + rename + fill K secrets + apply+report)
+│               ├── restore-modal-bodies.tsx / restore-modal-helpers.ts # Step bodies / helpers split from RestoreBackupModal
+│               ├── RestoreSecretsBody.tsx  # Step 3 "fill K secrets" form for K logical keys
+│               ├── UniqueSecretsList.tsx / CrossFieldBadge.tsx # Deduplicated secret list + cross-field-name badge
+│               ├── BackupHistoryModal.tsx  # Backup history (default / pinned / history groups + restore / pin / delete)
 │               ├── HookOutputModal.tsx
 │               ├── PreferencesEditor.tsx
 │               └── helpers.ts
-├── src-tauri/                # Tauri 后端（Rust）
+├── src-tauri/                # Tauri backend (Rust)
 │   ├── Cargo.toml
 │   ├── tauri.conf.json
 │   └── src/
 │       ├── main.rs
-│       ├── lib.rs            # Tauri Builder + command 注册
-│       ├── atomic.rs         # 原子写 + mtime CAS（防半文件 / TOCTOU 覆盖）
-│       ├── path_policy.rs    # fs command 路径边界策略（防 webview 任意读写）
-│       ├── proc_timeout.rs   # spawn_with_timeout（process group + 超时杀整组）
+│       ├── lib.rs            # Tauri Builder + command registration
+│       ├── atomic.rs         # Atomic write + mtime CAS (prevents partial files / TOCTOU overwrite)
+│       ├── path_policy.rs    # fs command path-boundary policy (prevents arbitrary webview reads/writes)
+│       ├── proc_timeout.rs   # spawn_with_timeout (process group + timeout kills whole group)
 │       └── commands/
-│           ├── mod.rs        # command module 出口
+│           ├── mod.rs        # command module exports
 │           ├── dch.rs        # run_dch_command / secret tempfile IPC
-│           ├── fs.rs         # 文件读写 / mtime / read_link / read_dir IPC
+│           ├── fs.rs         # file read/write / mtime / read_link / read_dir IPC
 │           ├── shell.rs      # shell invocation helper
-│           └── version.rs    # 工具版本检测 IPC
+│           └── version.rs    # tool version detection IPC
 ├── ref/
-│   ├── changelogs/           # 功能 / 结构 / 依赖变更记录
-│   ├── reviews/              # debug / 性能 / 安全 / review 记录
-│   ├── plans/                # durable plan 归档
-│   └── conventions/          # 项目约定候选 tally 与升级后约定
+│   ├── changelogs/           # Feature / structure / dependency change records
+│   ├── reviews/              # Debug / performance / security / review records
+│   ├── plans/                # durable plan archive
+│   └── conventions/          # project convention candidate tally and promoted conventions
 ├── scripts/
-│   └── file-level-review-expiry.sh  # review 过期机械检查（见 CLAUDE.md §Review 过期）
+│   └── file-level-review-expiry.sh  # mechanical review-expiry check (see CLAUDE.md §Review Expiry)
 └── package.json
 ```
 

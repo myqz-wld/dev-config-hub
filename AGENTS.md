@@ -1,11 +1,11 @@
 # AGENTS.md
 
-> 本入口只记录与仓库共享规则的关系和必要入口差异；共享规则以 `CLAUDE.md` 为准。
+> This entry records only its relationship to the repository-wide shared rules and the necessary entry-specific differences. The shared rules are defined by `CLAUDE.md`.
 
-## 读取顺序
+## Reading Order
 
-先读取 `CLAUDE.md`，并按其中的仓库基础、目录架构、改动后要求、计划 / 评审生命周期、项目不变量和验证流程执行。改动 `CLAUDE.md` 或 `AGENTS.md` 任一入口前，同时审计另一份，保持规则语义一致。
+Read `CLAUDE.md` first, then follow its repository foundation, directory architecture, post-change requirements, plan/review lifecycle, project invariants, and validation workflow. Before changing either `CLAUDE.md` or `AGENTS.md`, audit the other entry at the same time so their rule semantics stay aligned.
 
-## 项目特定入口差异
+## Project-Specific Entry Differences
 
-当前没有额外入口差异；只有当本入口确实需要不同于 `CLAUDE.md` 的运行时或工具机制时，才在这里补充。
+There are currently no additional entry differences. Add content here only when this entry genuinely needs runtime or tool mechanics that differ from `CLAUDE.md`.
