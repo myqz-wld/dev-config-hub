@@ -1,11 +1,12 @@
 # AGENTS.md
 
-> This entry records only its relationship to the repository-wide shared rules and the necessary entry-specific differences. The shared rules are defined by `CLAUDE.md`.
+> Repository-level instructions for Codex-compatible entries.
+> Shared project workflow lives in `CLAUDE.md`. This file records only entry-specific runtime or tool differences.
 
-## Reading Order
+## Required Reading
 
-Read `CLAUDE.md` first, then follow its repository foundation, directory architecture, post-change requirements, plan/review lifecycle, project invariants, and validation workflow. Before changing either `CLAUDE.md` or `AGENTS.md`, audit the other entry at the same time so their rule semantics stay aligned.
+Read `CLAUDE.md` before task work and follow its shared repository workflow, including the UI/CLI copy language rule. Before changing either `CLAUDE.md` or `AGENTS.md`, audit the other entry at the same time so their rule semantics stay aligned.
 
-## Project-Specific Entry Differences
+## Entry-Specific Differences
 
-There are currently no additional entry differences. Add content here only when this entry genuinely needs runtime or tool mechanics that differ from `CLAUDE.md`.
+There are currently no entry-specific differences. Add a bullet only when this entry has a runtime or tool difference that changes the next action; keep shared rules in `CLAUDE.md`.
