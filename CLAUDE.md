@@ -5,7 +5,7 @@
 
 ## Repository Foundation
 
-- macOS environment (Tauri depends on WebKit; profile-switching semantics closely follow the macOS filesystem)
+- Primary development and test environment is macOS, while the product supports macOS, Windows 10+, and Linux. Preserve platform-specific profile switching: POSIX symlinks on macOS/Linux and NTFS junctions on Windows.
 - Package manager/runtime: **use Bun consistently** (do not mix npm / pnpm / yarn)
 - Rust >= 1.77 (Tauri v2 backend)
 - Before changing either `CLAUDE.md` or `AGENTS.md`, audit the other entry at the same time so their rule semantics stay aligned
@@ -29,9 +29,11 @@ When creating or maintaining the repository, place files according to this struc
 - `ref/conventions/tally.md`: tally entry for repeated user feedback / repeated agent pitfalls.
 - `.refs/`: must be in `.gitignore`; contains only non-final plan/review working copies, never final records.
 
-## Documentation Language
+## Documentation And UI/CLI Copy Language
 
 Write active project documentation and maintainer/agent-facing instructions in English by default, including changelogs, plans, reviews, and conventions. Exceptions are `UI_COPY_LANGUAGE.md`, user-facing UI/CLI copy governed by that file, locale examples, quoted/source text, and explicit non-English trigger anchors or examples.
+
+Before adding or changing user-facing UI or CLI copy, read `UI_COPY_LANGUAGE.md` and follow its active mode. If the requested copy language or supported locales differ from that file, update `UI_COPY_LANGUAGE.md` first, then make the UI/CLI copy change.
 
 ## Build & Local Install
 
@@ -43,6 +45,8 @@ cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 ---
 
 ## Required After Changes
+
+Before starting meaningful code or documentation changes, run `ls ref/conventions/ ref/changelogs/ ref/plans/ ref/reviews/ 2>/dev/null || true` to see existing project records. Missing directories are setup work, not an error.
 
 ### 1. Decide Whether To Update README.md
 
@@ -104,12 +108,21 @@ Repeated design decisions to watch before changing code:
 
 The frontend uses Bun HTML imports + the built-in bundler (automatic React / CSS / Tailwind support); do not introduce vite.
 
-### Profile System: Symlink Is The Only Switching Channel
+### Profile System: Symlink/Junction Is The Only Switching Channel
 
-- `~/.claude` / `~/.codex` are always symlinks pointing to a `<configDir>`. `dch profile use <id>` performs atomic replacement by first running `ln -s` to a temporary name and then overwriting with `mv`.
+- `~/.claude` / `~/.codex` always point to a `<configDir>` through filesystem indirection: POSIX symlink on macOS/Linux, NTFS junction on Windows. `dch profile use <id>` performs atomic replacement with temporary-name creation and rename; preserve Windows junction constraints: target must be an absolute directory path and stay on the same volume.
 - Before the first switch, `dch profile init <tool>` must run: move the existing real directory to `~/.<tool>-default`, symlink back to it, and register it as the default profile.
 - **Env switching mode is forbidden**: profile switching may use only symlink / junction. Do not add a path that skips symlink switching and only writes env into user-level `settings.json`; that path pollutes every cwd, and Codex has no equivalent mechanism (CHANGELOG_3).
 - Switching semantics have four steps: (1) run the `preSwitch` hook (with `profile.env`), abort on failure and do not update active; (2) atomically swap the symlink; (3) write back `active.<tool>` in `~/.dch/profiles.json`; (4) run the `postSwitch` hook, warning only on failure.
+
+### Backup And Restore (.dchpack)
+
+- Backups are safe-share by default: sensitive values are replaced with `<<DCH_PLACEHOLDER:KEY_NAME>>`; raw-token backup requires explicit `--no-placeholder` handling and external encryption.
+- `manifest.secrets_index` is the restore fan-out source of truth. It must not contain `valueHash` or real secret values; hashes may only exist as transient in-memory grouping data during backup.
+- Restore fills each logical secret once and fans out by `fieldPath`. Preserve known limits: whole-file credentials (`auth.json` / `credentials.json`) remain per-location placeholders, and `profile.env` sections may require manual `~/.dch/profiles.json` edits after restore.
+- Do not follow symlinks inside profile config directories. Keep path-boundary checks and case-insensitive excludes for runtime, cache, history, database, log, lock, backup, private-key, and maintenance files.
+- UI secret fill must cross the Tauri Rust tempfile route only once with restrictive permissions and guaranteed cleanup; webview TypeScript must not receive the tempfile path.
+- Backup include/exclude and sensitive-field rules live in `src/profiles/backup-rules.ts`; update that source and matching tests when backup package semantics change.
 
 ### Dual Injection Path For `profile.env`
 
@@ -149,7 +162,7 @@ Tool config files (`~/.claude/settings.json` / `~/.codex/config.toml` / `~/.zshr
 - **edit**: CodeMirror 6 writable + save (with TOCTOU external-modification detection)
 - **render** (markdown files only, such as `CLAUDE.md`): react-markdown + GFM + shiki code blocks
 
-**Do not reintroduce "list" / "schema-driven inline editing" / "field controls"**. The schema system has been fully removed (CHANGELOG_14). The only remaining schema residue is linting for the `~/.dch/profiles.json` edit modal (`ProfileStoreEditor`): `src/schemas/dch-store.ts` + `editor/schema-lint.ts` use codemirror-json-schema. This is an internal dch constraint and unrelated to tool config schemas.
+**Do not reintroduce "list" / "schema-driven inline editing" / "field controls"**. The schema system has been fully removed (CHANGELOG_14). The only remaining schema residue is linting for the `~/.dch/profiles.json` edit modal (`ProfileStoreEditor`): `src/schemas/dch-store.ts` + `src/client/components/editor/schema-lint.ts` use codemirror-json-schema. This is an internal dch constraint and unrelated to tool config schemas.
 
 ### Single File <= 500 Lines
 
