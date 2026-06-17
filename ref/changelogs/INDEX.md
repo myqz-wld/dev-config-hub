@@ -34,3 +34,4 @@ Functional changes, including new features, behavior changes, APIs, dependencies
 | [CHANGELOG_28.md](CHANGELOG_28.md) | Deduplicated entry assets and localized them to Chinese; added README expiry cleanup support; documented `scripts/` directory rules in CLAUDE.md |
 | [CHANGELOG_29.md](CHANGELOG_29.md) | Changed backup rules to directory semantics: profile configDir is packaged as a whole directory by default, skipping only runtime, cache, and history exclusion lists |
 | [CHANGELOG_30.md](CHANGELOG_30.md) | Made UI copy more user-centered for configuration plans, backup import, secret filling, backup-rule entry points, and selected-state fixes |
+| [CHANGELOG_31.md](CHANGELOG_31.md) | Aligned root foundation instructions with current templates while preserving Dev Config Hub-specific rules |
