@@ -29,6 +29,10 @@ When creating or maintaining the repository, place files according to this struc
 - `ref/conventions/tally.md`: tally entry for repeated user feedback / repeated agent pitfalls.
 - `.refs/`: must be in `.gitignore`; contains only non-final plan/review working copies, never final records.
 
+## Documentation Language
+
+Default active documentation, maintainer instructions, agent instructions, changelogs, plans, reviews, and conventions to English. Exceptions are `UI_COPY_LANGUAGE.md`, user-facing UI/CLI copy governed by that file, locale examples, quoted/source text, and explicit non-English trigger anchors or examples.
+
 ## Build & Local Install
 
 ```bash
