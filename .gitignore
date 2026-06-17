@@ -40,7 +40,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 src-tauri/target
 src-tauri/gen
 
-# Claude Code agent local state（plans 是跨会话草稿、worktrees 是 plan 隔离区，都不入项目 git）
+# Claude Code local state: plans are cross-session drafts, and worktrees are plan isolation directories.
 .claude/plans/
 .claude/worktrees/
 
