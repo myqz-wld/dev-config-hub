@@ -1,6 +1,6 @@
 # Plans Index
 
-Terminal plan documents live here. Draft or in-progress plans stay in the current environment's plan workspace; when no stronger convention exists, use `<repo>/.refs/plans/`. `.refs/` must stay ignored and must not contain terminal records.
+Terminal plan documents live here. Draft or in-progress plans stay in the current environment's plan workspace; when no stronger convention exists, use `<repo>/.ref/plans/`. `.ref/` must stay ignored and must not contain terminal records.
 
 When a plan reaches terminal state, archive the final document and plan-specific support material here, update this index, and remove workspace drafts.
 

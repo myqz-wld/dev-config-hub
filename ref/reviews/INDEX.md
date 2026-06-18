@@ -1,6 +1,6 @@
 # Reviews Index
 
-Debug, code review, performance audit, and security review reports. Draft review notes stay in the configured review workspace; when no stronger contract exists, use `<repo>/.refs/reviews/`, and `.refs/` must be listed in `.gitignore`. Terminal reviews are archived here. Functional changes belong in [Changelog Index](../changelogs/INDEX.md).
+Debug, code review, performance audit, and security review reports. Draft review notes stay in the configured review workspace; when no stronger contract exists, use `<repo>/.ref/reviews/`, and `.ref/` must be listed in `.gitignore`. Terminal reviews are archived here. Functional changes belong in [Changelog Index](../changelogs/INDEX.md).
 
 ## Naming
 
