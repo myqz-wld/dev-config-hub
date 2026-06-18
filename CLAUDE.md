@@ -27,7 +27,7 @@ Create or maintain files in this structure. Do not create parallel directories f
 - `ref/plans/INDEX.md`: final plan index. Completed plans are archived under `ref/plans/`.
 - `ref/conventions/INDEX.md`: index of promoted project conventions. Convention bodies use `ref/conventions/<X>-<topic>.md`.
 - `ref/conventions/tally.md`: tally entry for repeated user feedback / repeated agent pitfalls.
-- `.refs/`: must be in `.gitignore`; store only non-final plan/review working copies here, never final records.
+- `.ref/`: must be in `.gitignore`; store only non-final plan/review working copies here, never final records.
 
 ## UI/CLI Copy Language
 
@@ -74,7 +74,7 @@ Every meaningful change must record either a changelog or a review. Any change u
 
 ### 3. Plan / Review Lifecycle
 
-Non-final plan/review working copies live in the current environment workspace. Without a stronger contract, use `<repo>/.refs/plans/<plan-id>.md` or `<repo>/.refs/reviews/<review-id>.md`. At final handoff, archive terminal plans to `ref/plans/`, archive terminal reviews to `ref/reviews/REVIEW_X.md`, sync the relevant index, and clean up workspace drafts.
+Non-final plan/review working copies live in the current environment workspace. Without a stronger contract, use `<repo>/.ref/plans/<plan-id>.md` or `<repo>/.ref/reviews/<review-id>.md`. At final handoff, archive terminal plans to `ref/plans/`, archive terminal reviews to `ref/reviews/REVIEW_X.md`, sync the relevant index, and clean up workspace drafts.
 
 ### 4. Historical Records Gate
 
