@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import {
   dchProfile, type ProfileStore, type ToolKind,
   type HookResult,
@@ -39,7 +39,9 @@ interface Props {
   onReloadProfile: (silent?: boolean) => Promise<void>;
 }
 
-export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props) {
+// memo：常驻挂载 + display 切换下，App 重渲染时隐藏的 ProfilePanel 也会跟着重渲染。
+// store/active 仅在 profile reload 时变，onToast/onReloadProfile 在 App 已 useCallback 稳定。
+export const ProfilePanel = memo(function ProfilePanel({ store, active, onToast, onReloadProfile }: Props) {
   const [tool, setTool] = useState<ToolKind>("claude");
   const [busy, setBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -303,4 +305,4 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
       )}
     </div>
   );
-}
+});

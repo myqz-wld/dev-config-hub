@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, memo } from "react";
 import type { ToolConfig, ConfigScope } from "../../types.ts";
 import { CMEditor } from "./editor/CMEditor.tsx";
 import { languageExtensionFor } from "./editor/languages.ts";
@@ -225,7 +225,11 @@ function Scope({
   );
 }
 
-export function ConfigPanel({
+// memo：App 每次切换侧边栏 / 重画铅笔圈都会重渲染整树。tool 引用在非 reload 时稳定、
+// onSave/onToast 在 App 已 useCallback 稳定，故隐藏面板可跳过重渲染（含其下 MarkdownView
+// 的 react-markdown 重解析）。CMEditor 的可见性重测走 PanelVisibilityProvider context，
+// 不依赖本组件重渲染，memo 不影响它。
+export const ConfigPanel = memo(function ConfigPanel({
   tool,
   onSave,
   onToast,
@@ -250,4 +254,4 @@ export function ConfigPanel({
       ))}
     </div>
   );
-}
+});

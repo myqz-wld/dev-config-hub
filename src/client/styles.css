@@ -1,12 +1,17 @@
 :root {
   --bg0: #0d1117; --bg1: #161b22; --bg2: #1c2128; --bg3: #262c36; --bg4: #2d333b;
   --fg0: #e6edf3; --fg1: #c9d1d9; --fg2: #8b949e; --fg3: #484f58;
-  --blue: #58a6ff; --green: #3fb950; --purple: #bc8cff; --orange: #d29922;
+  --blue: #33567f; --green: #3fb950; --purple: #bc8cff; --orange: #d29922;
   --red: #f85149; --cyan: #39d2c0; --yellow: #e3b341;
   --border: rgba(240,246,252,0.06); --r: 10px; --rs: 6px;
+  /* 手写体统一栈：跨平台逐级降级到各 OS 预装的手写/楷书字体（无需打包字体资源）。
+     macOS: HanziPen SC / Kaiti SC / STKaiti / Marker Felt / Bradley Hand；
+     Windows: KaiTi·楷体（中文楷书）/ Ink Free / Segoe Print；Linux: Comic Neue → cursive。
+     需要完全一致的手写观感时，只需在此追加一个自托管 webfont 名 + 对应 @font-face。 */
+  --hand: "HanziPen SC", "Kaiti SC", "STKaiti", "KaiTi", "楷体", "Marker Felt", "Bradley Hand", "Ink Free", "Segoe Print", "Comic Neue", "Comic Sans MS", cursive;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg0); color: var(--fg0); }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #fff7e8; color: #24190f; }
 code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace; }
 
 .app { display: flex; height: 100vh; position: relative; overflow: hidden; }
@@ -59,9 +64,9 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
   align-items: center;
   gap: 9px;
 }
-.logo { width: 30px; height: 30px; border: 2px solid rgba(64,91,185,.55); border-radius: 52% 44% 49% 43%; background: transparent; display: flex; align-items: center; justify-content: center; font: 800 16px/1 "HanziPen SC", "Marker Felt", "Bradley Hand", "Comic Sans MS", cursive; color: #375fb9; text-shadow: .7px .5px 0 rgba(58,62,126,.16); transform: rotate(-5deg); }
+.logo { width: 30px; height: 30px; border: 2px solid rgba(64,91,185,.55); border-radius: 52% 44% 49% 43%; background: transparent; display: flex; align-items: center; justify-content: center; font: 800 16px/1 var(--hand); color: #375fb9; text-shadow: .7px .5px 0 rgba(58,62,126,.16); transform: rotate(-5deg); }
 .logo-title,
-.logo-sub { font-family: "HanziPen SC", "Kaiti SC", "STKaiti", "Marker Felt", "Comic Sans MS", cursive; color: #24190f; text-shadow: .7px .5px 0 rgba(72,45,18,.12); transform: rotate(-1deg); }
+.logo-sub { font-family: var(--hand); color: #24190f; text-shadow: .7px .5px 0 rgba(72,45,18,.12); transform: rotate(-1deg); }
 .logo-title { font-size: 15px; font-weight: 800; letter-spacing: .3px; }
 .logo-sub { font-size: 11px; color: rgba(54,38,20,.66); }
 
@@ -97,7 +102,7 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .nav-tag:hover { transform: translateX(2px) rotate(.4deg); }
 .nav-name,
 .nav-ver {
-  font-family: "HanziPen SC", "Kaiti SC", "STKaiti", "Marker Felt", "Comic Sans MS", cursive;
+  font-family: var(--hand);
   color: #24190f;
   transform: rotate(-1.5deg);
   text-shadow: .8px .5px 0 rgba(72,45,18,.13);
@@ -135,7 +140,7 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
   display: flex;
   align-items: center;
   justify-content: center;
-  font: 800 18px/1 "HanziPen SC", "Marker Felt", "Bradley Hand", "Comic Sans MS", cursive;
+  font: 800 18px/1 var(--hand);
   flex-shrink: 0;
   border: none;
   background: transparent;
@@ -181,82 +186,45 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
   pointer-events: none;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 8' preserveAspectRatio='none'%3E%3Cpath d='M0 4.2 C95 2.2 185 5.8 275 4.1 S455 2.4 600 4.3 S815 6.1 950 4.2 S1110 2.4 1200 4.1' fill='none' stroke='%23836a45' stroke-opacity='.35' stroke-width='1.3' stroke-linecap='round'/%3E%3Cpath d='M8 5.2 C120 3.9 214 5.4 322 4.8 S520 3.8 666 5.1 S858 6 1030 4.7 S1148 4.2 1194 5.3' fill='none' stroke='%23836a45' stroke-opacity='.18' stroke-width='.9' stroke-linecap='round'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
 }
-.panel-head h1 { font: 800 24px/1.2 "HanziPen SC", "Kaiti SC", "STKaiti", "Marker Felt", "Comic Sans MS", cursive; color: #24190f; letter-spacing: 0; text-shadow: .8px .5px 0 rgba(72,45,18,.12); transform: rotate(-.6deg); }
-.ver { font: 800 12px/1 "HanziPen SC", "Marker Felt", "Comic Sans MS", cursive; color: #2f8f50; background: transparent; border: 1.5px solid rgba(47,143,80,.42); padding: 3px 8px 2px; border-radius: 52% 44% 50% 46%; margin-left: 10px; vertical-align: middle; transform: rotate(1.6deg); }
-.panel-desc { font-family: "HanziPen SC", "Kaiti SC", "STKaiti", "Marker Felt", "Comic Sans MS", cursive; font-size: 13px; color: rgba(54,38,20,.7); margin-top: 6px; }
+.panel-head h1 { font: 800 24px/1.2 var(--hand); color: #24190f; letter-spacing: 0; text-shadow: .8px .5px 0 rgba(72,45,18,.12); transform: rotate(-.6deg); }
+.ver { font: 800 12px/1 var(--hand); color: #2f8f50; background: transparent; border: 1.5px solid rgba(47,143,80,.42); padding: 3px 8px 2px; border-radius: 52% 44% 50% 46%; margin-left: 10px; vertical-align: middle; transform: rotate(1.6deg); }
+.panel-desc { font-family: var(--hand); font-size: 13px; color: rgba(54,38,20,.7); margin-top: 6px; }
 .panel-desc code { color: #287276; font-family: inherit; }
 
 /* ── scope ── */
-.scope {
-  --note-tilt: -.18deg;
-  --note-bg: #b9e2f5;
-  --note-top: #d6f0fb;
-  position: relative;
-  margin: 0 0 26px;
-  border: 1px solid rgba(58,82,94,.12);
-  border-radius: 1px 4px 2px 3px;
-  background: linear-gradient(180deg, var(--note-top) 0 62px, var(--note-bg) 62px 100%);
-  overflow: visible;
-  box-shadow: 0 15px 20px rgba(39,42,35,.13), 0 1px 0 rgba(255,255,255,.45) inset;
-  transform: rotate(var(--note-tilt));
-}
-.scope:nth-of-type(2n) { --note-tilt: .14deg; --note-bg: #bda0d6; --note-top: #d2b9e6; }
-.scope:nth-of-type(3n) { --note-bg: #65d8cf; --note-top: #8be6df; }
-.scope.missing { --note-bg: #f5a0c8; --note-top: #ffc0da; }
-.scope::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: -13px;
-  width: 34px;
-  height: 22px;
-  pointer-events: none;
-  background: rgba(234,194,148,.68);
-  border-radius: 1px 3px 2px 2px;
-  box-shadow: 0 1px 3px rgba(86,62,20,.12), inset 0 1px rgba(255,255,255,.38);
-  transform: translateX(-50%) rotate(1.6deg);
-}
-.scope::after {
-  content: "";
-  position: absolute;
-  left: 14px;
-  right: 12px;
-  bottom: -9px;
-  height: 16px;
-  z-index: -1;
-  pointer-events: none;
-  background: rgba(39,42,35,.13);
-  filter: blur(8px);
-  transform: rotate(.35deg);
-}
+/* scope 容器：边框 / 阴影 / 倾斜 / 手绘框背景由 paper-overrides.css 的 body .scope* 接管。
+   这里只保留其未覆盖的定位与外边距，以及手绘框 ::before 必需的 content/position/pointer-events
+   （paper-overrides 的 ::before 仅改坐标与背景，依赖这里提供基础三属性，删了框会消失）。 */
+.scope { position: relative; margin: 0 0 26px; overflow: visible; }
+.scope::before { content: ""; position: absolute; pointer-events: none; }
 .scope-head { display: flex; justify-content: space-between; align-items: center; padding: 24px 18px 14px; cursor: pointer; user-select: none; transition: background .15s; color: #24190f; }
 .scope-head:hover { background: rgba(255,255,255,.14); }
 .scope-left { display: flex; align-items: center; gap: 8px; }
 .scope-right { display: flex; align-items: center; gap: 6px; }
 .chev { color: rgba(54,38,20,.56); transition: transform .2s; }
 .chev.open { transform: rotate(90deg); }
-.badge { font: 800 11px/1 "HanziPen SC", "Marker Felt", "Comic Sans MS", cursive; text-transform: none; letter-spacing: .3px; padding: 3px 8px 2px; border: 1.3px solid currentColor; border-radius: 50% 45% 52% 43%; background: transparent; transform: rotate(-1.6deg); }
-.badge.global { color: #2d6fbd; }
+.badge { font: 800 11px/1 var(--hand); text-transform: none; letter-spacing: .3px; padding: 3px 8px 2px; border: 1.3px solid currentColor; border-radius: 50% 45% 52% 43%; background: transparent; transform: rotate(-1.6deg); }
+.badge.global { color: #33567f; }
 .badge.user { color: #2f8f50; }
 .badge.project { color: #7957aa; }
 .badge.local { color: #a76f1f; }
 .badge.miss { color: #c33b32; font-weight: 800; text-transform: none; }
 .badge.schema { color: #2f8f50; font-weight: 800; }
-.scope-path { font: 800 13px/1.2 "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; color: #2a2116; }
+.scope-path { font: 800 13px/1.2 var(--hand); color: #2a2116; }
 .scope.missing .scope-path { position: relative; display: inline-block; color: rgba(42,33,22,.62); }
 .scope.missing .scope-path::after { content: ""; position: absolute; left: -5px; right: -5px; top: 48%; height: 8px; pointer-events: none; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 12' preserveAspectRatio='none'%3E%3Cpath d='M3 7 C46 2 91 9 137 5 S228 3 297 7' fill='none' stroke='%23e73c33' stroke-opacity='.9' stroke-width='3.1' stroke-linecap='round'/%3E%3Cpath d='M8 8 C69 5 116 4 170 7 S246 9 292 6' fill='none' stroke='%23ff756a' stroke-opacity='.42' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E") center / 100% 100% no-repeat; }
-.fmt { font: 800 10px/1 "HanziPen SC", "Marker Felt", "Comic Sans MS", cursive; color: rgba(54,38,20,.6); background: transparent; border: 1px solid rgba(83,58,24,.3); padding: 3px 7px 2px; border-radius: 46% 54% 43% 57%; transform: rotate(1.5deg); }
+.fmt { font: 800 10px/1 var(--hand); color: rgba(54,38,20,.6); background: transparent; border: 1px solid rgba(83,58,24,.3); padding: 3px 7px 2px; border-radius: 46% 54% 43% 57%; transform: rotate(1.5deg); }
 
-.btn-sm { font: 800 11px/1.2 "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; padding: 4px 10px 3px; border: 1.4px solid rgba(83,58,24,.34); border-radius: 50% 45% 52% 44%; background: transparent; color: #3d2b16; cursor: pointer; transition: .15s; }
-.btn-sm:hover { color: #245f9e; border-color: rgba(36,95,158,.46); background: rgba(88,166,255,.06); }
-.btn-sm.active { color: #245f9e; background: rgba(88,166,255,.08); border-color: rgba(36,95,158,.46); }
+.btn-sm { font: 800 11px/1.2 var(--hand); padding: 4px 10px 3px; border: 1.4px solid rgba(83,58,24,.34); border-radius: 50% 45% 52% 44%; background: transparent; color: #3d2b16; cursor: pointer; transition: .15s; }
+.btn-sm:hover { color: #33567f; border-color: rgba(51,86,127,.46); background: rgba(51,86,127,.06); }
+.btn-sm.active { color: #33567f; background: rgba(51,86,127,.08); border-color: rgba(51,86,127,.46); }
 
 .scope-body { border-top: 0; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 7' preserveAspectRatio='none'%3E%3Cpath d='M0 3.6 C150 2.1 255 4.9 390 3.5 S650 2.4 820 3.8 S1070 4.7 1200 3.2' fill='none' stroke='%238b6c23' stroke-opacity='.36' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E") top center / 100% 7px no-repeat; color: var(--fg0); padding: 18px 18px 18px; box-shadow: inset 0 7px 16px rgba(128,85,18,.04); }
-.empty { padding: 20px; text-align: center; color: rgba(54,38,20,.58); font-family: "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; font-size: 13px; }
+.empty { padding: 20px; text-align: center; color: rgba(54,38,20,.58); font-family: var(--hand); font-size: 13px; }
 
 /* ── item ── */
 .item { display: grid; grid-template-columns: 200px 1fr; gap: 10px; padding: 8px 16px; font-size: 13px; align-items: start; transition: background .1s; min-height: 38px; }
-.item:hover { background: rgba(88,166,255,.03); }
+.item:hover { background: rgba(51,86,127,.03); }
 .item-key { display: flex; flex-direction: column; gap: 1px; }
 .item-key code { color: var(--cyan); font-weight: 600; font-size: 12px; word-break: break-all; }
 .item-desc { font-size: 11px; color: var(--fg3); line-height: 1.4; }
@@ -275,10 +243,10 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg3); color: var(--fg1); border: 1px solid var(--border); font-family: 'SF Mono', monospace; }
 
-.json { background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); padding: 10px 12px; font: 12px/1.7 "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; overflow: auto; max-height: 280px; color: var(--fg1); margin: 0; }
+.json { background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); padding: 10px 12px; font: 12px/1.7 var(--hand); overflow: auto; max-height: 280px; color: #2a2116; margin: 0; }
 
 /* ── raw / editor ── */
-.raw { padding: 14px 16px; font: 12px/1.7 "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; color: var(--fg1); white-space: pre-wrap; word-break: break-all; background: var(--bg0); margin: 0; }
+.raw { padding: 14px 16px; font: 12px/1.7 var(--hand); color: #2a2116; white-space: pre-wrap; word-break: break-all; background: var(--bg0); margin: 0; }
 .editor textarea { width: 100%; min-height: 280px; padding: 14px 16px; border: none; outline: none; resize: vertical; font-size: 12px; line-height: 1.7; font-family: 'SF Mono', monospace; color: var(--fg0); background: var(--bg0); tab-size: 2; }
 .editor-bar { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; padding: 9px 12px; background: rgba(255,252,242,.72); border: 1px solid rgba(83,58,24,.24); border-radius: 6px 10px 7px 8px; }
 
@@ -288,22 +256,22 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .cm-host { background: var(--bg0); border: 1px solid rgba(83,58,24,.26); border-radius: 5px 9px 6px 7px; overflow: hidden; box-shadow: 0 7px 14px rgba(83,58,24,.18); }
 .cm-host .cm-editor { outline: none; }
 .cm-host .cm-editor.cm-focused { outline: none; }
-.btn { font: 800 12px/1.2 "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; padding: 7px 16px 6px; border-radius: 52% 45% 50% 46%; cursor: pointer; transition: .15s; border: 1.4px solid rgba(83,58,24,.34); background: transparent; color: #3d2b16; }
-.btn.primary { background: rgba(88,166,255,.08); color: #245f9e; border-color: rgba(36,95,158,.5); }
-.btn.primary:hover { background: rgba(88,166,255,.14); }
+.btn { font: 800 12px/1.2 var(--hand); padding: 7px 16px 6px; border-radius: 52% 45% 50% 46%; cursor: pointer; transition: .15s; border: 1.4px solid rgba(83,58,24,.34); background: transparent; color: #3d2b16; }
+.btn.primary { background: rgba(51,86,127,.08); color: #33567f; border-color: rgba(51,86,127,.5); }
+.btn.primary:hover { background: rgba(51,86,127,.14); }
 .btn.ghost { background: transparent; color: #3d2b16; border-color: rgba(83,58,24,.34); }
-.btn.ghost:hover { color: #245f9e; border-color: rgba(36,95,158,.46); }
+.btn.ghost:hover { color: #33567f; border-color: rgba(51,86,127,.46); }
 
 /* ── toast ── */
-.toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 18px; border-radius: var(--rs); font-size: 13px; font-weight: 500; z-index: 99; animation: pop .25s ease; box-shadow: 0 4px 20px rgba(0,0,0,.4); }
-.toast.ok { background: var(--bg3); color: var(--green); border: 1px solid rgba(63,185,80,.2); }
-.toast.err { background: var(--bg3); color: var(--red); border: 1px solid rgba(248,81,73,.2); }
+.toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 18px; border-radius: 7px 11px 6px 9px; font: 800 13px/1.3 var(--hand); z-index: 99; animation: pop .25s ease; box-shadow: 0 10px 26px rgba(58,43,26,.26); }
+.toast.ok { background: #fff8eb; color: #2f8f50; border: 1.4px solid rgba(47,143,80,.42); }
+.toast.err { background: #fff8eb; color: #c33b32; border: 1.4px solid rgba(195,59,50,.42); }
 @keyframes pop { from { opacity: 0; transform: translateY(12px); } }
 
 /* ── misc ── */
-.center { display: flex; align-items: center; justify-content: center; height: 100vh; gap: 12px; color: var(--fg2); font-size: 14px; }
-.error-text { color: var(--red); }
-.spinner { width: 20px; height: 20px; border: 2px solid var(--bg4); border-top-color: var(--blue); border-radius: 50%; animation: spin .7s linear infinite; }
+.center { display: flex; align-items: center; justify-content: center; height: 100vh; gap: 12px; color: rgba(54,38,20,.66); font-size: 14px; }
+.error-text { color: #c33b32; }
+.spinner { width: 20px; height: 20px; border: 2px solid rgba(83,58,24,.2); border-top-color: var(--blue); border-radius: 50%; animation: spin .7s linear infinite; }
 .spinner-inline { display: inline-block; width: 11px; height: 11px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 6px; opacity: 0.85; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -316,7 +284,7 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
   width: max-content;
   margin: 8px 0 7px 10px;
   color: rgba(69,48,24,.66);
-  font-family: "HanziPen SC", "Kaiti SC", "STKaiti", "Marker Felt", "Comic Sans MS", cursive;
+  font-family: var(--hand);
   font-size: 12px;
   letter-spacing: 1px;
   font-weight: 800;
@@ -327,17 +295,17 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 
 /* ── ProfilePanel ── */
 .profile-panel .panel-head h1 { display: flex; align-items: center; }
-.profile-tabs { display: flex; align-items: center; gap: 5px; border-bottom: 1px solid rgba(83,58,24,.22); margin-bottom: 16px; padding-bottom: 9px; position: relative; font-family: "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; }
-.profile-tab { padding: 7px 13px 6px; background: transparent; border: 1.3px solid transparent; color: #3d2b16; cursor: pointer; font: 800 13px/1.2 "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; border-radius: 52% 46% 50% 44%; display: flex; align-items: center; gap: 6px; transition: .15s; }
-.profile-tab:hover { color: #245f9e; border-color: rgba(36,95,158,.3); }
-.profile-tab.on { color: #245f9e; border-color: rgba(36,95,158,.46); background: rgba(88,166,255,.07); transform: rotate(-1deg); }
+.profile-tabs { display: flex; align-items: center; gap: 5px; border-bottom: 1px solid rgba(83,58,24,.22); margin-bottom: 16px; padding-bottom: 9px; position: relative; font-family: var(--hand); }
+.profile-tab { padding: 7px 13px 6px; background: transparent; border: 1.3px solid transparent; color: #3d2b16; cursor: pointer; font: 800 13px/1.2 var(--hand); border-radius: 52% 46% 50% 44%; display: flex; align-items: center; gap: 6px; transition: .15s; }
+.profile-tab:hover { color: #33567f; border-color: rgba(51,86,127,.3); }
+.profile-tab.on { color: #33567f; border-color: rgba(51,86,127,.46); background: rgba(51,86,127,.07); transform: rotate(-1deg); }
 .profile-tab-count { background: transparent; color: inherit; font-size: 11px; padding: 2px 6px 1px; border: 1px solid currentColor; border-radius: 50% 45% 53% 44%; font-family: inherit; opacity: .8; }
-.profile-tab.on .profile-tab-count { background: transparent; color: #245f9e; }
+.profile-tab.on .profile-tab-count { background: transparent; color: #33567f; }
 .profile-tabs-spacer { flex: 1; }
 
 .profile-status { display: flex; align-items: center; gap: 16px; padding: 12px 16px; background: rgba(255,252,242,.56); border: 1.5px solid rgba(83,58,24,.3); border-radius: 8px 12px 7px 9px; margin-bottom: 16px; flex-wrap: wrap; color: #24190f; }
 .profile-status code { color: #287276; font-size: 12px; }
-.profile-status-label { font: 800 11px/1 "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; color: rgba(54,38,20,.6); margin-right: 6px; text-transform: none; letter-spacing: .3px; }
+.profile-status-label { font: 800 11px/1 var(--hand); color: rgba(54,38,20,.6); margin-right: 6px; text-transform: none; letter-spacing: .3px; }
 .btn-init { margin-left: auto; }
 
 .profile-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
@@ -345,21 +313,21 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .profile-card.active { border-color: rgba(47,143,80,.5); box-shadow: 0 0 0 1px rgba(47,143,80,.16), 0 6px 14px rgba(83,58,24,.07); }
 .profile-card-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid rgba(83,58,24,.22); background: transparent; }
 .profile-card-id { display: flex; align-items: center; gap: 8px; }
-.profile-card-id code { font: 800 14px/1 "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; color: #24190f; }
+.profile-card-id code { font: 800 14px/1 var(--hand); color: #24190f; }
 .profile-active-dot { width: 8px; height: 7px; border-radius: 54% 42% 48% 58%; background: #3f9f5a; box-shadow: 1px 0 0 rgba(28,92,49,.28); transform: rotate(-9deg); }
 .profile-card-meta { display: flex; gap: 6px; }
-.badge.default { color: #2d6fbd; font-weight: 800; }
+.badge.default { color: #33567f; font-weight: 800; }
 .badge.env { color: #2f8f50; }
 .badge.hook { color: #7957aa; }
 .profile-card-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
 .profile-row { display: flex; align-items: flex-start; gap: 10px; font-size: 12px; line-height: 1.5; }
-.profile-row-label { color: rgba(54,38,20,.58); font: 800 11px/1.4 "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; text-transform: none; letter-spacing: .3px; min-width: 80px; padding-top: 2px; }
+.profile-row-label { color: rgba(54,38,20,.58); font: 800 11px/1.4 var(--hand); text-transform: none; letter-spacing: .3px; min-width: 80px; padding-top: 2px; }
 .profile-row code { color: #287276; font-size: 12px; word-break: break-all; }
 .profile-desc { color: rgba(54,38,20,.68); }
 .profile-env-list { display: flex; flex-wrap: wrap; gap: 4px; }
-.profile-env-list .tag { font-size: 11px; color: #287276; background: transparent; border-color: rgba(40,114,118,.32); font-family: "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; }
+.profile-env-list .tag { font-size: 11px; color: #287276; background: transparent; border-color: rgba(40,114,118,.32); font-family: var(--hand); }
 .profile-env-list code { font-size: 11px; color: #287276; }
-.profile-hook-script { background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); padding: 8px 10px; font-size: 11px; color: var(--fg1); margin: 0; white-space: pre-wrap; flex: 1; }
+.profile-hook-script { background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); padding: 8px 10px; font-size: 11px; color: #2a2116; margin: 0; white-space: pre-wrap; flex: 1; }
 .profile-card-actions { display: flex; gap: 8px; padding: 10px 16px; background: rgba(255,248,235,.58); border-top: 1px solid rgba(83,58,24,.22); flex-wrap: wrap; align-items: center; }
 .profile-card-actions-spacer { flex: 1; }
 .profile-confirm-hint { font-size: 11px; color: var(--orange); margin-right: 4px; }
@@ -371,14 +339,14 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .profile-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ── Modal ── */
-.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(4px); animation: pop .15s ease; }
-.modal { background: #fff8eb; border: 1.5px solid rgba(83,58,24,.32); border-radius: 8px 12px 7px 9px; width: min(560px, 90vw); max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; color: #24190f; box-shadow: 0 20px 50px rgba(0,0,0,.48); }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(58,43,26,.42); display: flex; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(4px); animation: pop .15s ease; }
+.modal { background: #fff8eb; border: 1.5px solid rgba(83,58,24,.32); border-radius: 8px 12px 7px 9px; width: min(560px, 90vw); max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; color: #24190f; box-shadow: 0 20px 50px rgba(58,43,26,.32); }
 .modal-wide { width: min(720px, 92vw); max-height: 86vh; }
-.form-section-title { font: 800 11px/1.2 "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; text-transform: none; letter-spacing: .4px; color: rgba(54,38,20,.62); margin-top: 8px; padding-top: 10px; border-top: 1px solid rgba(83,58,24,.2); }
+.form-section-title { font: 800 11px/1.2 var(--hand); text-transform: none; letter-spacing: .4px; color: rgba(54,38,20,.62); margin-top: 8px; padding-top: 10px; border-top: 1px solid rgba(83,58,24,.2); }
 .form-section-title code { color: #287276; text-transform: none; letter-spacing: 0; font-size: 11px; font-weight: 600; }
 .form-config-input { min-height: 140px; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid rgba(83,58,24,.22); background: transparent; }
-.modal-head h2 { font: 800 16px/1.2 "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; }
+.modal-head h2 { font: 800 16px/1.2 var(--hand); }
 .modal-close { background: none; border: none; color: rgba(54,38,20,.66); font-size: 22px; cursor: pointer; line-height: 1; padding: 0 4px; }
 .modal-close:hover { color: var(--red); }
 .modal-body { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
@@ -400,11 +368,11 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .form-env-item button { margin-left: auto; background: none; border: none; color: var(--fg3); cursor: pointer; padding: 0 4px; }
 .form-env-item button:hover { color: var(--red); }
 .backup-profile-choice { transition: border-color .15s ease, background .15s ease, box-shadow .15s ease; }
-.backup-profile-choice.selected { border-color: rgba(88,166,255,.62); background: rgba(88,166,255,.10); box-shadow: inset 0 0 0 1px rgba(88,166,255,.16); }
+.backup-profile-choice.selected { border-color: rgba(51,86,127,.62); background: rgba(51,86,127,.10); box-shadow: inset 0 0 0 1px rgba(51,86,127,.16); }
 .backup-profile-choice input[type="checkbox"] { appearance: none; width: 14px; height: 14px; flex: 0 0 14px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 3px; background: var(--bg1); }
 .backup-profile-choice input[type="checkbox"]:checked { border-color: var(--blue); background: var(--blue); }
 .backup-profile-choice input[type="checkbox"]:checked::after { content: ""; width: 7px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg); margin-top: -1px; }
-.backup-profile-choice input[type="checkbox"]:focus-visible { outline: 2px solid rgba(88,166,255,.38); outline-offset: 2px; }
+.backup-profile-choice input[type="checkbox"]:focus-visible { outline: 2px solid rgba(51,86,127,.38); outline-offset: 2px; }
 .backup-profile-choice input[type="checkbox"]:disabled { opacity: .55; }
 .form-env-add { display: flex; gap: 6px; }
 .form-env-add input { flex: 1; padding: 4px 8px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); color: var(--fg0); font: inherit; font-size: 12px; }
@@ -420,7 +388,7 @@ code.fail { color: var(--red); }
 
 /* ── prefs popover ── */
 .prefs { position: relative; }
-.prefs-popover { position: absolute; right: 0; top: calc(100% + 6px); background: var(--bg1); border: 1px solid var(--border); border-radius: var(--r); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 260px; z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+.prefs-popover { position: absolute; right: 0; top: calc(100% + 6px); background: var(--bg1); border: 1px solid var(--border); border-radius: var(--r); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 260px; z-index: 50; box-shadow: 0 8px 24px rgba(58,43,26,.2); }
 .prefs-popover .form-row > label { min-width: 90px; }
 
 /* ── ConfigPanel TOCTOU 冲突 banner ── */
@@ -430,7 +398,7 @@ code.fail { color: var(--red); }
 
 /* PR-H Markdown 渲染（react-markdown + shiki 代码块）*/
 .markdown-scope-body { padding: 16px 20px; max-height: 70vh; overflow: auto; background: var(--bg0); border: 1px solid rgba(83,58,24,.26); border-radius: 5px 9px 6px 7px; box-shadow: 0 7px 14px rgba(83,58,24,.18); }
-.md-view { font: 13px/1.7 "HanziPen SC", "Kaiti SC", "Marker Felt", "Comic Sans MS", cursive; color: var(--fg0); }
+.md-view { font: 13px/1.7 var(--hand); color: var(--fg0); }
 .md-view h1 { font-size: 20px; font-weight: 700; margin: 18px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
 .md-view h2 { font-size: 17px; font-weight: 700; margin: 16px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
 .md-view h3 { font-size: 15px; font-weight: 700; margin: 14px 0 6px; }
@@ -468,14 +436,14 @@ code.fail { color: var(--red); }
 /* ── 自定义 Select（替代原生 <select>，统一深色主题） ── */
 .select-root { position: relative; flex: 1; min-width: 0; }
 .select-button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); color: var(--fg0); font-family: inherit; font-size: 13px; cursor: pointer; transition: border-color .15s, background .15s; }
-.select-button:hover { border-color: rgba(88,166,255,.3); }
+.select-button:hover { border-color: rgba(51,86,127,.3); }
 .select-root.open > .select-button { border-color: var(--blue); background: var(--bg1); }
 .select-root.disabled > .select-button { cursor: not-allowed; opacity: .5; }
 .select-value { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .select-value.placeholder { color: var(--fg3); }
 .select-chev { color: var(--fg3); flex-shrink: 0; transition: transform .15s; }
 .select-root.open .select-chev { transform: rotate(180deg); color: var(--blue); }
-.select-popover { position: absolute; left: 0; right: 0; top: calc(100% + 4px); background: var(--bg1); border: 1px solid var(--border); border-radius: var(--rs); list-style: none; padding: 4px; margin: 0; max-height: 240px; overflow-y: auto; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,.5); animation: pop .12s ease; }
+.select-popover { position: absolute; left: 0; right: 0; top: calc(100% + 4px); background: var(--bg1); border: 1px solid var(--border); border-radius: var(--rs); list-style: none; padding: 4px; margin: 0; max-height: 240px; overflow-y: auto; z-index: 200; box-shadow: 0 8px 24px rgba(58,43,26,.18); animation: pop .12s ease; }
 .select-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; color: var(--fg1); }
 .select-item:hover, .select-item.hover { background: var(--bg3); color: var(--fg0); }
 .select-item.on { color: var(--blue); }
