@@ -14,6 +14,7 @@ import { ProfileStoreEditor } from "./profile/ProfileStoreEditor.tsx";
 import { ExportBackupModal } from "./profile/ExportBackupModal.tsx";
 import { RestoreBackupModal } from "./profile/RestoreBackupModal.tsx";
 import { BackupHistoryModal } from "./profile/BackupHistoryModal.tsx";
+import { DoodleIcon } from "./DoodleIcon.tsx";
 
 const hookActionLabel = (which: "pre" | "post") => which === "pre" ? "切换前脚本" : "切换后脚本";
 
@@ -140,13 +141,13 @@ export function ProfilePanel({ store, active, onToast, onReloadProfile }: Props)
         ))}
         <div className="profile-tabs-spacer" />
         <button className="btn-sm" onClick={() => { setExportPresetIds(undefined); setShowExport(true); }} title="备份所有配置方案和共享资源">
-          📦 导出备份
+          <DoodleIcon kind="export" />导出备份
         </button>
         <button className="btn-sm" onClick={() => setShowHistory(true)} title="查看、置顶、还原或删除备份">
-          📚 备份历史
+          <DoodleIcon kind="history" />备份历史
         </button>
         <button className="btn-sm" onClick={() => { setRestorePresetPath(undefined); setShowRestore(true); }} title="从 .dchpack 导入为新的配置方案">
-          📥 导入备份
+          <DoodleIcon kind="import" />导入备份
         </button>
         {/* PR-I 新入口：编辑 profiles.json */}
         <button className="btn-sm" onClick={() => setShowStoreEditor(true)} title="直接编辑 ~/.dch/profiles.json">

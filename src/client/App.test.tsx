@@ -149,4 +149,36 @@ describe("App.load() setError(null) (CHANGELOG_10 R_1·L1 fix)", () => {
     expect(alphaAfter?.className).not.toContain("on");
     expect(visibleToolTitle(container)).toContain("Beta App");
   });
+
+  it("T10: sidebar 选中项显示左侧红色铅笔小圈，重复点击会换一版形状", async () => {
+    const originalRandom = Math.random;
+    let randomValue = 0.14;
+    Math.random = () => randomValue;
+
+    try {
+      filesImpl = () => Promise.resolve([mockTool("Sketch Tool", "claude")]);
+
+      const { container } = render(<App />);
+      await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+      const activeButton = container.querySelector<HTMLButtonElement>(".nav-item.on");
+      const firstCircle = activeButton?.querySelector<SVGPathElement>(".nav-pencil-circle-main");
+      expect(activeButton?.textContent).toContain("Sketch Tool");
+      expect(activeButton?.querySelector(".nav-pencil-circle")).toBeTruthy();
+      expect(activeButton?.querySelector(".nav-todo")).toBeNull();
+      expect(firstCircle).toBeTruthy();
+
+      const firstPath = firstCircle!.getAttribute("d");
+      randomValue = 0.86;
+      await act(async () => { fireEvent.click(activeButton!); });
+
+      const secondPath = activeButton!
+        .querySelector<SVGPathElement>(".nav-pencil-circle-main")
+        ?.getAttribute("d");
+      expect(secondPath).toBeTruthy();
+      expect(secondPath).not.toBe(firstPath);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
 });

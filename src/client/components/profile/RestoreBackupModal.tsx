@@ -12,6 +12,7 @@ import {
 import {
   decideAttemptClose, countFilledSecrets, nextSecretsStateAfterIPC,
 } from "./restore-modal-helpers.ts";
+import { DoodleIcon } from "../DoodleIcon.tsx";
 
 /**
  * 导入备份 modal：3-4 步流程（CHANGELOG_18 / Step 7）
@@ -250,7 +251,7 @@ export function RestoreBackupModal({
     <div className="modal-backdrop" onClick={attemptClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>📥 导入备份</h2>
+          <h2><DoodleIcon kind="import" />导入备份</h2>
           <button className="modal-close" onClick={attemptClose}>×</button>
         </div>
         <div className="modal-body">

@@ -97,7 +97,7 @@ function Scope({
   const renderMarkdownToggleNext: Mode = mode === "render" ? "view" : "render";
 
   return (
-    <section className="scope">
+    <section className={`scope${scope.exists ? "" : " missing"}`}>
       <header className="scope-head" onClick={() => setOpen(!open)}>
         <div className="scope-left">
           <Chev open={open} />

@@ -14,6 +14,7 @@ import type {
   SecretLogicalEntry,
 } from "../../bridge.ts";
 import { UniqueSecretsList } from "./UniqueSecretsList.tsx";
+import { DoodleIcon } from "../DoodleIcon.tsx";
 
 /**
  * REVIEW_9 D-HIGH-2: secrets phase 关 modal 内联 confirm UI。覆盖在 modal-body 顶部，
@@ -36,7 +37,7 @@ export function CloseConfirm({ filledCount, onCancel, onConfirm }: {
       }}
     >
       <p className="form-hint" style={{ color: "var(--yellow)", margin: 0, fontSize: 14 }}>
-        ⚠️ 已填写 <strong>{filledCount}</strong> 个密钥。关闭将丢弃所有输入，之后需要重新填写。
+        <DoodleIcon kind="warning" />已填写 <strong>{filledCount}</strong> 个密钥。关闭将丢弃所有输入，之后需要重新填写。
       </p>
       <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
         <button className="btn-sm" onClick={onCancel}>留下继续填</button>
@@ -69,7 +70,7 @@ export function RestorePreviewBody({
       {manifest.options.no_placeholder && (
         <div className="form-row form-row-block">
           <p className="form-hint" style={{ color: "var(--red)" }}>
-            ⚠️ 这个备份包含未脱敏的密钥。
+            <DoodleIcon kind="warning" />这个备份包含未脱敏的密钥。
           </p>
         </div>
       )}
@@ -85,11 +86,11 @@ export function RestorePreviewBody({
             }}
           >
             <p className="form-hint" style={{ margin: 0, color: "var(--blue)" }}>
-              🔑 下一步将填写 <strong>{secretEntries!.length}</strong> 个不同密钥项，并自动填入所有 {totalOcc} 处使用位置。
+              <DoodleIcon kind="key" />下一步将填写 <strong>{secretEntries!.length}</strong> 个不同密钥项，并自动填入所有 {totalOcc} 处使用位置。
             </p>
             <UniqueSecretsList
               entries={secretEntries!}
-              summaryPrefix="🔑 清单"
+              summaryPrefix={<><DoodleIcon kind="key" />清单</>}
               footerHint={null}
             />
           </div>
@@ -169,7 +170,7 @@ export function RestoreReportBody({
         <p className="form-hint">✓ 已导入 {result.appliedProfiles.length} 个配置方案（共享资源 {result.sharedActions.length} 项）。</p>
         {secretsMetrics && (
           <p className="form-hint" style={{ color: secretsMetrics.applied > 0 ? "var(--green)" : "var(--fg2)" }}>
-            🔑 已填入 {secretsMetrics.applied} 处 · 跳过 {secretsMetrics.skipped.length} 个密钥项
+            <DoodleIcon kind="key" />已填入 {secretsMetrics.applied} 处 · 跳过 {secretsMetrics.skipped.length} 个密钥项
             {secretsMetrics.unknown.length > 0 && ` · ${secretsMetrics.unknown.length} 个未知项已忽略`}
           </p>
         )}
@@ -229,7 +230,7 @@ export function RestoreReportBody({
           }}
         >
           <p className="form-hint" style={{ margin: 0, color: "var(--yellow)" }}>
-            🔑 <strong>{plainTextFillFiles.length}</strong> 个普通文本文件（如 <code>.md</code> / <code>.sh</code>）无法自动写回密钥。请手动编辑这些文件：
+            <DoodleIcon kind="key" /><strong>{plainTextFillFiles.length}</strong> 个普通文本文件（如 <code>.md</code> / <code>.sh</code>）无法自动写回密钥。请手动编辑这些文件：
           </p>
           {plainTextFillFiles.map((f, i) => (
             <p key={i} className="form-hint" style={{ marginLeft: 16, marginTop: 4, color: "var(--yellow)" }}>

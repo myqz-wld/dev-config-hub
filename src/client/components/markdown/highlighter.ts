@@ -7,7 +7,7 @@
  * **支持语言**：常见配置 / 文档场景：json / toml / yaml / shell / bash / typescript /
  * javascript / rust / python / markdown。其他语言 fallback 到 plain 渲染。
  *
- * **theme**：固定 github-dark（与项目暗色主题对齐）。
+ * **theme**：固定 vitesse-light（与当前白纸手写主题对齐）。
  */
 
 import type { HighlighterCore } from "shiki";
@@ -28,7 +28,7 @@ async function getHighlighter(): Promise<HighlighterCore> {
     highlighterPromise = (async () => {
       const { createHighlighterCore } = await import("shiki/core");
       const { createOnigurumaEngine } = await import("shiki/engine/oniguruma");
-      const themeMod = await import("shiki/themes/github-dark.mjs");
+      const themeMod = await import("shiki/themes/vitesse-light.mjs");
       const hl = await createHighlighterCore({
         themes: [themeMod.default],
         langs: [],
@@ -64,5 +64,5 @@ export async function highlightCode(code: string, lang: string): Promise<string>
   const hl = await getHighlighter();
   const realLang = await ensureLang(hl, lang);
   if (!realLang) throw new Error(`unsupported lang: ${lang}`);
-  return hl.codeToHtml(code, { lang: realLang, theme: "github-dark" });
+  return hl.codeToHtml(code, { lang: realLang, theme: "vitesse-light" });
 }

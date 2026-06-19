@@ -1,6 +1,7 @@
 import React from "react";
 import type { SecretLogicalEntry, SecretsIndex } from "../../bridge.ts";
 import { CrossFieldBadge } from "./CrossFieldBadge.tsx";
+import { DoodleIcon } from "../DoodleIcon.tsx";
 
 /**
  * 去重后的 unique secret 清单(<details> 包),供 ExportBackupModal 备份完成报告 +
@@ -21,15 +22,15 @@ export function UniqueSecretsList({
   totalOccurrences?: number;
   /** summary 文字色(默认 var(--blue)) */
   summaryColor?: string;
-  /** summary 前缀(默认 `🔑 密钥清单`) */
-  summaryPrefix?: string;
+  /** summary 前缀(默认手绘钥匙 + 密钥清单) */
+  summaryPrefix?: React.ReactNode;
   /** 列表底部提示行(可选;通常用于 Export 完成报告说明 fan-out) */
   footerHint?: React.ReactNode;
 }) {
   const k = totalLogicalKeys ?? entries.length;
   const occ = totalOccurrences ?? entries.reduce((s, e) => s + e.count, 0);
   const color = summaryColor ?? "var(--blue)";
-  const prefix = summaryPrefix ?? "🔑 密钥清单";
+  const prefix = summaryPrefix ?? <><DoodleIcon kind="key" />密钥清单</>;
 
   return (
     <details open style={{ marginTop: 8 }}>

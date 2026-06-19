@@ -7,6 +7,7 @@ import {
   readFileWithMtime, saveFileIfMtime, getHomeDir,
   isMtimeMismatch, isMtimeMissing,
 } from "../../bridge.ts";
+import { DoodleIcon } from "../DoodleIcon.tsx";
 
 /**
  * 编辑 `~/.dch/profiles.json` 的 schema-aware modal（PR-I）。
@@ -129,8 +130,8 @@ export function ProfileStoreEditor({
                 <div className="schema-conflict">
                   <div className="schema-conflict-msg">
                     {conflict.kind === "mismatch"
-                      ? "⚠️ 这份文件刚刚被其他程序修改。继续保存会覆盖对方的改动。"
-                      : "⚠️ 这份文件刚刚被删除。继续保存会重新创建它。"}
+                      ? <><DoodleIcon kind="warning" />这份文件刚刚被其他程序修改。继续保存会覆盖对方的改动。</>
+                      : <><DoodleIcon kind="warning" />这份文件刚刚被删除。继续保存会重新创建它。</>}
                   </div>
                   <div className="schema-conflict-actions">
                     <button
