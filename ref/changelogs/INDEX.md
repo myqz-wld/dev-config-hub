@@ -36,3 +36,4 @@ Functional changes, including new features, behavior changes, APIs, dependencies
 | [CHANGELOG_30.md](CHANGELOG_30.md) | Made UI copy more user-centered for configuration plans, backup import, secret filling, backup-rule entry points, and selected-state fixes |
 | [CHANGELOG_31.md](CHANGELOG_31.md) | Aligned root foundation instructions with current templates while preserving Dev Config Hub-specific rules |
 | [CHANGELOG_32.md](CHANGELOG_32.md) | Updated the app shell into a handwritten white-paper style with hand-drawn framed config regions, paper-backed code and Markdown bodies, doodled profile icons, and a randomized grainy red pencil circle active marker |
+| [CHANGELOG_33.md](CHANGELOG_33.md) | Consolidated the handwritten font stack into one cross-platform `--hand` variable and fixed the dark first-paint flash at its root (the inline `index.html` body style) |

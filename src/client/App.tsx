@@ -161,7 +161,10 @@ export function App() {
    * 所有路径仍 rethrow 让 caller 知道失败（PR-4 #H2：旧版 fire-and-forget + 同步 setMode("view")
    * 让用户编辑内容直接丢失的回归保护）。
    */
-  const onSave = async (path: string, content: string, expectedMtimeUs?: number | null) => {
+  // useCallback：onSave 作为 prop 传给已 memo 化的 ConfigPanel；引用稳定才能让隐藏面板
+  // 在 App 重渲染（切侧边栏 / 重画铅笔圈）时真正跳过重渲染。deps 仅 flash / loadFilesOnly，
+  // 两者本身已 useCallback 稳定。
+  const onSave = useCallback(async (path: string, content: string, expectedMtimeUs?: number | null) => {
     try {
       if (expectedMtimeUs === undefined) {
         await saveFile(path, content);
@@ -190,7 +193,7 @@ export function App() {
       // 旧版 fire-and-forget + 同步 setMode("view") 让用户编辑内容直接丢失
       throw e;
     }
-  };
+  }, [flash, loadFilesOnly]);
 
   if (loading) return <div className="center"><div className="spinner" /><span>正在读取配置...</span></div>;
   if (error) return <div className="center error-text">加载失败: {error}</div>;

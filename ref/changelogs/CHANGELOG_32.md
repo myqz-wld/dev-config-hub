@@ -23,3 +23,13 @@ Updated the app shell to read as clean white paper with hand-drawn text, doodled
 - `src/client/paper-overrides.css` and `src/client/components/editor/theme.ts`: remove real rotation transforms from editable config regions and align CodeMirror line/gutter line-height, fixing cursor hit-testing offsets in edit mode.
 - `src/client/components/ProfilePanel.tsx` and `src/client/components/profile/*`: replace visible configuration-plan page emoji with the shared doodled SVG icons.
 - `src/client/App.test.tsx`: verifies the active sidebar item shows the sketch circle, removes the todo-box indicator, and changes shape after clicking again.
+
+## Follow-up Polish (cohesion + legibility)
+
+A second pass tightens the paper theme where dark-theme remnants and cold accents still leaked through, plus dead-code cleanup. No logic changes; `bun test` stays green (428 pass).
+
+- `src/client/styles.css`: switches the `body` base background to paper cream and text to ink, so the first-paint loading/error screens and overscroll no longer flash the old dark GitHub background; recolors the spinner ring to faint sepia.
+- `src/client/styles.css`: fixes low-contrast light-grey ink (`var(--fg1)`) left on transparent paper for `.raw` / `.json` / `.profile-hook-script`, recoloring their text to ink `#2a2116`.
+- `src/client/styles.css` and `src/client/paper-overrides.css`: unify every cold GitHub-blue interactive accent (buttons, tabs, links, hover/active/selected states, focus rings, category badges, doodle pin) to a single warm fountain-pen ink-blue (`#33567f`), aligning interactive color with the existing red/green/teal/sepia ink palette.
+- `src/client/styles.css`: warms pure-black scrims and shadows (modal backdrop, toast, modal/popover/select shadows) to sepia `rgba(58,43,26,…)`, and restyles the toast as a paper card with handwritten font.
+- `src/client/styles.css`: removes dead sticky-note `.scope` styling (color-cycling `--note-*` vars, tape tab, gradient fill, blur shadow, tilt) fully superseded by the `body .scope*` hand-drawn frame in `paper-overrides.css`, keeping only the positioning and the `::before` base properties (`content`/`position`/`pointer-events`) the override depends on.

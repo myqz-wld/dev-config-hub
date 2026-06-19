@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -20,7 +20,9 @@ import { highlightCode } from "./highlighter.ts";
  *
  * **caller 记得**：value 必须是 markdown 文本（不要传 HTML）。
  */
-export function MarkdownView({ source, className = "md-view" }: { source: string; className?: string }) {
+// memo：source 不变时跳过整条 remark/rehype/sanitize 解析管线。父面板（ConfigPanel）
+// 常驻挂载，App 每次重渲染会连带触发 MarkdownView 重渲染 = 大文件（如 CLAUDE.md）反复重解析。
+export const MarkdownView = memo(function MarkdownView({ source, className = "md-view" }: { source: string; className?: string }) {
   return (
     <div className={className}>
       <ReactMarkdown
@@ -35,7 +37,7 @@ export function MarkdownView({ source, className = "md-view" }: { source: string
       </ReactMarkdown>
     </div>
   );
-}
+});
 
 const SAFE_SCHEMA = {
   ...defaultSchema,

@@ -1,6 +1,6 @@
 /* White-paper region frames: hand-drawn outlines and soft shadow. */
 body {
-  --paper-hand-font: "HanziPen SC", "Kaiti SC", "STKaiti", "Marker Felt", "Bradley Hand", "Comic Sans MS", cursive;
+  --paper-hand-font: var(--hand);
 }
 
 body .panel {
@@ -218,7 +218,7 @@ body .badge .doodle-icon { width: 1em; height: 1em; margin-right: .24em; }
 
 body .doodle-warning { color: var(--red); }
 body .doodle-key { color: #a76f1f; }
-body .doodle-pin { color: #2d6fbd; }
+body .doodle-pin { color: #33567f; }
 body .doodle-refresh { color: #287276; }
 
 body .profile-panel,
@@ -315,7 +315,7 @@ body .form-row select:focus,
 body .form-hook-input:focus,
 body .form-env-add input:focus,
 body .select-root.open > .select-button {
-  border-color: rgba(36,95,158,.46);
+  border-color: rgba(51,86,127,.46);
   background: rgba(255, 255, 255, .34);
 }
 
@@ -398,12 +398,12 @@ body .select-item {
 
 body .select-item:hover,
 body .select-item.hover {
-  background: rgba(88,166,255,.08);
-  color: #245f9e;
+  background: rgba(51,86,127,.08);
+  color: #33567f;
 }
 
 body .select-item.on {
-  color: #245f9e;
+  color: #33567f;
 }
 
 body .modal input[type="checkbox"],
