@@ -3,6 +3,7 @@ import { dchProfile, type Profile, type Manifest } from "../../bridge.ts";
 import { backupCache } from "../../backup-cache.ts";
 import { formatBytes } from "../../format-bytes.ts";
 import { SecretsSummaryList } from "./UniqueSecretsList.tsx";
+import { DoodleIcon } from "../DoodleIcon.tsx";
 
 /**
  * 导出备份 modal:选 profile / 共享开关 / 明文凭据开关 → 备份。
@@ -12,7 +13,7 @@ import { SecretsSummaryList } from "./UniqueSecretsList.tsx";
  * - 默认带共享资源(hook 脚本 + ~/.agents)
  * - 明文凭据默认关,开启时显示红色警告
  * - 备份过程中显示 spinner + 阶段提示 + 已耗时 + 预期时间(让用户知道「不是卡死」)
- * - 备份完成后 backupCache.clear(),让「📚 备份历史」拿到最新数据
+ * - 备份完成后 backupCache.clear(),让「备份历史」拿到最新数据
  *
  * REVIEW_9 D-claude LOW 1: useState lazy init,避免每次 render 重建 Set。
  * REVIEW_9 D-claude LOW 2: elapsed timer 250ms 而非 100ms(3s 备份原本 30 次 re-render →
@@ -110,7 +111,7 @@ export function ExportBackupModal({
         yes: true,
       });
       setResult(r);
-      backupCache.clear(); // 让「📚 备份历史」拿到最新(latest.dchpack 或新历史副本)
+      backupCache.clear(); // 让「备份历史」拿到最新(latest.dchpack 或新历史副本)
       onToast(`已写入 ${r.outFile}`, true);
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
@@ -123,7 +124,7 @@ export function ExportBackupModal({
     <div className="modal-backdrop" onClick={attemptClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>📦 导出备份</h2>
+          <h2><DoodleIcon kind="export" />导出备份</h2>
           <button className="modal-close" onClick={attemptClose}>×</button>
         </div>
         <div className="modal-body">
@@ -140,11 +141,11 @@ export function ExportBackupModal({
               <p className="form-hint">
                 {keep ? "已保留为历史备份" : "已覆盖默认备份 latest.dchpack"} · 包含 {result.manifest.profiles.length} 个配置方案
                 {result.manifest.secrets_index && result.manifest.secrets_index.entries.length > 0
-                  ? <> · 🔑 <strong>{result.manifest.secrets_index.total_logical_keys}</strong> 个不同密钥项，来自 {result.manifest.secrets_index.total_occurrences} 处脱敏位置</>
+                  ? <> · <DoodleIcon kind="key" /><strong>{result.manifest.secrets_index.total_logical_keys}</strong> 个不同密钥项，来自 {result.manifest.secrets_index.total_occurrences} 处脱敏位置</>
                   : <>，{result.manifest.placeholders.length} 处已脱敏</>}
                 。
                 <br />
-                导入方式：使用 <code>dch profile restore &lt;path&gt;</code>，或回到配置方案页点「📥 导入备份」。
+                导入方式：使用 <code>dch profile restore &lt;path&gt;</code>，或回到配置方案页点「导入备份」。
               </p>
               {result.manifest.secrets_index && result.manifest.secrets_index.entries.length > 0 && (
                 <SecretsSummaryList idx={result.manifest.secrets_index} />
@@ -220,7 +221,7 @@ export function ExportBackupModal({
               {noPlaceholder && (
                 <div className="form-row form-row-block">
                   <p className="form-hint" style={{ color: "var(--red)", borderLeft: "3px solid var(--red)", paddingLeft: 12 }}>
-                    ⚠️ 备份包将包含未脱敏的密钥或令牌。请只通过加密工具、密码管理器或本机保存。
+                    <DoodleIcon kind="warning" />备份包将包含未脱敏的密钥或令牌。请只通过加密工具、密码管理器或本机保存。
                     <br />
                     不要通过明文邮件、聊天窗口或公开仓库分享。
                   </p>

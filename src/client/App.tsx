@@ -8,6 +8,11 @@ import {
 import { ConfigPanel } from "./components/ConfigPanel.tsx";
 import { ProfilePanel } from "./components/ProfilePanel.tsx";
 import { PanelVisibilityProvider } from "./components/panel-visibility.tsx";
+import {
+  createNavCircleVariant,
+  NavPencilCircle,
+  type NavCircleVariant,
+} from "./components/NavPencilCircle.tsx";
 
 const ICONS: Record<string, string> = { terminal: ">_", claude: "C", codex: "X" };
 
@@ -18,6 +23,7 @@ export function App() {
   const [profileStore, setProfileStore] = useState<ProfileStore | null>(null);
   const [profileActive, setProfileActive] = useState<ProfileActive | null>(null);
   const [view, setView] = useState<View>({ kind: "tool", name: null });
+  const [navCircleVariant, setNavCircleVariant] = useState<NavCircleVariant>(() => createNavCircleVariant());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -196,6 +202,11 @@ export function App() {
         : tools[0]?.name ?? null
       : null;
 
+  const selectView = (next: View) => {
+    setNavCircleVariant(createNavCircleVariant());
+    setView(next);
+  };
+
   return (
     <div className="app">
       <nav className="sidebar">
@@ -207,8 +218,9 @@ export function App() {
           <div className="nav-row nav-row-profile">
             <button
               className={`nav-item nav-tag nav-item-profile tilt-right${view.kind === "profile" ? " on" : ""}`}
-              onClick={() => setView({ kind: "profile" })}
+              onClick={() => selectView({ kind: "profile" })}
             >
+              <NavPencilCircle checked={view.kind === "profile"} variant={navCircleVariant} />
               <div className="nav-icon profiles">⇄</div>
               <div className="nav-text">
                 <div className="nav-name">配置方案</div>
@@ -221,8 +233,9 @@ export function App() {
             <div className="nav-row" key={t.name}>
               <button
                 className={`nav-item nav-tag nav-tool-${t.icon} ${i % 2 === 0 ? "tilt-left" : "tilt-right"}${view.kind === "tool" && t.name === selectedToolName ? " on" : ""}`}
-                onClick={() => setView({ kind: "tool", name: t.name })}
+                onClick={() => selectView({ kind: "tool", name: t.name })}
               >
+                <NavPencilCircle checked={view.kind === "tool" && t.name === selectedToolName} variant={navCircleVariant} />
                 <div className={`nav-icon ${t.icon}`}>{ICONS[t.icon]}</div>
                 <div className="nav-text">
                   <div className="nav-name">{t.name}</div>

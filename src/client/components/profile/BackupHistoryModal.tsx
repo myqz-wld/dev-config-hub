@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import {
   dchProfile, type BackupSummary,
 } from "../../bridge.ts";
 import { backupCache } from "../../backup-cache.ts";
 import { formatBytes } from "../../format-bytes.ts";
+import { DoodleIcon } from "../DoodleIcon.tsx";
 
 /**
  * 备份历史 Modal：列三组（默认位 / 置顶 / 历史），每组每行支持「还原 / 置顶 / 删除」。
@@ -12,7 +13,7 @@ import { formatBytes } from "../../format-bytes.ts";
  * - mount 时若 backupCache 有数据 → 立即显示（即时打开，零延迟）+ 后台 silent refresh 拿最新
  * - 无 cache → 显示 spinner + "读取中…" + 阻塞 UI 等首次 fetch
  * - 任何写操作（pin / rm）→ backupCache.clear() + 重 fetch 同步
- * - 用户点「🔄 刷新」按钮 → 强制 fetch 不走 cache
+ * - 用户点「刷新」按钮 → 强制 fetch 不走 cache
  *
  * 数据流：
  * 1. mount 时调 dchProfile.backups() 拿列表 + 分组（or cache）
@@ -158,7 +159,7 @@ export function BackupHistoryModal({
     <div className="modal-backdrop" onClick={attemptClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>📚 备份历史 {refreshing && <span style={{ fontSize: "0.7em", opacity: 0.7, marginLeft: 8 }}>同步中…</span>}</h2>
+          <h2><DoodleIcon kind="history" />备份历史 {refreshing && <span style={{ fontSize: "0.7em", opacity: 0.7, marginLeft: 8 }}>同步中…</span>}</h2>
           <button className="modal-close" onClick={attemptClose}>×</button>
         </div>
         <div className="modal-body">
@@ -170,7 +171,7 @@ export function BackupHistoryModal({
               disabled={busy || initialLoad}
               style={{ marginLeft: 12 }}
             >
-              {busy || refreshing ? "刷新中…" : "🔄 刷新"}
+              {busy || refreshing ? "刷新中…" : <><DoodleIcon kind="refresh" />刷新</>}
             </button>
           </p>
 
@@ -182,12 +183,12 @@ export function BackupHistoryModal({
             </div>
           ) : !items || items.length === 0 ? (
             <div className="empty">
-              无备份。点 <code>📦 导出备份</code> 创建第一个。
+              无备份。点 <code>导出备份</code> 创建第一个。
             </div>
           ) : (
             <>
               <BackupGroup
-                title="📌 默认备份（每次会覆盖）"
+                title={<><DoodleIcon kind="pin" />默认备份（每次会覆盖）</>}
                 hint="这是默认保存的位置。每次直接备份都会覆盖它，因此总是最新一次的内容。"
                 items={groups!.default}
                 busy={busy || refreshing}
@@ -198,7 +199,7 @@ export function BackupHistoryModal({
                 onDelete={onDelete}
               />
               <BackupGroup
-                title="⭐ 置顶（不会被覆盖）"
+                title={<><DoodleIcon kind="pin" />置顶（不会被覆盖）</>}
                 hint="置顶的备份不会被下次备份覆盖，会一直保留到你手动删除。"
                 items={groups!.pinned}
                 busy={busy || refreshing}
@@ -209,7 +210,7 @@ export function BackupHistoryModal({
                 onDelete={onDelete}
               />
               <BackupGroup
-                title="📜 历史备份"
+                title={<><DoodleIcon kind="history" />历史备份</>}
                 hint="勾选「保留为历史」的备份。可以「置顶」永久保留，或删除清理空间。"
                 items={groups!.history}
                 busy={busy || refreshing}
@@ -234,7 +235,7 @@ function BackupGroup({
   title, hint, items, busy, confirmDel, setConfirmDel,
   onRestore, onPin, onDelete,
 }: {
-  title: string;
+  title: ReactNode;
   hint: string;
   items: BackupSummary[];
   busy: boolean;
@@ -287,7 +288,7 @@ function BackupRow({
       <div className="profile-card-head">
         <div className="profile-card-id">
           <code>{item.filename}</code>
-          {item.pinned && <span className="badge env" style={{ marginLeft: 6 }}>📌 置顶</span>}
+          {item.pinned && <span className="badge env" style={{ marginLeft: 6 }}><DoodleIcon kind="pin" />置顶</span>}
           {item.category === "default" && <span className="badge default" style={{ marginLeft: 6 }}>默认备份</span>}
           {m?.noPlaceholder && <span className="badge env" style={{ marginLeft: 6, color: "#c00" }}>明文凭据</span>}
         </div>
@@ -313,7 +314,7 @@ function BackupRow({
           </>
         ) : (
           <div className="profile-row" style={{ color: "#c00" }}>
-            ⚠ 备份摘要读取失败：{item.manifestError ?? "未知"}
+            <DoodleIcon kind="warning" />备份摘要读取失败：{item.manifestError ?? "未知"}
           </div>
         )}
         <div className="profile-row">
@@ -323,10 +324,10 @@ function BackupRow({
       </div>
       <div className="profile-card-actions">
         <button className="btn primary" disabled={busy || !m} onClick={onRestore}>
-          📥 还原此备份
+          <DoodleIcon kind="import" />还原此备份
         </button>
         <button className="btn-sm" disabled={busy} onClick={onPin}>
-          {item.pinned ? "取消置顶" : item.category === "default" ? "📌 置顶（先复制）" : "📌 置顶"}
+          {item.pinned ? "取消置顶" : <><DoodleIcon kind="pin" />{item.category === "default" ? "置顶（先复制）" : "置顶"}</>}
         </button>
         <div className="profile-card-actions-spacer" />
         {!confirming ? (

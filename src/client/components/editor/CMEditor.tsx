@@ -19,6 +19,7 @@ import {
 } from "@codemirror/language";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { projectTheme } from "./theme.ts";
+import { usePanelVisible } from "../panel-visibility.tsx";
 
 /**
  * 稳定的空数组引用作为 extraExtensions 默认值——避免每次 render 创建新 []
@@ -85,6 +86,7 @@ export function CMEditor({
   const themeCompartment = useRef(new Compartment());
   const maxHeightCompartment = useRef(new Compartment());
   const onChangeRef = useRef(onChange);
+  const panelVisible = usePanelVisible();
 
   // onChange 引用同步：updateListener 闭包总能拿到最新 onChange
   useEffect(() => {
@@ -128,12 +130,13 @@ export function CMEditor({
             onChangeRef.current(u.state.doc.toString());
           }
         }),
+        EditorView.lineWrapping,
         themeCompartment.current.of(projectTheme({ readOnly })),
         maxHeightCompartment.current.of(EditorView.theme({
           "&": {
             maxHeight: typeof maxHeight === "number" ? `${maxHeight}px` : maxHeight,
           },
-          ".cm-scroller": { overflow: "auto" },
+          ".cm-scroller": { overflowY: "auto", overflowX: "hidden" },
         })),
       ],
     });
@@ -213,10 +216,25 @@ export function CMEditor({
         "&": {
           maxHeight: typeof maxHeight === "number" ? `${maxHeight}px` : maxHeight,
         },
-        ".cm-scroller": { overflow: "auto" },
+        ".cm-scroller": { overflowY: "auto", overflowX: "hidden" },
       })),
     });
   }, [maxHeight]);
+
+  // Persistent hidden panels mount CodeMirror while their wrapper is display:none.
+  // When the panel becomes visible again, CM's viewport measurement can stay stale
+  // until a user scroll event forces it to redraw. Measure on the next frame so
+  // wrapped paper-mode editors paint immediately after tab/tool switches.
+  useEffect(() => {
+    if (!panelVisible) return;
+    const id = window.requestAnimationFrame(() => {
+      const v = viewRef.current;
+      if (!v) return;
+      v.requestMeasure();
+      v.scrollDOM.dispatchEvent(new Event("scroll"));
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [panelVisible]);
 
   return <div ref={hostRef} className="cm-host" />;
 }

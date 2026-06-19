@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Profile } from "../../bridge.ts";
 import { hookToString, maskValue } from "./helpers.ts";
+import { DoodleIcon } from "../DoodleIcon.tsx";
 
 export function ProfileCard({
   profile, isActive, busy, onUse, onDelete, onTestHook, onExport,
@@ -74,7 +75,7 @@ export function ProfileCard({
       </div>
       <div className="profile-card-actions">
         <button className="btn primary" disabled={busy} onClick={() => onUse(profile.id)}>
-          🔗 切换到此方案
+          <DoodleIcon kind="switch" />切换到此方案
         </button>
         {hasPreHook && (
           <button className="btn-sm" disabled={busy} onClick={() => onTestHook(profile.id, "pre")}>
@@ -88,7 +89,7 @@ export function ProfileCard({
         )}
         {onExport && (
           <button className="btn-sm" disabled={busy} onClick={() => onExport(profile.id)} title="只备份此方案和共享资源">
-            📦 导出
+            <DoodleIcon kind="export" />导出
           </button>
         )}
         <div className="profile-card-actions-spacer" />

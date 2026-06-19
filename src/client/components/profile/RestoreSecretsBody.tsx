@@ -22,6 +22,7 @@
 import React, { useState, useRef, useCallback } from "react";
 import type { SecretLogicalEntry } from "../../bridge.ts";
 import { CrossFieldBadge } from "./CrossFieldBadge.tsx";
+import { DoodleIcon } from "../DoodleIcon.tsx";
 
 export interface SecretsState {
   /** logical_key → realValue */
@@ -95,7 +96,7 @@ export function RestoreSecretsBody({
             borderRadius: 2,
           }}
         >
-          🔒 提示：填写期间请关闭开发者工具，避免明文密钥被旁路查看。
+          <DoodleIcon kind="lock" />提示：填写期间请关闭开发者工具，避免明文密钥被旁路查看。
         </p>
       </div>
 
@@ -169,7 +170,7 @@ const SecretEntryRow = React.memo(function SecretEntryRow({
           disabled={busy || skipped}
           title={reveal ? "隐藏" : "显示明文，注意周围环境"}
         >
-          {reveal ? "🙈" : "👁"}
+          <DoodleIcon kind={reveal ? "eyeOff" : "eye"} />{reveal ? "隐藏" : "显示"}
         </button>
         <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
           <input
@@ -184,7 +185,7 @@ const SecretEntryRow = React.memo(function SecretEntryRow({
 
       {empty && (
         <p className="form-hint" style={{ color: "var(--fg2)", marginTop: 4 }}>
-          ⏳ 待填写，也可以勾选「跳过」保留占位符
+          <DoodleIcon kind="pending" />待填写，也可以勾选「跳过」保留占位符
         </p>
       )}
 
