@@ -4,6 +4,10 @@ Terminal plan documents live here. Draft or in-progress plans stay in the curren
 
 When a plan reaches terminal state, archive the final document and plan-specific support material here, update this index, and remove workspace drafts.
 
+## Naming
+
+Existing historical records keep their current filenames. New final plans use `PLAN_X_<topic>.md`. Before creating one, run `ls ref/plans/`, set `X` to the maximum existing plan number in this directory plus 1, and do not guess. `<topic>` is short stable kebab-case and must not be vague like `update`, `fix`, or `misc`. Update this index in the same change.
+
 | Plan | Status | Completed | Summary | Related Changelog/Review |
 |---|---|---:|---|---|
 | [deep-review-fix-20260514.md](deep-review-fix-20260514.md) | completed | 2026-05-14 | Deep review Round 1 fixes and Round 2 preparation. | [CHANGELOG_18](../changelogs/CHANGELOG_18.md), [REVIEW_8](../reviews/REVIEW_8.md) |

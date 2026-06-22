@@ -22,10 +22,10 @@ Create or maintain files in this structure. Do not create parallel directories f
 - `src-tauri/`: Tauri v2 Rust backend. `src-tauri/target/` is the standard Cargo/Tauri output directory and must stay git ignored.
 - `scripts/`: project scripts and automation helper scripts.
 - `build/fe/`: frontend build output. The repository root `/build/` stays git ignored.
-- `ref/changelogs/INDEX.md`: final changelog index. Feature, behavior, API, dependency, or structure changes go in `ref/changelogs/CHANGELOG_X.md`.
-- `ref/reviews/INDEX.md`: final review index. Debug, performance, security, or review-driven fixes go in `ref/reviews/REVIEW_X.md`.
-- `ref/plans/INDEX.md`: final plan index. Completed plans are archived under `ref/plans/`.
-- `ref/conventions/INDEX.md`: index of promoted project conventions. Convention bodies use `ref/conventions/<X>-<topic>.md`.
+- `ref/changelogs/INDEX.md`: final changelog index. Feature, behavior, API, dependency, or structure changes go in `ref/changelogs/CHANGELOG_X_<topic>.md` unless appending to the latest same-topic changelog under the rules below. Existing historical `CHANGELOG_X.md` files keep their current names.
+- `ref/reviews/INDEX.md`: final review index. Debug, performance, security, or review-driven fixes go in `ref/reviews/REVIEW_X_<topic>.md`. Existing historical `REVIEW_X.md` files keep their current names.
+- `ref/plans/INDEX.md`: final plan index. New completed plans are archived under `ref/plans/PLAN_X_<topic>.md`; existing historical slug-date plans keep their current names.
+- `ref/conventions/INDEX.md`: index of promoted project conventions. Convention bodies use `ref/conventions/CONVENTION_X_<topic>.md`.
 - `ref/conventions/tally.md`: tally entry for repeated user feedback / repeated agent pitfalls.
 - `.ref/`: must be in `.gitignore`; store only non-final plan/review working copies here, never final records.
 
@@ -63,20 +63,24 @@ Every meaningful change must record either a changelog or a review. Any change u
 
 #### `ref/changelogs/` Rules
 
-- Filename: `CHANGELOG_X.md`, where X is an incrementing integer. Before creating a file, run `ls ref/changelogs/` and find the largest X.
-- **Small changes** (one or two files, tens of lines, same topic) -> append to the latest `CHANGELOG_X.md`; **large changes** (multiple modules / hundreds of lines / new feature) -> create `CHANGELOG_X+1.md`.
+- Filename: new standalone files use `CHANGELOG_X_<topic>.md`, where X is an incrementing integer and `<topic>` is short stable kebab-case that is not vague like `update`, `fix`, or `misc`. Existing historical `CHANGELOG_X.md` files keep their current names. Before creating a file, run `ls ref/changelogs/` and find the largest same-type X; do not guess.
+- **Small changes** (one or two files, tens of lines, same topic) -> append to the latest changelog for that topic when appropriate; **large changes** (multiple modules / hundreds of lines / new feature) -> create the next numbered `CHANGELOG_X_<topic>.md`.
 - Single-file structure: title + summary (2-3 lines) + changes (module-based bullets). **Do not write pitfall details / reasoning traces** there; those belong in `ref/reviews/`.
 
 #### `ref/reviews/` Rules
 
-- Filename: `REVIEW_X.md`, where X is an incrementing integer. Before creating a file, run `ls ref/reviews/` and find the largest X.
+- Filename: new files use `REVIEW_X_<topic>.md`, where X is an incrementing integer and `<topic>` is short stable kebab-case that is not vague like `update`, `fix`, or `misc`. Existing historical `REVIEW_X.md` files keep their current names. Before creating a file, run `ls ref/reviews/` and find the largest same-type X; do not guess.
 - Single-file structure: trigger scenario + method (two-adversary agents / scope / tools) + three-state verdict checklist + fix items.
 
 ### 3. Plan / Review Lifecycle
 
-Non-final plan/review working copies live in the current environment workspace. Without a stronger contract, use `<repo>/.ref/plans/<plan-id>.md` or `<repo>/.ref/reviews/<review-id>.md`. At final handoff, archive terminal plans to `ref/plans/`, archive terminal reviews to `ref/reviews/REVIEW_X.md`, sync the relevant index, and clean up workspace drafts.
+Non-final plan/review working copies live in the current environment workspace. Without a stronger contract, use `<repo>/.ref/plans/<plan-id>.md` or `<repo>/.ref/reviews/<review-id>.md`. At final handoff, archive new terminal plans to `ref/plans/PLAN_X_<topic>.md`, archive new terminal reviews to `ref/reviews/REVIEW_X_<topic>.md`, sync the relevant index, and clean up workspace drafts.
 
-### 4. Historical Records Gate
+### 4. Advisory Plan Archive Hook
+
+Keep the advisory plan archive pre-commit hook installed with `bash scripts/plan-archive-reminder-pre-commit.sh --install` after setup or whenever `.git/hooks/pre-commit` is reset. The hook reminds about non-final `.ref/plans/` files and must not block commits.
+
+### 5. Historical Records Gate
 
 Before modifying a feature area, run `ls ref/changelogs ref/conventions ref/reviews ref/plans 2>/dev/null || true` and read relevant entries so recorded design decisions, project conventions, plans, and review conclusions are not silently reversed.
 
@@ -167,7 +171,7 @@ Tool config files (`~/.claude/settings.json` / `~/.codex/config.toml` / `~/.zshr
 
 ## Repeated Feedback / Repeated Pitfalls -> Promote Conventions (Self-Maintenance)
 
-Candidates go in `ref/conventions/tally.md`; count >= 3 promotes them into `ref/conventions/<X>-<topic>.md` and syncs `ref/conventions/INDEX.md`.
+Candidates go in `ref/conventions/tally.md`; count >= 3 promotes them into `ref/conventions/CONVENTION_X_<topic>.md` and syncs `ref/conventions/INDEX.md`.
 
 | Type | Trigger |
 |---|---|

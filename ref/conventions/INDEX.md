@@ -4,7 +4,11 @@ Project-specific convention records live here under `ref/`, alongside `ref/chang
 
 Purpose: keep entry instructions stable while repeated feedback, recurring mistakes, and reviewed conventions accumulate as separate records.
 
-Promotion flow: record candidates in `tally.md`; when `count >= 3`, run the configured review/decision process, create `<X>-<topic>.md`, add a row here, and remove the promoted tally candidate.
+Promotion flow: record candidates in `tally.md`; when `count >= 3`, run the configured review/decision process, create `CONVENTION_X_<topic>.md`, add a row here, and remove the promoted tally candidate.
+
+## Naming
+
+Final conventions use `CONVENTION_X_<topic>.md`. Before creating one, run `ls ref/conventions/`, set `X` to the maximum existing convention number in this directory plus 1, and do not guess. `<topic>` is short stable kebab-case and must not be vague like `update`, `fix`, or `misc`. Update this index in the same change.
 
 ## Promoted Conventions
 
