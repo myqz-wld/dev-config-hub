@@ -2,7 +2,7 @@
 
 > Maintained automatically by agents. **Do not delete entries manually**.
 > For the workflow, see the root `CLAUDE.md` section "Repeated Feedback / Repeated Pitfalls -> Promote Conventions".
-> When count >= 3, run the three-state verdict review, then **create** `ref/conventions/<X>-<topic>.md` (incrementing X), sync `ref/conventions/INDEX.md`, and remove that entry from this tally.
+> When count >= 3, run the three-state verdict review, then **create** `ref/conventions/CONVENTION_X_<topic>.md` (incrementing X), sync `ref/conventions/INDEX.md`, and remove that entry from this tally.
 
 ---
 

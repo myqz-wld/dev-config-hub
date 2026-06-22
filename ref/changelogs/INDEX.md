@@ -2,6 +2,10 @@
 
 Functional changes, including new features, behavior changes, APIs, dependencies, or structure changes. Debug, performance, security, and review-driven fixes belong in [Reviews Index](../reviews/INDEX.md); this split starts at `CHANGELOG_6`.
 
+## Naming
+
+Existing historical records keep their current filenames. New standalone changelogs use `CHANGELOG_X_<topic>.md`. Before creating one, run `ls ref/changelogs/`, set `X` to the maximum existing changelog number in this directory plus 1, and do not guess. `<topic>` is short stable kebab-case and must not be vague like `update`, `fix`, or `misc`. Small same-topic changes may append to the latest relevant changelog under the repository workflow.
+
 | File | Summary |
 |---|---|
 | [CHANGELOG_1.md](CHANGELOG_1.md) | Added the Profile system: CLI and UI entry points, env and symlink switching modes, and pre/post hooks |
