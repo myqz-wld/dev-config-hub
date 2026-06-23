@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
-import { resolve as pathResolve } from "node:path";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { dirname, join, resolve as pathResolve } from "node:path";
 import type { ToolConfig, ConfigScope } from "./types.ts";
 import { readShellConfig } from "./readers/shell.ts";
 import { readClaudeCodeConfig } from "./readers/claude-code.ts";
@@ -8,6 +10,96 @@ import { runProfileCommand } from "./cli-profile.ts";
 import { c, LEVEL_COLORS } from "./cli-colors.ts";
 import { HOME, defaultEditor } from "./platform.ts";
 import { isJsonMode, jsonOut } from "./cli-shared.ts";
+
+type BuildInfo = {
+  name?: string;
+  productName?: string;
+  version?: string;
+  commit?: string;
+  shortCommit?: string;
+  branch?: string;
+  dirty?: boolean;
+  builtAt?: string;
+};
+
+const PROJECT_ROOT = pathResolve(import.meta.dir, "..");
+
+async function readJsonFile<T>(path: string): Promise<T | null> {
+  try {
+    return JSON.parse(await readFile(path, "utf8")) as T;
+  } catch {
+    return null;
+  }
+}
+
+function git(args: string[]): string | null {
+  const result = Bun.spawnSync(["git", ...args], {
+    cwd: PROJECT_ROOT,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (result.exitCode !== 0) return null;
+  return new TextDecoder().decode(result.stdout).trim();
+}
+
+function installedBuildInfoPath(): string {
+  const appPath = process.env.DCH_APP_PATH || process.env.DEV_CONFIG_HUB_APP || "/Applications/Dev Config Hub.app";
+  if (appPath.endsWith(".app")) {
+    return join(appPath, "Contents", "Resources", "build-info.json");
+  }
+  const bundleIndex = appPath.indexOf(".app/");
+  if (bundleIndex >= 0) {
+    return join(appPath.slice(0, bundleIndex + ".app".length), "Contents", "Resources", "build-info.json");
+  }
+  return join(dirname(appPath), "resources", "build-info.json");
+}
+
+async function projectVersion(): Promise<string> {
+  const config = await readJsonFile<{ version?: string }>(join(PROJECT_ROOT, "src-tauri", "tauri.conf.json"));
+  return config?.version ?? "unknown";
+}
+
+async function renderVersionStatus(checkOnly: boolean): Promise<number> {
+  const version = await projectVersion();
+  const sourceCommit = git(["rev-parse", "HEAD"]) ?? "unknown";
+  const sourceShort = git(["rev-parse", "--short=12", "HEAD"]) ?? "unknown";
+  const originMain = git(["rev-parse", "--verify", "--quiet", "origin/main"]);
+  const originShort = originMain ? git(["rev-parse", "--short=12", "--verify", "--quiet", "origin/main"]) : null;
+  const sourceDirty = Boolean(git(["status", "--porcelain"]));
+  const buildInfoPath = installedBuildInfoPath();
+  const installed = existsSync(buildInfoPath) ? await readJsonFile<BuildInfo>(buildInfoPath) : null;
+
+  console.log(`${c.bold}${c.blue}Dev Config Hub${c.reset} ${c.gray}v${version}${c.reset}`);
+  console.log(`  ${c.gray}source commit:${c.reset} ${sourceCommit} (${sourceShort})`);
+  console.log(`  ${c.gray}source dirty:${c.reset} ${sourceDirty}`);
+  if (originMain) {
+    console.log(`  ${c.gray}origin/main:${c.reset} ${originMain} (${originShort ?? "unknown"})`);
+  }
+
+  if (!installed) {
+    console.log(`  ${c.gray}installed build-info:${c.reset} 未找到`);
+    console.log(`  ${c.gray}path:${c.reset} ${buildInfoPath}`);
+    console.log(`  ${c.gray}status:${c.reset} 无法按 commit 判断安装包是否最新`);
+    return checkOnly ? 2 : 0;
+  }
+
+  console.log(`  ${c.gray}installed commit:${c.reset} ${installed.commit ?? "unknown"} (${installed.shortCommit ?? "unknown"})`);
+  console.log(`  ${c.gray}installed branch:${c.reset} ${installed.branch ?? "unknown"}`);
+  console.log(`  ${c.gray}installed dirty:${c.reset} ${installed.dirty ?? "unknown"}`);
+  console.log(`  ${c.gray}built at:${c.reset} ${installed.builtAt ?? "unknown"}`);
+
+  if (installed.commit === sourceCommit) {
+    const dirtySuffix = sourceDirty ? "，但当前源码有未提交改动" : "";
+    console.log(`  ${c.gray}status:${c.reset} 安装包与当前 checkout commit 一致${dirtySuffix}`);
+    return 0;
+  }
+  if (originMain && installed.commit === originMain) {
+    console.log(`  ${c.gray}status:${c.reset} 安装包与 origin/main 一致，但不同于当前 checkout`);
+    return checkOnly ? 1 : 0;
+  }
+  console.log(`  ${c.gray}status:${c.reset} 安装包不是当前 checkout 构建`);
+  return checkOnly ? 1 : 0;
+}
 
 function renderScope(scope: ConfigScope): string {
   const lines: string[] = [];
@@ -82,6 +174,15 @@ const TOOL_ALIASES: Record<string, number> = {
 
 async function main() {
   const args = process.argv.slice(2);
+
+  if (args[0] === "--version" || args[0] === "version") {
+    await renderVersionStatus(false);
+    return;
+  }
+
+  if (args[0] === "--check-installed" || args[0] === "check-installed") {
+    process.exit(await renderVersionStatus(true));
+  }
 
   if (args[0] === "profile") {
     await runProfileCommand(args.slice(1));
