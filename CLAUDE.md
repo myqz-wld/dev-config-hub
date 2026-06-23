@@ -42,6 +42,12 @@ bunx tauri build --bundles app
 cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 ```
 
+## Deployment / Packaging
+
+Dev Config Hub ships as an installable Tauri desktop app with a `dch` CLI entry. Production packaging must generate and bundle `build-info.json` with at least the app/package name, semantic version when available, full git commit, short commit, branch when available, dirty flag when determinable, and build timestamp.
+
+Packaging must keep `build-info.json` in the installed app resources, and the CLI must expose both human-readable version/status output and a machine-checkable installed freshness check. `dch --version` is the status entry; `dch --check-installed` is the freshness command. The check compares installed metadata against the current source checkout commit, may compare local `origin/main`, must never fetch remotes, and must report missing metadata distinctly from a commit mismatch.
+
 ---
 
 ## Required After Changes

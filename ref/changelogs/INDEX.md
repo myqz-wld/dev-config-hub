@@ -41,3 +41,4 @@ Existing historical records keep their current filenames. New standalone changel
 | [CHANGELOG_31.md](CHANGELOG_31.md) | Aligned root foundation instructions with current templates while preserving Dev Config Hub-specific rules |
 | [CHANGELOG_32.md](CHANGELOG_32.md) | Updated the app shell into a handwritten white-paper style with hand-drawn framed config regions, paper-backed code and Markdown bodies, doodled profile icons, and a randomized grainy red pencil circle active marker |
 | [CHANGELOG_33.md](CHANGELOG_33.md) | Consolidated the handwritten font stack into one cross-platform `--hand` variable and fixed the dark first-paint flash at its root (the inline `index.html` body style) |
+| [CHANGELOG_34_commit-build-metadata.md](CHANGELOG_34_commit-build-metadata.md) | Packaged builds include metadata; `dch` checks installed freshness by commit |

@@ -62,6 +62,8 @@ cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 
 # CLI mode
 bun run cli                                # overview
+bun run cli --version                      # compare source HEAD with installed app commit
+bun run cli --check-installed              # exit non-zero when installed app commit differs
 bun run cli claude                         # view Claude Code config
 bun run cli edit ~/.claude/settings.json   # edit with $EDITOR (Windows defaults to notepad)
 bun run cli gui                            # start desktop window
@@ -83,6 +85,8 @@ After registering the global command with `bun link`, use `dch` directly:
 bun link
 
 dch                   # overview of all tools
+dch --version         # print source and installed build commits
+dch --check-installed # machine-check installed app freshness by commit
 dch shell             # Shell config
 dch claude            # Claude Code config
 dch codex             # Codex CLI config
@@ -116,6 +120,8 @@ dch profile backups                          # list all .dchpack files (default 
 dch profile backup-rm <file> [--yes]         # delete a backup (basename or absolute path; deletes same-name .pinned too)
 dch profile backup-pin <file> [--unpin]      # pin (default slot -> copy + pin; others -> pin in place)
 ```
+
+Production builds include `build-info.json` in the Tauri app resources. `dch --version` prints the source checkout commit plus the installed app commit, branch, dirty flag, and build time. `dch --check-installed` returns `0` when the installed app was built from the current checkout commit, `1` when it differs, and `2` when no installed build metadata is available. Set `DCH_APP_PATH` or `DEV_CONFIG_HUB_APP` to check a non-default app path.
 
 ## Profile System
 
