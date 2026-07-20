@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { ENV_KEY_RE, validateEnv } from "./manager.ts";
+import { ENV_KEY_RE, validateEnv, validateTool } from "./manager.ts";
 
 // REVIEW_2 PR-6 (#M5)：addProfile / updateProfile 上游 env key 校验回归保护。
 // validateEnv 是纯函数 — 不触及 store / 文件锁，可以独立单测不污染 ~/.dch/profiles.json。
@@ -39,5 +39,15 @@ describe("ENV_KEY_RE / validateEnv (PR-6 #M5 上游守口)", () => {
 
   it("validateEnv: 一堆合法中混一个非法也 throw", () => {
     expect(() => validateEnv({ A: "1", B: "2", "C D": "3", E: "4" })).toThrow(/C D/);
+  });
+});
+
+describe("validateTool", () => {
+  it.each(["claude", "codex", "grok", "cursor"])("accepts %s", (tool) => {
+    expect(() => validateTool(tool)).not.toThrow();
+  });
+
+  it("rejects unknown tools from raw stores/backups", () => {
+    expect(() => validateTool("project-tool")).toThrow(/非法 tool/);
   });
 });

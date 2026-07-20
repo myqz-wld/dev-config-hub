@@ -28,20 +28,22 @@ const hookActionLabel = (which: "pre" | "post") => which === "pre" ? "切换前�
  * 新设计：store/active 由 App.tsx 单点持有 + 单点 listener 触发 reload；ProfilePanel 接 props
  * 渲染。`onReloadProfile` 给 handle/onUse 用（CRUD 后立即 silent reload 拿最新数据）。
  *
- * 不再需要 `onProfileChanged` —— App.tsx 内部 reloadProfile 会自动 propagate 新 store/active 下来；
- * 也不再需要 onProfileChanged 反过来调 App.load() 全量刷 tool configs（profile 切换跟 Claude/Codex
- * 配置无关，没必要刷）。
+ * 不再需要 `onProfileChanged` —— App.tsx 内部 reloadProfile 会自动 propagate 新 store/active 下来。
+ * profile use/init 会额外调用轻量的 onReloadConfigs，确保 symlink/junction 改变后配置页立即更新。
  */
 interface Props {
   store: ProfileStore | null;
-  active: Record<ToolKind, { id: string | null; symlinkTarget: string | null }> | null;
+  active: Record<ToolKind, { id: string | null; rootPath: string; symlinkTarget: string | null }> | null;
   onToast: (msg: string, ok: boolean) => void;
   onReloadProfile: (silent?: boolean) => Promise<void>;
+  onReloadConfigs: () => Promise<void>;
 }
 
 // memo：常驻挂载 + display 切换下，App 重渲染时隐藏的 ProfilePanel 也会跟着重渲染。
-// store/active 仅在 profile reload 时变，onToast/onReloadProfile 在 App 已 useCallback 稳定。
-export const ProfilePanel = memo(function ProfilePanel({ store, active, onToast, onReloadProfile }: Props) {
+// store/active 仅在 profile reload 时变，三个 callback 在 App 已 useCallback 稳定。
+export const ProfilePanel = memo(function ProfilePanel({
+  store, active, onToast, onReloadProfile, onReloadConfigs,
+}: Props) {
   const [tool, setTool] = useState<ToolKind>("claude");
   const [busy, setBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -55,12 +57,19 @@ export const ProfilePanel = memo(function ProfilePanel({ store, active, onToast,
 
   // store/active 在 App.tsx 的首屏 loadProfileData 失败时可能 null；panel 常驻必须永远 mount
   // （CHANGELOG_11），所以接受 null + 渲染 placeholder。Hook 必须在 early return 之前声明。
-  const handle = async <T,>(action: () => Promise<T>, successMsg: string): Promise<boolean> => {
+  const handle = async <T,>(
+    action: () => Promise<T>,
+    successMsg: string,
+    refreshConfigs = false,
+  ): Promise<boolean> => {
     setBusy(true);
     try {
       await action();
       onToast(successMsg, true);
-      await onReloadProfile();
+      await Promise.all([
+        onReloadProfile(),
+        refreshConfigs ? onReloadConfigs() : Promise.resolve(),
+      ]);
       return true;
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
@@ -96,7 +105,7 @@ export const ProfilePanel = memo(function ProfilePanel({ store, active, onToast,
         return;
       }
       onToast(`已切换 → ${id}`, true);
-      await onReloadProfile();
+      await Promise.all([onReloadProfile(), onReloadConfigs()]);
     } catch (e) {
       onToast(e instanceof Error ? e.message : String(e), false);
     } finally {
@@ -164,14 +173,14 @@ export const ProfilePanel = memo(function ProfilePanel({ store, active, onToast,
           <code>{toolActive.id ?? "<未设置>"}</code>
         </div>
         <div>
-          <span className="profile-status-label">~/.{tool}</span>
+          <span className="profile-status-label">{toolActive.rootPath}</span>
           <code>{toolActive.symlinkTarget ?? "(尚未接管目录)"}</code>
         </div>
         {!toolActive.symlinkTarget && (
           <button
             className="btn ghost btn-init"
             disabled={busy}
-            onClick={() => handle(() => dchProfile.init(tool), `已初始化 ${tool}`)}
+            onClick={() => handle(() => dchProfile.init(tool), `已初始化 ${tool}`, true)}
           >
             初始化 {tool} 配置目录
           </button>

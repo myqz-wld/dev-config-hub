@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ToolConfig, ConfigScope } from "../types.ts";
+import type { ToolConfig } from "../types.ts";
+import { profileToolRoot, type ConfigEnvironment, type ConfigToolId } from "../config-locations.ts";
+import { loadConfigTools, type ToolVersionMap } from "../config-loader.ts";
 import { applyStoreDefaults, EMPTY_STORE } from "../profiles/store-shape.ts";
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -99,85 +101,67 @@ export async function writeProfileConfigFile(configDir: string, filename: string
  * **REVIEW_9 C-HIGH-1 / C-codex H1**: tool 字段映射 Rust 端 ToolKind enum
  * (commands/version.rs)。前端直接传 enum value 而非任意 string,关闭 IPC 直传 shell -c 的注入面。
  *
- * 命名 `VersionToolKind` 避免与 profiles/types.ts ToolKind ("claude" | "codex") 冲突 —
- * profiles 端的 ToolKind 不含 "zsh" (它不是可切换的 dch profile,只是
- * version IPC 多包含的工具),两个 type 语义不同不能合并。
+ * 命名 `VersionToolKind` 避免与 profiles/types.ts ToolKind 冲突：配置展示含 Shell，
+ * 配置方案不含 Shell，两个 type 的语义和成员集合不同。
  */
-type VersionToolKind = "zsh" | "claude" | "codex";
+type VersionToolKind = ConfigToolId;
 
 async function version(tool: VersionToolKind): Promise<string> {
   return call<string>("get_tool_version", { tool });
 }
 
-async function readScope(
-  path: string, level: ConfigScope["level"], label: string, format: ConfigScope["format"],
-): Promise<ConfigScope> {
-  // REVIEW_8 H7 / E2：灌入 mtimeUs 给 ConfigPanel edit 模式做 TOCTOU CAS。
-  // 单次 IPC 同步拿 exists + content + mtime（消除 file_exists/read_file 双 IPC race）。
-  const { exists, content, mtimeUs } = await readFileWithMtime(path);
-  return { level, label, filePath: path, exists, format, content, loadedMtimeUs: mtimeUs };
-}
+export type ToolVersions = ToolVersionMap;
 
-export interface ToolVersions {
-  shell: string;
-  claude: string;
-  codex: string;
+let configEnvironmentPromise: Promise<ConfigEnvironment> | null = null;
+
+export async function getConfigEnvironment(): Promise<ConfigEnvironment> {
+  configEnvironmentPromise ??= call<ConfigEnvironment>("get_config_environment").catch((error) => {
+    configEnvironmentPromise = null;
+    throw error;
+  });
+  return configEnvironmentPromise;
 }
 
 /**
- * 拉 3 个工具的版本号 (zsh / claude / codex)。
+ * 拉 5 个工具的版本号。版本检查只在首屏执行，focus reload 复用缓存。
  *
- * **慢路径**：每个 version() spawn 一次登录式 zsh + source rc → tool --version，单个 200-500ms。
- * 仅首屏跑一次，结果缓存到 App.tsx versionsRef；切回窗口（focus reload）跳过这步省 3 zsh spawn
+ * **慢路径**：版本探测可能启动登录 shell 或工具进程，单个通常 200-500ms。
+ * 仅首屏跑一次，结果缓存到 App.tsx versionsRef；切回窗口（focus reload）跳过这些进程
  * （CHANGELOG_15）。需要刷新版本只能重启 app。
  */
 export async function loadAllVersions(): Promise<ToolVersions> {
-  const [shell, claude, codex] = await Promise.all([
-    version("zsh"),
+  const [shell, claude, codex, grok, cursor] = await Promise.all([
+    version("shell"),
     version("claude"),
     version("codex"),
+    version("grok"),
+    version("cursor"),
   ]);
-  return { shell, claude, codex };
+  return { shell, claude, codex, grok, cursor };
 }
 
 /**
- * 拉所有 scope 文件内容；接收预算好的 home + versions（避免 focus reload 重新 spawn shell）。
+ * 拉所有用户级配置文件；路径定义与 CLI 共用 config-locations.ts。
  *
- * **快路径**：8 个 readFileWithMtime 并发，每个纯 Rust fs metadata + read，几 ms 总计。
+ * **快路径**：所有 readFileWithMtime 并发，每个纯 Rust fs metadata + read，几 ms 总计。
  * 切回窗口走这一条 → 0 spawn 开销。
  */
-export async function loadAllFiles(home: string, versions: ToolVersions): Promise<ToolConfig[]> {
-  const shellScopes: ConfigScope[] = await Promise.all([
-    readScope(`${home}/.zprofile`, "global", "~/.zprofile", "dotfile"),
-    readScope(`${home}/.zshrc`, "user", "~/.zshrc", "dotfile"),
-  ]);
-
-  const claudeScopes = await Promise.all([
-    readScope(`${home}/.claude/settings.json`, "user", "~/.claude/settings.json", "json"),
-    readScope(`${home}/.claude/settings.local.json`, "local", "~/.claude/settings.local.json", "json"),
-    readScope(`${home}/.claude/CLAUDE.md`, "user", "~/.claude/CLAUDE.md", "markdown"),
-    readScope(`${home}/.claude/.mcp.json`, "user", "~/.claude/.mcp.json", "json"),
-  ]);
-
-  const codexScopes = await Promise.all([
-    readScope(`${home}/.codex/config.toml`, "global", "~/.codex/config.toml", "toml"),
-    readScope(`${home}/.codex/AGENTS.md`, "user", "~/.codex/AGENTS.md", "markdown"),
-  ]);
-
-  return [
-    { name: "Shell (Zsh)", version: versions.shell, icon: "terminal", description: "Zsh shell 环境配置", scopes: shellScopes },
-    { name: "Claude Code", version: versions.claude, icon: "claude", description: "Anthropic AI 编码助手", scopes: claudeScopes },
-    { name: "Codex CLI", version: versions.codex, icon: "codex", description: "OpenAI AI 编码助手", scopes: codexScopes },
-  ];
+export async function loadAllFiles(
+  env: ConfigEnvironment,
+  versions: ToolVersions,
+): Promise<ToolConfig[]> {
+  return loadConfigTools(env, versions, async (path) => {
+    const { exists, content, mtimeUs } = await readFileWithMtime(path);
+    return { exists, content, loadedMtimeUs: mtimeUs };
+  });
 }
 
 /**
  * 完整加载（versions + files）。仅首屏 / 测试 mock 用；focus reload 走 loadAllFiles 单独。
  */
 export async function loadAllConfigs(): Promise<ToolConfig[]> {
-  const home = await call<string>("get_home_dir");
-  const versions = await loadAllVersions();
-  return loadAllFiles(home, versions);
+  const [env, versions] = await Promise.all([getConfigEnvironment(), loadAllVersions()]);
+  return loadAllFiles(env, versions);
 }
 
 export async function saveFile(filePath: string, content: string): Promise<void> {
@@ -241,8 +225,9 @@ export {
   TIMEOUT_BACKUP_MS,
 } from "./bridge-core.ts";
 
-import type {
-  Profile, ProfileStore, SwitchResult, ToolKind, HookResult,
+import {
+  PROFILE_TOOL_IDS,
+  type Profile, type ProfileStore, type SwitchResult, type ToolKind, type HookResult,
 } from "../profiles/types.ts";
 
 // 类型 surface 透传：caller 仍只 import "../bridge.ts" 拿到 backup / restore 全套类型。
@@ -300,14 +285,18 @@ export const dchProfile = {
 //
 // CHANGELOG_15：focus reload 时切回窗口卡顿根因之一是 list / current 各 spawn 一次
 // `bun src/cli.ts profile <cmd>` cold start ~500ms × 2。CLI 端这俩命令本质就是
-// 「读 ~/.dch/profiles.json + 2 次 readlink ~/.{tool}」，前端直读 fs 等价且零 spawn。
+// 「读 ~/.dch/profiles.json + 各工具 root 的 readlink」，前端直读 fs 等价且零 spawn。
 //
 // 写操作（add/remove/use/init/config/testHook）仍走 dch CLI —— 涉及 store lock + hook
 // 不能复刻；这里只 bypass 纯读路径。
 
-export type ProfileActive = Record<ToolKind, { id: string | null; symlinkTarget: string | null }>;
+export type ProfileActive = Record<ToolKind, {
+  id: string | null;
+  rootPath: string;
+  symlinkTarget: string | null;
+}>;
 
-const TOOL_KINDS: ToolKind[] = ["claude", "codex"];
+const TOOL_KINDS: ToolKind[] = [...PROFILE_TOOL_IDS];
 
 /**
  * 纯函数：把 raw 输入（store JSON 串 / 各 link target）拼成 { store, active }。
@@ -321,6 +310,7 @@ const TOOL_KINDS: ToolKind[] = ["claude", "codex"];
 export function buildProfileData(
   storeContent: string | null,
   links: Record<ToolKind, string | null>,
+  roots: Record<ToolKind, string>,
 ): { store: ProfileStore; active: ProfileActive } {
   let store: ProfileStore;
   if (storeContent === null) {
@@ -339,6 +329,7 @@ export function buildProfileData(
   for (const tool of TOOL_KINDS) {
     active[tool] = {
       id: store.active[tool] ?? null,
+      rootPath: roots[tool],
       symlinkTarget: links[tool] ?? null,
     };
   }
@@ -358,16 +349,19 @@ export async function loadProfileDataDirect(): Promise<{
   store: ProfileStore;
   active: ProfileActive;
 }> {
-  const home = await getHomeDir();
+  const environment = await getConfigEnvironment();
+  const home = environment.home;
   const storePath = `${home}/.dch/profiles.json`;
   const r = await readFileWithMtime(storePath);
+  const roots = {} as Record<ToolKind, string>;
+  for (const tool of TOOL_KINDS) roots[tool] = profileToolRoot(environment, tool);
   // 并发拿 link target；readLink 内部已 catch，所有失败回 null
-  const targets = await Promise.all(TOOL_KINDS.map((t) => readLink(`${home}/.${t}`)));
+  const targets = await Promise.all(TOOL_KINDS.map((tool) => readLink(roots[tool])));
 
   const links = {} as Record<ToolKind, string | null>;
   for (let i = 0; i < TOOL_KINDS.length; i++) {
     links[TOOL_KINDS[i]!] = targets[i] ?? null;
   }
 
-  return buildProfileData(r.exists ? r.content : null, links);
+  return buildProfileData(r.exists ? r.content : null, links, roots);
 }

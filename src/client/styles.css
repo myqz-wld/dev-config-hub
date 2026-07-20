@@ -110,6 +110,8 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .nav-tool-terminal,
 .nav-tool-claude,
 .nav-tool-codex,
+.nav-tool-grok,
+.nav-tool-cursor,
 .nav-item-profile { border-left: 0; }
 .nav-item-profile { margin-bottom: 0; }
 .nav-pencil-circle {
@@ -150,6 +152,8 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .nav-icon.terminal { color: #246c3d; }
 .nav-icon.claude { color: #6549a1; }
 .nav-icon.codex { color: #187d78; }
+.nav-icon.grok { color: #8b4a24; }
+.nav-icon.cursor { color: #365e9b; }
 .nav-name { font-size: 14px; font-weight: 800; color: #24190f; letter-spacing: .5px; }
 .nav-ver { font-size: 12px; color: rgba(54,38,20,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav-text { min-width: 0; flex: 1; }
@@ -295,7 +299,7 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 
 /* ── ProfilePanel ── */
 .profile-panel .panel-head h1 { display: flex; align-items: center; }
-.profile-tabs { display: flex; align-items: center; gap: 5px; border-bottom: 1px solid rgba(83,58,24,.22); margin-bottom: 16px; padding-bottom: 9px; position: relative; font-family: var(--hand); }
+.profile-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; border-bottom: 1px solid rgba(83,58,24,.22); margin-bottom: 16px; padding-bottom: 9px; position: relative; font-family: var(--hand); }
 .profile-tab { padding: 7px 13px 6px; background: transparent; border: 1.3px solid transparent; color: #3d2b16; cursor: pointer; font: 800 13px/1.2 var(--hand); border-radius: 52% 46% 50% 44%; display: flex; align-items: center; gap: 6px; transition: .15s; }
 .profile-tab:hover { color: #33567f; border-color: rgba(51,86,127,.3); }
 .profile-tab.on { color: #33567f; border-color: rgba(51,86,127,.46); background: rgba(51,86,127,.07); transform: rotate(-1deg); }

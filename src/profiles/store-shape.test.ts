@@ -22,9 +22,14 @@ describe("applyStoreDefaults — pure default 补全", () => {
     expect(applyStoreDefaults(undefined)).toEqual(EMPTY_STORE);
   });
 
-  it("缺 active.codex → 补 null（不丢失已有 active.claude）", () => {
+  it("缺其他工具 active → 补 null（不丢失已有 active.claude）", () => {
     const r = applyStoreDefaults({ active: { claude: "claude-prod" } });
-    expect(r.active).toEqual({ claude: "claude-prod", codex: null });
+    expect(r.active).toEqual({
+      claude: "claude-prod",
+      codex: null,
+      grok: null,
+      cursor: null,
+    });
   });
 
   it("缺 preferences → 补 hookTimeoutMs=30000", () => {

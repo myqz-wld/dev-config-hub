@@ -60,7 +60,7 @@ describe("loadStore (tmpdir 隔离)", () => {
       const store = await loadStore(path);
       expect(store.version).toBe(1);
       expect(store.profiles).toEqual([]);
-      expect(store.active).toEqual({ claude: null, codex: null });
+      expect(store.active).toEqual({ claude: null, codex: null, grok: null, cursor: null });
       expect(store.preferences.hookTimeoutMs).toBe(30_000);
     } finally {
       await rm(tmp, { recursive: true, force: true });
@@ -89,13 +89,13 @@ describe("loadStore (tmpdir 隔离)", () => {
     }
   });
 
-  it("缺 active 字段 → fallback {claude: null, codex: null}", async () => {
+  it("缺 active 字段 → fallback 所有工具 null", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "dch-loadstore-"));
     try {
       const path = join(tmp, "profiles.json");
       await writeFile(path, JSON.stringify({ version: 1, profiles: [] }), "utf8");
       const store = await loadStore(path);
-      expect(store.active).toEqual({ claude: null, codex: null });
+      expect(store.active).toEqual({ claude: null, codex: null, grok: null, cursor: null });
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
@@ -119,7 +119,7 @@ describe("loadStore (tmpdir 隔离)", () => {
       const path = join(tmp, "profiles.json");
       await writeFile(path, JSON.stringify({ version: 1, profiles: [], active: { claude: "a-1" } }), "utf8");
       const store = await loadStore(path);
-      expect(store.active).toEqual({ claude: "a-1", codex: null });
+      expect(store.active).toEqual({ claude: "a-1", codex: null, grok: null, cursor: null });
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
@@ -139,7 +139,7 @@ describe("saveStore + loadStore roundtrip", () => {
           configDir: "~/.claude-test",
           env: { K: "v" },
         }],
-        active: { claude: "test-claude", codex: null },
+        active: { claude: "test-claude", codex: null, grok: null, cursor: null },
         preferences: { hookTimeoutMs: 5_000 },
       };
       await saveStore(original, path);
@@ -155,7 +155,7 @@ describe("saveStore + loadStore roundtrip", () => {
     try {
       const path = join(tmp, "deep", "nested", "dir", "profiles.json");
       const empty: ProfileStore = {
-        version: 1, profiles: [], active: { claude: null, codex: null },
+        version: 1, profiles: [], active: { claude: null, codex: null, grok: null, cursor: null },
         preferences: { hookTimeoutMs: 30_000 },
       };
       await saveStore(empty, path);

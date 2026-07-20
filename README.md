@@ -1,26 +1,38 @@
 # Dev Config Hub
 
-A local desktop app for visually viewing and editing development-tool config files, and for quickly switching between multiple **Claude Code / Codex CLI authentication profiles** (subscription vs API key, and similar scenarios).
+A local desktop app for visually viewing and editing development-tool config files, and for quickly switching between multiple **Claude Code / Codex CLI / Grok Build / Cursor configuration profiles** (subscription vs API key, and similar scenarios).
 
-Built on [Tauri v2](https://v2.tauri.app/) (Rust + WebView), with both frontend and backend running on [Bun](https://bun.sh/). **Supports macOS / Windows 10+ / Linux**. On Windows, profile switching automatically uses NTFS junctions instead of symlinks, with no Developer Mode or elevated privileges required.
+Built on [Tauri v2](https://v2.tauri.app/): a Rust backend and a React/TypeScript WebView frontend, with [Bun](https://bun.sh/) used for the frontend toolchain and CLI. **Supports macOS / Windows 10+ / Linux**. On Windows, profile switching automatically uses NTFS junctions instead of symlinks, with no Developer Mode or elevated privileges required.
 
 ## Platform Support Matrix
 
 | Platform | Status | Notes |
 |---|---|---|
-| **macOS 12+ (Apple Silicon / Intel)** | **GA** | Primary development and test platform; symlink + bash hook + zsh shell reader |
-| **Windows 10 1703+ / 11** | **beta** | Symlink automatically uses junctions (no SeCreateSymbolicLinkPrivilege / Developer Mode required); hooks use PowerShell by default (string hooks are parsed as PowerShell; object hooks `{posix?, powershell?, cmd?}` explicitly split by platform); shell reader reads `$PROFILE` |
-| **Linux** | **beta** | Same symlink behavior as macOS; hooks use bash; shell reader reads zsh + bash config |
+| **macOS 12+ (Apple Silicon / Intel)** | **GA** | Primary development and test platform; symlink + bash hook; Shell view covers Zsh/Bash and discovers installed Fish/PowerShell |
+| **Windows 10 1703+ / 11** | **beta** | Symlink automatically uses junctions (no SeCreateSymbolicLinkPrivilege / Developer Mode required); hooks use PowerShell by default; Shell view dynamically reads the two CurrentUser profiles for each installed Windows PowerShell / PowerShell 7 family |
+| **Linux** | **beta** | Same symlink behavior as macOS; hooks use bash; Shell view covers Zsh/Bash and discovers installed Fish/PowerShell |
+
+The platform-support target is **macOS GA, with Windows and Linux remaining beta platforms**.
 
 Windows real-machine E2E remains pending CI validation (see [REVIEW_1](ref/reviews/history/REVIEW_1.md)).
 
+## Configuration Scope
+
+Dev Config Hub intentionally displays and manages only user-level/global tool configuration. Project- or workspace-local configuration files are out of scope and are not enumerated or edited.
+
+Missing primary files remain visible and can be created with valid starter content. Missing optional files stay hidden to keep the list compact.
+
 ## Supported Tools
 
-| Tool | Config Files | Format |
+| Tool | User-level Config Files | Format |
 |------|---------|------|
-| **Shell** | macOS/Linux: `~/.zprofile`, `~/.zshrc`, `~/.bashrc` / Windows: `$PROFILE` (PowerShell 5.1 + 7) | dotfile / .ps1 |
-| **Claude Code** | `~/.claude/settings.json`, `settings.local.json`, `CLAUDE.md`, `.mcp.json` | JSON / Markdown |
-| **Codex CLI** | `~/.codex/config.toml` | TOML |
+| **Shell** | macOS/Linux: `$ZDOTDIR` or `~` → `.zshenv`, `.zprofile`, `.zshrc`; `~/.bash_profile`, `~/.bashrc`, `~/.profile`; Fish `$XDG_CONFIG_HOME/fish/config.fish`; discovered PowerShell CurrentUser profiles. Windows: dynamically resolved `CurrentUserAllHosts` + `CurrentUserCurrentHost` for installed PowerShell families | shell / PowerShell |
+| **Claude Code** | `~/.claude/settings.json`, `~/.claude/CLAUDE.md` | JSON / Markdown |
+| **Codex CLI** | `$CODEX_HOME/config.toml`; effective global instructions: `AGENTS.override.md`, otherwise `AGENTS.md` | TOML / Markdown |
+| **Grok Build** | `$GROK_HOME/config.toml`; existing optional `managed_config.toml`, `requirements.toml` | TOML |
+| **Cursor** | macOS `~/Library/Application Support/Cursor/User/{settings,keybindings}.json`; Windows `%APPDATA%\Cursor\User\...`; Linux `$XDG_CONFIG_HOME/Cursor/User/...`; plus `~/.cursor/mcp.json`, `cli-config.json`, and existing optional `hooks.json` | JSON / JSONC |
+
+The catalog follows the tools' current user-scope documentation: [Claude Code settings](https://docs.anthropic.com/en/docs/claude-code/settings), [Codex config](https://developers.openai.com/codex/config-basic) and [global AGENTS.md](https://developers.openai.com/codex/guides/agents-md), [Grok Build settings](https://docs.x.ai/build/settings), and Cursor [MCP](https://docs.cursor.com/context/model-context-protocol), [CLI permissions](https://docs.cursor.com/cli/reference/permissions), and [hooks](https://cursor.com/docs/hooks). Project examples in those documents are intentionally excluded here.
 
 ## Core Capabilities
 
@@ -29,9 +41,9 @@ Windows real-machine E2E remains pending CI validation (see [REVIEW_1](ref/revie
 - **Markdown rendering**: markdown files such as `CLAUDE.md` use react-markdown + GFM + shiki code blocks by default
 - **Automatic tool version detection**
 - **CLI + GUI dual entry points**: `dch` subcommands cover all functionality; `dch gui` / `bun run dev` starts the desktop window
-- **Fast profile switching**: maintain multiple Claude / Codex configs (for example `claude-pro` / `claude-api`, `codex-plus` / `codex-api`) and atomically switch the global `~/.claude` / `~/.codex` symlink with one action
+- **Fast profile switching**: maintain multiple Claude / Codex / Grok / Cursor configs and atomically switch each tool's user config root with one action. Cursor profiles switch `~/.cursor`; editor `settings.json` / `keybindings.json` stay outside profile switching
 - **Pre/post switch hooks**: each profile can define `preSwitch` / `postSwitch` shell scripts for automatically killing leftover processes, starting VPN, health checks, osascript notifications, etc. `preSwitch` failure aborts the switch
-- **Shell wrapper env injection**: `dch profile env` + a `~/.zshrc` subshell wrapper injects `profile.env` into the claude / codex process itself (OAuth / API through proxy)
+- **Shell wrapper env injection**: `dch profile env` + a shell wrapper injects `profile.env` into the selected tool process itself (OAuth / API through proxy)
 - **Backup and restore (.dchpack)**: package all profiles + shared resources (hook scripts + `~/.agents/`) into one file for cross-machine migration / local disaster recovery / sharing profiles with teammates. **Tokens / API keys are placeholder-redacted by default** for safe sharing; CLI + UI entry points are both supported. During restore, secrets-index globally deduplicates placeholders (observed: 148 placeholders -> 32 logical keys), so the user fills once and fan-out writes to every location by `fieldPath` (CLI `--fill-secrets` / `--secrets-json` + UI step 3 "fill K secrets").
 
 ## Requirements
@@ -65,6 +77,8 @@ bun run cli                                # overview
 bun run cli --version                      # compare source HEAD with installed app commit
 bun run cli --check-installed              # exit non-zero when installed app commit differs
 bun run cli claude                         # view Claude Code config
+bun run cli grok                           # view Grok Build config
+bun run cli cursor                         # view Cursor config
 bun run cli edit ~/.claude/settings.json   # edit with $EDITOR (Windows defaults to notepad)
 bun run cli gui                            # start desktop window
 
@@ -90,6 +104,8 @@ dch --check-installed # machine-check installed app freshness by commit
 dch shell             # Shell config
 dch claude            # Claude Code config
 dch codex             # Codex CLI config
+dch grok              # Grok Build config
+dch cursor            # Cursor config
 dch all               # show everything
 dch gui               # start desktop window (same as bun run dev)
 dch edit <file>       # edit a specific config file with $EDITOR
@@ -97,13 +113,13 @@ dch edit <file>       # edit a specific config file with $EDITOR
 # Profile management
 dch profile                                  # list all profiles (grouped by tool, active marked)
 dch profile show <id>                        # print profile JSON
-dch profile add <claude|codex> <id> [...]    # add profile: --dir / --env K=V / --from / --desc
+dch profile add <claude|codex|grok|cursor> <id> [...] # add profile: --dir / --env K=V / --from / --desc
 dch profile edit <id>                        # open ~/.dch/profiles.json in $EDITOR
 dch profile remove <id> [--yes]              # delete profile (does not delete configDir)
-dch profile use <id>                         # atomically switch ~/.claude / ~/.codex symlink + run pre/post hooks
+dch profile use <id>                         # atomically switch the profile's tool root + run pre/post hooks
 dch profile current [tool]                   # query current active profile
-dch profile env <claude|codex>               # output active profile.env in shell-eval format
-dch profile init <claude|codex>              # convert ~/.claude / ~/.codex to symlink and create default profile
+dch profile env <claude|codex|grok|cursor>   # output active profile.env in shell-eval format
+dch profile init <claude|codex|grok|cursor>  # convert the tool root to a symlink/junction and create default profile
 dch profile hook test <id> <pre|post>        # run one hook for testing
 dch profile config hookTimeoutMs <ms>        # set hook timeout
 dch profile backup [opts]                    # back up all profiles + shared resources to .dchpack
@@ -145,14 +161,19 @@ All profiles are persisted in `~/.dch/profiles.json`:
       }
     }
   ],
-  "active": { "claude": "claude-api", "codex": null },
+  "active": {
+    "claude": "claude-api",
+    "codex": null,
+    "grok": null,
+    "cursor": null
+  },
   "preferences": {
     "hookTimeoutMs": 30000
   }
 }
 ```
 
-> By default, `profile.env` is visible only inside `preSwitch` / `postSwitch` scripts (for hook-local curl proxy settings, etc.). **To also inject env into the claude / codex process itself** (such as OAuth login through an HTTP proxy), use `dch profile env <tool>` + a zshrc shell wrapper (see the "Shell wrapper" section below). Alternatively, write env into the `env` block in `<configDir>/settings.json` (Claude Code only; Codex has no such mechanism).
+> By default, `profile.env` is visible only inside `preSwitch` / `postSwitch` scripts (for hook-local curl proxy settings, etc.). **To also inject env into the tool process itself** (such as OAuth login through an HTTP proxy), use `dch profile env <tool>` + a shell wrapper (see the "Shell wrapper" section below). Claude Code can alternatively receive variables through the `env` block in `<configDir>/settings.json`.
 
 ### Hook-Injected Environment Variables
 
@@ -160,7 +181,7 @@ When running `preSwitch` / `postSwitch` scripts, the following variables are inj
 
 ```
 DCH_PROFILE_ID         profile id being switched to
-DCH_PROFILE_TOOL       claude | codex
+DCH_PROFILE_TOOL       claude | codex | grok | cursor
 DCH_PROFILE_CONFIG_DIR absolute path of that profile
 DCH_SWITCH_TO          target profile id (same as DCH_PROFILE_ID)
 DCH_SWITCH_FROM        previous active profile id (may be empty after first init)
@@ -192,17 +213,19 @@ A nonzero `preSwitch` exit code aborts the switch, does not update active state,
 `dch profile use <id>` does the following:
 
 1. Run the `preSwitch` hook (with `profile.env`); abort on failure
-2. Atomically modify the `~/.claude` / `~/.codex` symlink to point at `profile.configDir`
+2. Atomically modify the selected tool root to point at `profile.configDir`
    - **macOS / Linux**: temporary `ln -s` name + overwrite with `mv` (POSIX rename is atomic)
    - **Windows**: `fs.symlink(target, path, 'junction')` NTFS reparse point; target must be an absolute directory path and cannot cross partitions (profile configDirs are all under the user home, so they satisfy this)
 3. Write back `active.<tool>` in `~/.dch/profiles.json`
 4. Run the `postSwitch` hook
 
-Before the first switch, run `dch profile init <tool>` once: it moves the existing real `~/.claude` / `~/.codex` directory to `~/.<tool>-default`, then symlinks / junctions back to it and registers it as the default profile.
+The switch roots are `~/.claude`, `$CODEX_HOME` or `~/.codex`, `$GROK_HOME` or `~/.grok`, and `~/.cursor`. Cursor's platform-specific editor `settings.json` / `keybindings.json` directories are deliberately not switched.
 
-### Shell Wrapper (Inject `profile.env` Into Claude / Codex Processes)
+Before the first switch, run `dch profile init <tool>` once: it moves the existing real tool root to `~/.<tool>-default`, then symlinks / junctions back to it and registers it as the default profile.
 
-dch does not start the claude / codex process when switching profiles, so `profile.env` does not reach the OAuth login / API call process by default. Add wrappers in the shell startup file so each `claude` / `codex` run reads env from the active profile.env and injects it:
+### Shell Wrapper (Inject `profile.env` Into Tool Processes)
+
+dch does not start a tool process when switching profiles, so `profile.env` does not reach OAuth login / API calls by default. Add wrappers in the shell startup file so each tool run reads env from the active profile. The following shows Claude and Codex; Grok uses the same pattern with `grok`, while Cursor CLI uses profile key `cursor` and executable `cursor-agent`.
 
 **macOS / Linux** (`~/.zshrc` or `~/.bashrc`):
 
@@ -236,13 +259,13 @@ function claude {
 
 Key points:
 
-- POSIX subshell `(...)` wrapper: env affects only the claude / codex process and **does not pollute the parent shell**
+- POSIX subshell `(...)` wrapper: env affects only the wrapped tool process and **does not pollute the parent shell**
 - `exec command claude` replaces the subshell process, avoids one extra fork, and bypasses the wrapper itself to prevent recursion
 - Windows PowerShell function writes process-scoped env with `[Environment]::SetEnvironmentVariable(..., "Process")` (does not pollute processes outside the current shell session)
 - `dch profile env <tool>` active empty / env empty -> silent output, so the wrapper naturally falls through to the original command
 - profile.env keys use strict `^[A-Za-z_][A-Za-z0-9_]*$` validation + single-quoted values, so there is **no shell-injection risk**
 
-After switching profiles, newly started claude / codex processes automatically use the new profile env; no shell reload required.
+After switching profiles, newly started wrapped tool processes automatically use the new profile env; no shell reload required.
 
 ## Backup And Restore (.dchpack)
 
@@ -333,9 +356,12 @@ git clone <dev-config-hub repo> && cd dev-config-hub
 bunx tauri build --bundles app
 cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
 
-# Important: init first so ~/.claude / ~/.codex become symlinks and default profiles are created
+# Important: init each tool you plan to switch so its root becomes a symlink/junction
 # Using without init reports: target does not exist; run first: dch profile init
-dch profile init claude && dch profile init codex
+dch profile init claude
+dch profile init codex
+dch profile init grok
+dch profile init cursor
 
 # Restore
 dch profile restore <pack> --dry-run    # inspect conflicts / placeholders / shared diff
@@ -404,7 +430,7 @@ JSON schema validation is strict: it must be a plain object and every value must
 
 #### Known Limits
 
-- **Whole-file credentials** (`auth.json` / `credentials.json`): skipped by dedup (OAuth payloads necessarily differ across profiles), so each location gets its own logical key. After fill, the file shape is `{"placeholder": "<filled string>"}`, still not a real OAuth payload. Use the tool itself to log in again for whole-file credentials; do not expect fill to reconstruct a valid OAuth payload.
+- **Whole-file credentials** (`auth.json` / `credentials.json` / `mcp_credentials.json`): skipped by dedup (OAuth payloads necessarily differ across profiles), so each location gets its own logical key. After fill, the file shape is `{"placeholder": "<filled string>"}`, still not a real OAuth payload. Use the tool itself to log in again for whole-file credentials; do not expect fill to reconstruct a valid OAuth payload.
 - **`profile.env` sections** (`_meta.json` `$.env.K`): excluded from fan-out (fieldPath does not align with the top-level `~/.dch/profiles.json` shape `{ profiles: [...], active: {...} }`), so users manually edit profiles.json afterward.
 
 ### Packaging Rules
@@ -412,9 +438,9 @@ JSON schema validation is strict: it must be a plain object and every value must
 - **Profile config directories**: for each selected profile, recursively package every real file under `profile.configDir`; there is no maintained "included filename whitelist", so new config files and user-defined directories automatically enter the backup.
 - **Symlinks are not followed**: file/directory symlinks inside configDir are skipped to prevent backups from crossing profile boundaries and scanning external paths.
 - **Exclude rules are case-insensitive**: for example, `client.PEM`, `.NETRC`, and `history.DB-WAL` are excluded the same way as lowercase spellings.
-- **Runtime / cache / history data is excluded**: `*.jsonl` session history, `*.sqlite*` / `*.db*` databases, `*.log`, `*.lock`, `*.bak.*`, `*.backup.*`, `.DS_Store`; hidden `.cache/` / `.tmp/` at any depth; and root-level configDir directories such as `debug/`, `file-history/`, `session-env/`, `sessions/`, `shell_snapshots/`, `shell-snapshots/`, `paste-cache/`, `cache/`, `backups/`, `ide/`, `state/`, `tasks/`, `statsig/`, `log/`, `tmp/`, `memories/`.
+- **Runtime / cache / history data is excluded**: `*.jsonl` session history, `*.sqlite*` / `*.db*` databases, `*.log`, `*.lock`, `*.bak.*`, `*.backup.*`, `.DS_Store`; hidden `.cache/` / `.tmp/` at any depth; and root-level runtime directories such as `debug/`, `file-history/`, `session-env/`, `sessions/`, `shell_snapshots/`, `paste-cache/`, `cache/`, `backups/`, `ide/`, `state/`, `tasks/`, `statsig/`, `log/`, `tmp/`, `logs/`, `memory/`, `memories/`, `ai-tracking/`, `extensions/`, `skills-cursor/`. Cursor `projects/` and Grok's downloaded `docs/user-guide/` are excluded only for those tools, so same-named user assets in other tools are preserved.
 - **Credential files that cannot be safely redacted are excluded**: `.netrc`, `.ssh/**`, common SSH private-key names (`id_rsa` / `id_dsa` / `id_ecdsa` / `id_ed25519` / `ssh/id_*`), `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`. This is the safe default: these files are skipped entirely without distinguishing public certificates from private keys.
-- **A small set of root-level maintenance files is excluded**: `.last-cleanup`, `.personality_migration`, `installation_id`, `mcp-needs-auth-cache.json`, `plugins/install-counts-cache.json`, `.claude.json`.
+- **A small set of root-level maintenance files is excluded**: `.last-cleanup`, `.personality_migration`, `installation_id`, `mcp-needs-auth-cache.json`, `plugins/install-counts-cache.json`, `.claude.json`, `active_sessions.json`, `leader.sock`.
 - **Shared resources**: `~/.dch/scripts/*` + `~/.agents/**` are packaged by default; `--no-shared` disables this.
 
 Implementation rules live in `src/profiles/backup-rules.ts`.
@@ -449,6 +475,9 @@ Test files (`*.test.ts(x)` / `fs_tests.rs`) live next to the files they test and
 │   ├── cli-backup.ts         # `dch profile backup / restore / backups / backup-rm / backup-pin` implementation
 │   ├── format-bytes.ts       # Byte formatting (single shared source for CLI + frontend)
 │   ├── types.ts              # Shared types (ConfigScope / ToolConfig)
+│   ├── config-locations.ts   # Shared user-level path catalog for Shell/Claude/Codex/Grok/Cursor
+│   ├── config-environment.ts # CLI runtime discovery: env roots, Fish, PowerShell profiles
+│   ├── config-loader.ts      # Shared optional/precedence-aware config loader
 │   ├── schemas/              # Only remaining use: schema-aware editor for dch profiles.json
 │   │   ├── types.ts          # FieldSchema / ToolSchema types
 │   │   ├── dch-store.ts      # ~/.dch/profiles.json schema (ProfileStoreEditor lint)
@@ -471,10 +500,8 @@ Test files (`*.test.ts(x)` / `fs_tests.rs`) live next to the files they test and
 │   │   ├── secrets-index.ts  # Global backup placeholder dedup + restore fieldPath addressing fan-out
 │   │   ├── field-path.ts     # fieldPath parsing + addressing (split from secrets-index and re-exported through it)
 │   │   └── redact.ts         # JSON / TOML / whole-file credential redaction (includes valueHash for secrets-index)
-│   ├── readers/              # Config readers for each tool (platform split: Windows paths/PowerShell)
-│   │   ├── shell.ts          # POSIX zsh/bash / Windows PowerShell $PROFILE
-│   │   ├── claude-code.ts
-│   │   └── codex.ts
+│   ├── readers/
+│   │   └── index.ts          # CLI adapter over shared catalog + five-tool version detection
 │   └── client/               # Tauri frontend (React)
 │       ├── index.html / main.tsx / App.tsx / styles.css / dev-server.ts
 │       ├── bridge.ts         # Tauri IPC bridge + dchProfile.* wrappers + readFileWithMtime + getHomeDir
@@ -519,6 +546,7 @@ Test files (`*.test.ts(x)` / `fs_tests.rs`) live next to the files they test and
 │       └── commands/
 │           ├── mod.rs        # command module exports
 │           ├── dch.rs        # run_dch_command / secret tempfile IPC
+│           ├── environment.rs # User env roots + Fish/PowerShell profile discovery for the UI
 │           ├── fs.rs         # file read/write / mtime / read_link / read_dir IPC
 │           ├── shell.rs      # shell invocation helper
 │           └── version.rs    # tool version detection IPC

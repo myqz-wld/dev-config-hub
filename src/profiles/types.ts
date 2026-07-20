@@ -1,4 +1,7 @@
-export type ToolKind = "claude" | "codex";
+import { PROFILE_TOOL_IDS, type ProfileToolId } from "../config-locations.ts";
+
+export { PROFILE_TOOL_IDS };
+export type ToolKind = ProfileToolId;
 
 /**
  * Hook 脚本支持两种形式：

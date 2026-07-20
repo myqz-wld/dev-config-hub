@@ -45,7 +45,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { Profile } from "./types.ts";
+import { PROFILE_TOOL_IDS, type Profile, type ToolKind } from "./types.ts";
 import { loadStore, expandHome, collapseHome, HOME, DCH_DIR, STORE_PATH } from "./store.ts";
 import { addProfile, ID_RE } from "./manager.ts";
 import {
@@ -202,6 +202,10 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
   const errors: string[] = [];
 
   for (const mp of manifest.profiles) {
+    if (!PROFILE_TOOL_IDS.includes(mp.tool as ToolKind)) {
+      errors.push(`profile tool 非法: ${JSON.stringify(mp.tool)}`);
+      continue;
+    }
     // REVIEW_8 R2 R2-3 / R3 G1：early ID_RE 校验。恶意 .dchpack 在 manifest.profiles[].id
     // 写 `../.ssh` → finalId 也是 `../.ssh` → join(RESTORED_BASE, "../.ssh") = "$HOME/.ssh"
     // → mkdir / copyDirRecursive 写到 ~/.ssh + addProfile 失败 catch 走 rm -rf 删 ~/.ssh。

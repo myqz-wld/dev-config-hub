@@ -44,7 +44,7 @@ describe("normalizeSymlinkTarget", () => {
 });
 
 // REVIEW_2 PR-1: pathState 四态 — initToolDir / switchSymlink 决策核心，无 spec 易回退。
-// 用 tmpdir 隔离不动 ~/.claude / ~/.codex；symlink.ts TOOL_PATHS 是 const 不便注入，
+// 用 tmpdir 隔离，不触碰真实工具配置根；symlink.ts TOOL_PATHS 是 const 不便注入，
 // 这里直接对 pathState 纯函数测，覆盖核心 invariant。
 describe("pathState (REVIEW_2 PR-1 回归保护)", () => {
   it("missing：路径不存在 → 'missing'", async () => {

@@ -155,7 +155,7 @@ describe("REVIEW_9 A-HIGH-2 / B-HIGH-2: redactJsonContent / redactTomlContent pa
     expect(r.content).toContain("<<DCH_PLACEHOLDER:ANTHROPIC_API_KEY>>");
     expect(r.warnings).toBeDefined();
     expect(r.warnings!.length).toBeGreaterThan(0);
-    expect(r.warnings![0]).toContain("JSON 解析失败");
+    expect(r.warnings![0]).toContain("JSON/JSONC 解析失败");
     expect(r.warnings![0]).toContain("broken.json");
   });
 
@@ -170,6 +170,16 @@ describe("REVIEW_9 A-HIGH-2 / B-HIGH-2: redactJsonContent / redactTomlContent pa
 
   it("成功 parse 时 warnings 应为 undefined(不污染合法路径)", () => {
     const r = redactJsonContent('{"api_key": "secret"}');
+    expect(r.warnings).toBeUndefined();
+  });
+
+  it("Cursor JSONC comments/trailing commas use structured redaction", () => {
+    const r = redactJsonContent(`{
+      // Cursor setting
+      "mcp": { "api_token": "cursor-secret-token", },
+    }`, "settings.json");
+    expect(r.content).not.toContain("cursor-secret-token");
+    expect(r.placeholders[0]?.fieldPath).toBe("$.mcp.api_token");
     expect(r.warnings).toBeUndefined();
   });
 });

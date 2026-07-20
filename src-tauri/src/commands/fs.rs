@@ -14,7 +14,8 @@
 //! ~/.ssh/authorized_keys / 上邻 macOS 用户家目录）。HomeOnly 一刀切覆盖所有合法用例
 //! （配置文件 + dch store + profile configDir 全在 HOME 下）。
 //!
-//! 例外：read_file_with_mtime 给 ConfigPanel 读 ~/.zshrc 等，仍 HomeOnly；不需放宽。
+//! 例外：read_file_with_mtime / save_file_if_mtime 给 ConfigPanel 使用 KnownConfigFile，
+//! 允许 `$CODEX_HOME` / `$GROK_HOME` 等精确配置路径位于 HOME 外，同时不放宽任意外部路径。
 
 use crate::path_policy::{check_path, check_path_canonical, check_path_for_write, home_dir, PathPolicy};
 use serde::Serialize;
@@ -95,7 +96,7 @@ fn read_file_with_mtime_inner(path: &str) -> ReadFileWithMtimeResult {
     // PathPolicy 失败时直接当文件不存在（前端 readFileWithMtime 回报 missing 走平
     // 路径 — 不对 webview 暴露 boundary error，让 boundary 像 ENOENT 一样静默跳过）。
     // **REVIEW_9 C-HIGH-2**: canonical check 同 read_file。
-    if check_path_canonical(path, PathPolicy::HomeOnly).is_err() {
+    if check_path_canonical(path, PathPolicy::KnownConfigFile).is_err() {
         return ReadFileWithMtimeResult::missing();
     }
     let p = std::path::Path::new(path);
@@ -163,7 +164,7 @@ pub async fn save_file(path: String, content: String) -> Result<(), String> {
         // **REVIEW_9 C-HIGH-2**: write 场景用 check_path_for_write(canonicalize parent +
         // basename)杜绝 HOME 内 symlink 指向 HOME 外 dir 时被写穿(实测 save_file
         // ($HOME/symlink-to-tmp/x) 旧 lexical 通过 → 写到 /tmp/outside-victim/)。
-        check_path_for_write(&path, PathPolicy::HomeOnly)?;
+        check_path_for_write(&path, PathPolicy::KnownConfigFile)?;
         let p = std::path::Path::new(&path);
         // 走原子 write 而非 fs::write 防 crash 留半文件；不传 expected_mtime → 跳过 CAS。
         crate::atomic::write_atomic_check_mtime(p, &content, None).map(|_| ())
@@ -243,7 +244,7 @@ fn read_dir_inner(path: &str) -> Result<Vec<DirEntryView>, String> {
     Ok(out)
 }
 
-/// 读 symlink 的目标。仅允许 HOME 下路径（PathPolicy::HomeOnly）。
+/// 读 symlink 的目标。允许 HOME 下路径，以及解析出的四个精确工具配置根。
 ///
 /// **行为对齐 CLI** (`src/profiles/symlink.ts:150 currentSymlinkTarget`)：
 /// - 单层 `read_link`，不 deref 链式 symlink；与 CLI `readlink(target)` 一致
@@ -251,12 +252,12 @@ fn read_dir_inner(path: &str) -> Result<Vec<DirEntryView>, String> {
 /// - 不是 symlink / 不存在 / IO 错 → `Ok(None)`，与 CLI `pathState() != "symlink"` 一致
 ///
 /// **为什么所有失败都吞成 Ok(None)**：前端 `loadProfileDataDirect` 用 `Promise.all`
-/// 并发拿 `~/.claude` `~/.codex` 两个 link target；若 IO 错 reject，整组 fail →
+/// 并发拿四个工具 root 的 link target；若 IO 错 reject，整组 fail →
 /// UI 进「读 profile 失败」 toast，体感比 CLI 路径退化（CLI 直接回 null + UI 显示
 /// "(非 symlink)"）。把所有错合并成 None 让前端 fallback 平滑。
 ///
-/// **HOME boundary** 保留 Err，因为这是程序 bug（前端不该传 HOME 外路径），
-/// 应该让前端开发者立刻看到错误而非静默退化。
+/// **Boundary** 保留 Err：HOME 外仅接受由环境解析出的精确 `$CODEX_HOME` / `$GROK_HOME`
+/// 等工具根，其他路径仍视为 caller bug。
 ///
 /// **REVIEW_9 C-MED-1 / C-codex MED-4 + C-claude MED-1 双方 PoC reproducer**: 用
 /// check_path_for_write 替代手写 lexical check + `..` 段拒。check_path_for_write 把 parent
@@ -318,8 +319,11 @@ pub(crate) fn read_link_inner(path: &str, home: &str) -> Result<Option<String>, 
         }
         _ => p == home_p || p.starts_with(home_p), // 无 parent / 空 parent → path 自身做 lexical 兜底
     };
-    if !canonical_parent_in_home {
-        return Err(format!("拒绝读非 HOME 路径(parent canonicalize 后): {}", path));
+    if !canonical_parent_in_home && !crate::commands::environment::is_known_profile_root(p) {
+        return Err(format!(
+            "拒绝读非 HOME/已知工具根路径(parent canonicalize 后): {}",
+            path
+        ));
     }
     let meta = match fs::symlink_metadata(p) {
         Ok(m) => m,

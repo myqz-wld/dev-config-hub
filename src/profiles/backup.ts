@@ -54,6 +54,7 @@ const PLACEHOLDER_HINTS: Record<string, string> = {
   experimental_bearer_token: "Codex bearer token",
   AUTH: "Codex OAuth payload (~/.codex/auth.json)",
   CREDENTIALS: "Claude OAuth payload (~/.claude/credentials.json)",
+  MCP_CREDENTIALS: "Grok MCP credentials (~/.grok/mcp_credentials.json)",
 };
 
 function hintFor(fieldName: string): string {
@@ -316,7 +317,7 @@ export async function createBackup(opts: CreateBackupOptions = {}): Promise<Crea
       }
 
       for await (const f of walkFiles(configDirAbs)) {
-        if (!shouldIncludePath(f.relPath)) continue;
+        if (!shouldIncludePath(f.relPath, p.tool)) continue;
         const dst = join(configDirOut, f.relPath);
         const filename = basename(f.relPath);
         const hits = await copyOrRedactFile(f.absPath, dst, filename, {

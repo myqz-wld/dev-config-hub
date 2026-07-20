@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import type { Profile, ToolKind, HookResult } from "./profiles/types.ts";
+import { PROFILE_TOOL_IDS, type Profile, type ToolKind, type HookResult } from "./profiles/types.ts";
 import {
   listProfiles, getProfile, addProfile, removeProfile,
   useProfile, initTool, getActive, testHook, setPreference,
@@ -49,10 +49,17 @@ function extractJsonFlag(argv: string[]): { args: string[]; json: boolean } {
   return { args: out, json };
 }
 
-const TOOLS: ToolKind[] = ["claude", "codex"];
+const TOOLS: ToolKind[] = [...PROFILE_TOOL_IDS];
+const TOOL_USAGE = PROFILE_TOOL_IDS.join("|");
 
 function fmtToolBadge(tool: ToolKind): string {
-  return tool === "claude" ? `${c.magenta}claude${c.reset}` : `${c.cyan}codex${c.reset}`;
+  const color = {
+    claude: c.magenta,
+    codex: c.cyan,
+    grok: c.green,
+    cursor: c.blue,
+  }[tool];
+  return `${color}${tool}${c.reset}`;
 }
 
 function fmtProfileLine(p: Profile, isActive: boolean): string {
@@ -107,13 +114,16 @@ async function cmdShow(id: string) {
 async function cmdAdd(args: string[]) {
   const { positional, flags, envPairs } = parseFlags(args, { allowedFlags: ADD_ALLOWED });
   const [toolRaw, id] = positional;
-  if (!toolRaw || !id) err("用法: dch profile add <claude|codex> <id> [--dir <path>] [--env K=V ...] [--from <id>] [--desc <text>] [--pre-hook <script>] [--post-hook <script>]");
-  if (!TOOLS.includes(toolRaw as ToolKind)) err(`tool 必须是 claude 或 codex (收到 ${toolRaw})`);
+  if (!toolRaw || !id) err(`用法: dch profile add <${TOOL_USAGE}> <id> [--dir <path>] [--env K=V ...] [--from <id>] [--desc <text>] [--pre-hook <script>] [--post-hook <script>]`);
+  if (!TOOLS.includes(toolRaw as ToolKind)) err(`tool 必须是 ${TOOL_USAGE} 之一 (收到 ${toolRaw})`);
   const tool = toolRaw as ToolKind;
 
   let base: Partial<Profile> = {};
   if (flags.from && typeof flags.from === "string") {
     const src = await getProfile(flags.from);
+    if (src.tool !== tool) {
+      err(`--from ${src.id} 属于 ${src.tool}，不能复制到 ${tool}`);
+    }
     base = {
       tool: src.tool,
       configDir: src.configDir,
@@ -219,7 +229,7 @@ async function cmdCurrent(args: string[]) {
   const tools: ToolKind[] = toolRaw ? [toolRaw as ToolKind] : TOOLS;
   const result: Record<string, { id: string | null; symlinkTarget: string | null }> = {};
   for (const tool of tools) {
-    if (!TOOLS.includes(tool)) err(`tool 必须是 claude 或 codex (收到 ${tool})`);
+    if (!TOOLS.includes(tool)) err(`tool 必须是 ${TOOL_USAGE} 之一 (收到 ${tool})`);
     result[tool] = await getActive(tool);
   }
   if (isJsonMode()) return jsonOut(result);
@@ -238,7 +248,7 @@ function shellQuote(s: string): string {
 async function cmdEnv(args: string[]) {
   const [toolRaw] = args;
   if (!toolRaw || !TOOLS.includes(toolRaw as ToolKind)) {
-    err("用法: dch profile env <claude|codex>");
+    err(`用法: dch profile env <${TOOL_USAGE}>`);
   }
   const tool = toolRaw as ToolKind;
   const store = await listProfiles();
@@ -261,8 +271,8 @@ async function cmdEnv(args: string[]) {
 
 async function cmdInit(args: string[]) {
   const [toolRaw] = args;
-  if (!toolRaw) err("用法: dch profile init <claude|codex>");
-  if (!TOOLS.includes(toolRaw as ToolKind)) err(`tool 必须是 claude 或 codex`);
+  if (!toolRaw) err(`用法: dch profile init <${TOOL_USAGE}>`);
+  if (!TOOLS.includes(toolRaw as ToolKind)) err(`tool 必须是 ${TOOL_USAGE} 之一`);
   const tool = toolRaw as ToolKind;
   const r = await initTool(tool);
   if (isJsonMode()) return jsonOut({ ok: true, ...r });
@@ -313,13 +323,13 @@ function help() {
 ${c.bold}子命令:${c.reset}
   ${c.cyan}list${c.reset}                          列出所有 profile
   ${c.cyan}show${c.reset}    <id>                  打印 profile JSON
-  ${c.cyan}add${c.reset}     <claude|codex> <id>   添加 profile [--dir <path>] [--env K=V ...] [--from <id>] [--desc <text>] [--pre-hook <script>] [--post-hook <script>]
+  ${c.cyan}add${c.reset}     <${TOOL_USAGE}> <id>   添加 profile [--dir <path>] [--env K=V ...] [--from <id>] [--desc <text>] [--pre-hook <script>] [--post-hook <script>]
   ${c.cyan}edit${c.reset}    <id>                  $EDITOR 打开 ${STORE_PATH}
   ${c.cyan}remove${c.reset}  <id>                  删除 profile (不删 configDir) [--yes]
-  ${c.cyan}use${c.reset}     <id>                  原子切换 ~/.claude / ~/.codex symlink + 跑 pre/post hook
+  ${c.cyan}use${c.reset}     <id>                  原子切换工具配置根目录 symlink/junction + 跑 pre/post hook
   ${c.cyan}current${c.reset} [tool]                查询当前 active
-  ${c.cyan}env${c.reset}     <claude|codex>        输出当前 active profile.env 为 shell-eval 格式（供 shell wrapper 注入到 claude / codex 进程）
-  ${c.cyan}init${c.reset}    <claude|codex>        把 ~/.claude / ~/.codex 转成 symlink，建立 default profile
+  ${c.cyan}env${c.reset}     <${TOOL_USAGE}>        输出当前 active profile.env 为 shell-eval 格式
+  ${c.cyan}init${c.reset}    <${TOOL_USAGE}>        接管工具用户配置根目录并建立 default profile
   ${c.cyan}hook test${c.reset} <id> <pre|post>     单独运行 hook 测试
   ${c.cyan}config${c.reset}  hookTimeoutMs <ms>    设置 hook 超时
 

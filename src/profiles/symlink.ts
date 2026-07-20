@@ -2,10 +2,15 @@ import { join, dirname, isAbsolute, resolve as pathResolve } from "node:path";
 import { mkdir, lstat, readlink, rename, unlink, symlink } from "node:fs/promises";
 import type { Profile, ToolKind } from "./types.ts";
 import { expandHome, collapseHome, HOME } from "./store.ts";
+import { getNodeConfigEnvironmentSync } from "../config-environment.ts";
+import { profileToolRoot } from "../config-locations.ts";
 
+const CONFIG_ENVIRONMENT = getNodeConfigEnvironmentSync();
 export const TOOL_PATHS: Record<ToolKind, string> = {
-  claude: join(HOME, ".claude"),
-  codex: join(HOME, ".codex"),
+  claude: profileToolRoot(CONFIG_ENVIRONMENT, "claude"),
+  codex: profileToolRoot(CONFIG_ENVIRONMENT, "codex"),
+  grok: profileToolRoot(CONFIG_ENVIRONMENT, "grok"),
+  cursor: profileToolRoot(CONFIG_ENVIRONMENT, "cursor"),
 };
 
 /**
@@ -54,7 +59,7 @@ export async function pathState(p: string): Promise<PathState> {
 }
 
 /**
- * 把 ~/.claude 或 ~/.codex 转成 symlink，建立默认 profile 的目录基础。
+ * 把工具的用户级配置根目录转成 symlink/junction，建立默认 profile 的目录基础。
  * - 真实目录：mv 到 ~/.<tool>-default，再 ln -s 回去
  * - 已是 symlink：读 target，注册成 default profile
  * - 不存在：创建空 ~/.<tool>-default 目录并 ln -s
@@ -87,6 +92,7 @@ export async function initToolDir(tool: ToolKind): Promise<InitResult> {
     if ((await pathState(defaultDir)) === "missing") {
       await mkdir(defaultDir, { recursive: true });
     }
+    await mkdir(dirname(target), { recursive: true });
     await symlink(symlinkTarget(defaultDir), target, SYMLINK_TYPE);
     stateOut = "created-empty";
   }

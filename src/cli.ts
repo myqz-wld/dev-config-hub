@@ -3,9 +3,8 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve as pathResolve } from "node:path";
 import type { ToolConfig, ConfigScope } from "./types.ts";
-import { readShellConfig } from "./readers/shell.ts";
-import { readClaudeCodeConfig } from "./readers/claude-code.ts";
-import { readCodexConfig } from "./readers/codex.ts";
+import { readAllToolConfigs, toolIndex } from "./readers/index.ts";
+import type { ConfigToolId } from "./config-locations.ts";
 import { runProfileCommand } from "./cli-profile.ts";
 import { c, LEVEL_COLORS } from "./cli-colors.ts";
 import { HOME, defaultEditor } from "./platform.ts";
@@ -159,17 +158,19 @@ function renderOverview(tools: ToolConfig[]): string {
   }
 
   lines.push(`${c.gray}用法: dch <tool> [--edit <file>]${c.reset}`);
-  lines.push(`${c.gray}工具: shell | claude | codex${c.reset}`);
+  lines.push(`${c.gray}工具: shell | claude | codex | grok | cursor${c.reset}`);
   lines.push(`${c.gray}窗口: dch gui${c.reset}`);
   lines.push(`${c.gray}编辑: dch edit ~/.claude/settings.json${c.reset}`);
 
   return lines.join("\n");
 }
 
-const TOOL_ALIASES: Record<string, number> = {
-  shell: 0, zsh: 0,
-  claude: 1, "claude-code": 1, cc: 1,
-  codex: 2,
+const TOOL_ALIASES: Record<string, ConfigToolId> = {
+  shell: "shell", zsh: "shell", bash: "shell", fish: "shell", powershell: "shell", pwsh: "shell",
+  claude: "claude", "claude-code": "claude", cc: "claude",
+  codex: "codex",
+  grok: "grok",
+  cursor: "cursor",
 };
 
 async function main() {
@@ -189,11 +190,7 @@ async function main() {
     return;
   }
 
-  const tools = await Promise.all([
-    readShellConfig(),
-    readClaudeCodeConfig(),
-    readCodexConfig(),
-  ]);
+  const tools = await readAllToolConfigs();
 
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
     console.log(renderOverview(tools));
@@ -240,14 +237,14 @@ async function main() {
     return;
   }
 
-  const toolIndex = TOOL_ALIASES[args[0]!];
-  if (toolIndex === undefined) {
+  const toolId = TOOL_ALIASES[args[0]!];
+  if (toolId === undefined) {
     console.error(`${c.red}未知工具: ${args[0]}${c.reset}`);
-    console.log(`${c.gray}可用: shell, claude, codex${c.reset}`);
+    console.log(`${c.gray}可用: shell, claude, codex, grok, cursor${c.reset}`);
     process.exit(1);
   }
 
-  console.log(renderTool(tools[toolIndex]!));
+  console.log(renderTool(tools[toolIndex(toolId)]!));
 }
 
 main().catch(async (e) => {

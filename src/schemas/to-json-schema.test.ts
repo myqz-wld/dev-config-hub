@@ -111,6 +111,16 @@ describe("toolSchemaToJsonSchema (DCH_STORE round-trip)", () => {
     expect((props.profiles?.items as Record<string, unknown>)?.type).toBe("object");
   });
 
+  it("profile tools and active keys cover Claude/Codex/Grok/Cursor", () => {
+    const r = toolSchemaToJsonSchema(DCH_STORE);
+    const props = r.properties as Record<string, Record<string, unknown>>;
+    const items = props.profiles?.items as Record<string, unknown>;
+    const profileProps = items.properties as Record<string, Record<string, unknown>>;
+    expect(profileProps.tool?.enum).toEqual(["claude", "codex", "grok", "cursor"]);
+    const activeProps = (props.active?.properties ?? {}) as Record<string, unknown>;
+    expect(Object.keys(activeProps)).toEqual(["claude", "codex", "grok", "cursor"]);
+  });
+
   it("preferences.hookTimeoutMs 整数 + min/max", () => {
     const r = toolSchemaToJsonSchema(DCH_STORE);
     const props = r.properties as Record<string, Record<string, unknown>>;

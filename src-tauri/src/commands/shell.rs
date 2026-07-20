@@ -66,7 +66,7 @@ pub fn shell_invocation(shell_name: &str, cmd: &str) -> (Vec<&'static str>, Stri
         "zsh" => (
             vec!["-c"],
             format!(
-                "source $HOME/.zprofile 2>/dev/null; source $HOME/.zshrc 2>/dev/null; {}",
+                "source ${{ZDOTDIR:-$HOME}}/.zprofile 2>/dev/null; source ${{ZDOTDIR:-$HOME}}/.zshrc 2>/dev/null; {}",
                 cmd
             ),
         ),
@@ -80,7 +80,7 @@ pub fn shell_invocation(shell_name: &str, cmd: &str) -> (Vec<&'static str>, Stri
         "fish" => (
             vec!["-c"],
             format!(
-                "source $HOME/.config/fish/config.fish 2>/dev/null; {}",
+                "if test -n \"$XDG_CONFIG_HOME\"; source $XDG_CONFIG_HOME/fish/config.fish 2>/dev/null; else; source $HOME/.config/fish/config.fish 2>/dev/null; end; {}",
                 cmd
             ),
         ),
@@ -106,8 +106,8 @@ mod tests {
     fn invocation_zsh_sources_zshrc() {
         let (args, wrapped) = shell_invocation("zsh", "echo hi");
         assert_eq!(args, vec!["-c"]);
-        assert!(wrapped.contains("source $HOME/.zprofile"));
-        assert!(wrapped.contains("source $HOME/.zshrc"));
+        assert!(wrapped.contains("source ${ZDOTDIR:-$HOME}/.zprofile"));
+        assert!(wrapped.contains("source ${ZDOTDIR:-$HOME}/.zshrc"));
         assert!(wrapped.contains("echo hi"));
     }
 
