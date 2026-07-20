@@ -70,9 +70,10 @@ The frontend uses Bun HTML imports and the built-in bundler with automatic React
 
 ### Profile System: Symlink/Junction Is The Only Switching Channel
 
-- `~/.claude` and `~/.codex` always point to a `<configDir>` through filesystem indirection: POSIX symlink on macOS/Linux and NTFS junction on Windows. `dch profile use <id>` performs atomic replacement with temporary-name creation and rename. Windows junction targets must be absolute directory paths on the same volume.
+- The profile roots are `~/.claude`, `$CODEX_HOME` or `~/.codex`, `$GROK_HOME` or `~/.grok`, and `~/.cursor`. Each points to a `<configDir>` through filesystem indirection: POSIX symlink on macOS/Linux and NTFS junction on Windows. `dch profile use <id>` performs atomic replacement with temporary-name creation and rename. Windows junction targets must be absolute directory paths on the same volume.
 - Before the first switch, `dch profile init <tool>` moves the existing real directory to `~/.<tool>-default`, links back to it, and registers it as the default profile.
-- Env-only switching is forbidden. Do not add a path that skips symlink/junction switching and writes only to user-level `settings.json`; it leaks across working directories and Codex has no equivalent mechanism.
+- Env-only switching is forbidden. Do not add a path that skips symlink/junction switching and changes only environment variables or one config file; it leaks across working directories and is not equivalent across tools.
+- Cursor profile switching covers `~/.cursor` only. Its platform-specific editor `settings.json` and `keybindings.json` remain display/edit-only and must not be folded into the profile root.
 - Switching runs `preSwitch` with `profile.env`, aborts without changing active state on failure, atomically swaps the link, writes `active.<tool>` to `~/.dch/profiles.json`, then runs `postSwitch` as warning-only.
 
 ### Backup And Restore (`.dchpack`)
@@ -86,10 +87,10 @@ The frontend uses Bun HTML imports and the built-in bundler with automatic React
 
 ### Dual Injection Path For `profile.env`
 
-By default, `profile.env` is visible only inside `preSwitch` and `postSwitch` scripts. To also inject it into the Claude or Codex process:
+By default, `profile.env` is visible only inside `preSwitch` and `postSwitch` scripts. To also inject it into the selected Claude, Codex, Grok, or Cursor process:
 
-- Recommended: `dch profile env <tool>` emits shell-eval format for the subshell wrapper in `~/.zshrc`.
-- Claude Code only: write env into the `env` block in `<configDir>/settings.json`. Codex has no equivalent mechanism.
+- Recommended: `dch profile env <tool>` emits shell-eval format for a POSIX or PowerShell wrapper around the selected tool executable.
+- Claude Code only: write env into the `env` block in `<configDir>/settings.json` as an alternative to a shell wrapper.
 
 `dch profile env` validates keys against `^[A-Za-z_][A-Za-z0-9_]*$`, single-quotes and escapes values, and must prevent shell injection because the wrapper directly evaluates this output. Empty active state or env produces no output so the wrapper falls through naturally.
 
@@ -99,7 +100,7 @@ The `preSwitch` and `postSwitch` contract injects:
 
 ```text
 DCH_PROFILE_ID         profile id being switched to
-DCH_PROFILE_TOOL       claude | codex
+DCH_PROFILE_TOOL       claude | codex | grok | cursor
 DCH_PROFILE_CONFIG_DIR absolute path of that profile
 DCH_SWITCH_TO          target profile id (same as DCH_PROFILE_ID)
 DCH_SWITCH_FROM        previous active profile id (may be empty after first init)

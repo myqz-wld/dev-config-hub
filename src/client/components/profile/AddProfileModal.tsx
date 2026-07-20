@@ -124,7 +124,7 @@ export function AddProfileModal({
               type="text"
               value={form.id}
               onChange={(e) => setForm({ ...form, id: e.target.value })}
-              placeholder="claude-api / codex-plus"
+              placeholder="claude-api / codex-plus / grok-main / cursor-work"
             />
           </div>
           <div className="form-row">
@@ -208,7 +208,7 @@ export function AddProfileModal({
                 </p>
               )}
               <p className="form-hint">
-                这些值只会提供给切换前/后的脚本；如果要让 Claude 或 Codex 本身也使用，请按 README 的 Shell wrapper 设置。
+                这些值只会提供给切换前/后的脚本；如果要让对应工具进程也使用，请按 README 的 Shell wrapper 设置。
               </p>
             </div>
           </div>

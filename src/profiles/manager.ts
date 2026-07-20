@@ -1,6 +1,7 @@
 import type {
   Profile, ProfileStore, SwitchResult, ToolKind, HookResult,
 } from "./types.ts";
+import { PROFILE_TOOL_IDS } from "./types.ts";
 import { loadStore, saveStore, withStoreLock, STORE_LOCK_PATH } from "./store.ts";
 import { runHook, type HookContext } from "./hooks.ts";
 import { switchSymlink, initToolDir, currentSymlinkTarget } from "./symlink.ts";
@@ -15,6 +16,12 @@ export const ID_RE = /^[a-zA-Z0-9_-]+$/;
 // 但 wrapper 模式 silently 丢，难调试）。这里上游守口拦掉，统一行为。
 // export 给单测用。
 export const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export function validateTool(tool: unknown): asserts tool is ToolKind {
+  if (!PROFILE_TOOL_IDS.includes(tool as ToolKind)) {
+    throw new Error(`非法 tool: ${JSON.stringify(tool)}（允许: ${PROFILE_TOOL_IDS.join(", ")}）`);
+  }
+}
 
 /**
  * REVIEW_8 H3 / Group C：所有 manager 写操作统一走本 helper，自动按 hookTimeoutMs 算 staleMs。
@@ -61,6 +68,7 @@ export async function getProfile(id: string): Promise<Profile> {
 }
 
 export async function addProfile(p: Profile): Promise<void> {
+  validateTool(p.tool);
   if (!ID_RE.test(p.id)) {
     throw new Error("profile id 只允许字母数字 _ -");
   }
@@ -76,6 +84,7 @@ export async function addProfile(p: Profile): Promise<void> {
 }
 
 export async function updateProfile(id: string, patch: Partial<Profile>): Promise<void> {
+  if (patch.tool !== undefined) validateTool(patch.tool);
   if (patch.env !== undefined) validateEnv(patch.env);
   await withProfileLock(async () => {
     const store = await loadStore();

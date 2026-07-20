@@ -24,6 +24,7 @@
  */
 
 import { CryptoHasher } from "bun";
+import { parse as parseJsonc, type ParseError } from "jsonc-parser";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { isSensitiveKey, isSensitiveFile } from "./backup-rules.ts";
 
@@ -188,15 +189,19 @@ export function redactJsonContent(content: string, filename = ""): RedactResult 
   try {
     raw = JSON.parse(content);
   } catch {
-    const fallback = redactPlainTextContent(content);
-    const label = filename ? ` (${filename})` : "";
-    return {
-      ...fallback,
-      warnings: [
-        ...(fallback.warnings ?? []),
-        `JSON 解析失败${label}: 已走 plain-text regex 兜底,可能漏脱敏不规范字段(如 JSONC // 注释 / trailing comma)`,
-      ],
-    };
+    const errors: ParseError[] = [];
+    raw = parseJsonc(content, errors, { allowTrailingComma: true, disallowComments: false });
+    if (errors.length > 0) {
+      const fallback = redactPlainTextContent(content);
+      const label = filename ? ` (${filename})` : "";
+      return {
+        ...fallback,
+        warnings: [
+          ...(fallback.warnings ?? []),
+          `JSON/JSONC 解析失败${label}: 已走 plain-text regex 兜底,可能漏脱敏不规范字段`,
+        ],
+      };
+    }
   }
   const hits: PlaceholderHit[] = [];
   const redacted = walkAndRedact(raw, "$", hits);

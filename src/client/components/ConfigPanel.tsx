@@ -22,8 +22,10 @@ const SCOPE_LEVEL_LABEL: Record<ConfigScope["level"], string> = {
 
 const SCOPE_FORMAT_LABEL: Record<ConfigScope["format"], string> = {
   json: "JSON",
+  jsonc: "JSONC",
   toml: "TOML",
   dotfile: "文本",
+  powershell: "PowerShell",
   markdown: "Markdown",
 };
 
@@ -121,10 +123,26 @@ function Scope({
               >编辑</button>
             </>
           )}
+          {!scope.exists && mode !== "edit" && (
+            <button
+              className="btn-sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                const initialContent = scope.initialContent ?? "";
+                setBuf(initialContent);
+                // External-change baseline is still the missing scope's on-disk content (empty),
+                // while buf starts from a valid per-format template.
+                enterEditRef.current = scope.content;
+                enterEditMtimeRef.current = null;
+                setMode("edit");
+                setOpen(true);
+              }}
+            >创建</button>
+          )}
           <span className="fmt">{SCOPE_FORMAT_LABEL[scope.format]}</span>
         </div>
       </header>
-      {open && scope.exists && (
+      {open && (scope.exists || mode === "edit") && (
         <div className="scope-body">
           {mode === "edit" ? (
             <div className="editor">

@@ -158,7 +158,7 @@ pub async fn save_file_if_mtime(
     expected_mtime_us: Option<u64>,
 ) -> Result<u64, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        check_path_for_write(&path, PathPolicy::HomeOnly)?;
+        check_path_for_write(&path, PathPolicy::KnownConfigFile)?;
         let p = Path::new(&path);
         write_atomic_check_mtime(p, &content, expected_mtime_us)
     })

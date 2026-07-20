@@ -85,17 +85,13 @@ describe("REVIEW_9 A-codex M2: parseFieldPath 识别 backslash 转义 key", () =
 });
 
 describe("REVIEW_9 A-HIGH-2 / B-HIGH-2 跨批: broken JSON / TOML parse fallback regex", () => {
-  it("broken JSONC(// comment)→ 走 plain-text regex 兜底,sk-ant-... 真凭据被脱敏", () => {
-    // 不是合法 JSON(JSONC // 注释)
-    const broken = '// comment\n{"api_key": "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA"}';
-    const r = redactJsonContent(broken, "settings.json");
-    // parse 失败 fall back regex,真凭据应被脱敏
+  it("valid JSONC(// comment)→ 结构化脱敏,sk-ant-... 真凭据不进入备份", () => {
+    const jsonc = '// comment\n{"api_key": "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA"}';
+    const r = redactJsonContent(jsonc, "settings.json");
     expect(r.content).not.toContain("sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA");
-    expect(r.content).toContain("<<DCH_PLACEHOLDER:ANTHROPIC_API_KEY>>");
-    // 留 warning 让 caller 透传到 manifest.security_warnings
-    expect(r.warnings).toBeDefined();
-    expect(r.warnings!.length).toBeGreaterThan(0);
-    expect(r.warnings![0]).toContain("settings.json");
+    expect(r.content).toContain("<<DCH_PLACEHOLDER:api_key>>");
+    expect(r.placeholders[0]?.fieldPath).toBe("$.api_key");
+    expect(r.warnings).toBeUndefined();
   });
 
   it("broken TOML(missing quote)→ 走 plain-text regex 兜底,ghp_... 真凭据被脱敏", () => {

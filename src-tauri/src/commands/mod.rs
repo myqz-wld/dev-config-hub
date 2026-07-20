@@ -4,3 +4,4 @@ pub mod fs;
 pub mod shell;
 pub mod version;
 pub mod dch;
+pub mod environment;

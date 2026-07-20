@@ -37,6 +37,13 @@ describe("shouldIncludePath", () => {
     expect(shouldIncludePath("projects/-Users-apple-foo/foo.txt")).toBe(true);
   });
 
+  it("工具专属运行态目录只排对应工具，避免 Cursor/Grok 数据进入备份", () => {
+    expect(shouldIncludePath("projects/empty-window/canvases/tsconfig.json", "cursor")).toBe(false);
+    expect(shouldIncludePath("projects/-Users-apple-foo/memory/MEMORY.md", "claude")).toBe(true);
+    expect(shouldIncludePath("docs/user-guide/index.md", "grok")).toBe(false);
+    expect(shouldIncludePath("docs/user-guide/index.md", "codex")).toBe(true);
+  });
+
   it("EXCLUDE 黑名单命中", () => {
     expect(shouldIncludePath("history.jsonl")).toBe(false);
     expect(shouldIncludePath("plans/abc.jsonl")).toBe(false);
@@ -56,6 +63,13 @@ describe("shouldIncludePath", () => {
     expect(shouldIncludePath("logs.sqlite")).toBe(false);
     expect(shouldIncludePath("plugins/install-counts-cache.json")).toBe(false);
     expect(shouldIncludePath(".claude.json")).toBe(false);
+    expect(shouldIncludePath("active_sessions.json")).toBe(false);
+    expect(shouldIncludePath("leader.sock")).toBe(false);
+    expect(shouldIncludePath("logs/latest.txt")).toBe(false);
+    expect(shouldIncludePath("memory/state.json")).toBe(false);
+    expect(shouldIncludePath("ai-tracking/ai-code-tracking.db")).toBe(false);
+    expect(shouldIncludePath("extensions/extensions.json")).toBe(false);
+    expect(shouldIncludePath("skills-cursor/update/SKILL.md")).toBe(false);
   });
 
   it("数据库与 sidecar 文件不命中", () => {
@@ -137,11 +151,12 @@ describe("isSensitiveKey", () => {
 });
 
 describe("isSensitiveFile", () => {
-  it("auth.json / credentials.json 命中", () => {
+  it("auth.json / credentials.json / mcp_credentials.json 命中", () => {
     expect(isSensitiveFile("auth.json")).toBe(true);
     expect(isSensitiveFile("credentials.json")).toBe(true);
     expect(isSensitiveFile("AUTH.JSON")).toBe(true);
     expect(isSensitiveFile("Credentials.JSON")).toBe(true);
+    expect(isSensitiveFile("mcp_credentials.json")).toBe(true);
   });
 
   it("其他 .json 不命中", () => {

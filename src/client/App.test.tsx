@@ -3,8 +3,11 @@ import { render, cleanup, act, fireEvent } from "@testing-library/react";
 
 // Mock bridge：T7 套首次 loadAllVersions reject、retry 成功；T8 套首屏 reloadingRef guard 验 spawn ≤ 3。
 let versionsCallCount = 0;
-let versionsImpl: () => Promise<{ shell: string; claude: string; codex: string }> = () =>
-  Promise.resolve({ shell: "5.9", claude: "1.0.0", codex: "0.1" });
+type MockVersions = { shell: string; claude: string; codex: string; grok: string; cursor: string };
+const MOCK_VERSIONS: MockVersions = {
+  shell: "5.9", claude: "1.0.0", codex: "0.1", grok: "0.2", cursor: "3.11",
+};
+let versionsImpl: () => Promise<MockVersions> = () => Promise.resolve(MOCK_VERSIONS);
 let filesCallCount = 0;
 const mockTool = (name: string, icon: string) => ({
   name,
@@ -19,6 +22,12 @@ const visibleToolTitle = (container: HTMLElement) =>
 
 mock.module("./bridge.ts", () => ({
   getHomeDir: () => Promise.resolve("/Users/test"),
+  getConfigEnvironment: () => Promise.resolve({
+    home: "/Users/test",
+    platform: "darwin",
+    fishInstalled: false,
+    powerShellProfiles: [],
+  }),
   loadAllVersions: () => {
     versionsCallCount += 1;
     return versionsImpl();
@@ -29,8 +38,13 @@ mock.module("./bridge.ts", () => ({
   },
   saveFile: () => Promise.resolve(),
   loadProfileDataDirect: () => Promise.resolve({
-    store: { version: 1, profiles: [], active: { claude: null, codex: null }, preferences: { hookTimeoutMs: 30_000 } },
-    active: { claude: { id: null, symlinkTarget: null }, codex: { id: null, symlinkTarget: null } },
+    store: { version: 1, profiles: [], active: { claude: null, codex: null, grok: null, cursor: null }, preferences: { hookTimeoutMs: 30_000 } },
+    active: {
+      claude: { id: null, rootPath: "/Users/test/.claude", symlinkTarget: null },
+      codex: { id: null, rootPath: "/Users/test/.codex", symlinkTarget: null },
+      grok: { id: null, rootPath: "/Users/test/.grok", symlinkTarget: null },
+      cursor: { id: null, rootPath: "/Users/test/.cursor", symlinkTarget: null },
+    },
   }),
 }));
 
@@ -40,16 +54,14 @@ describe("App.load() setError(null) (CHANGELOG_10 R_1·L1 fix)", () => {
   afterEach(() => {
     versionsCallCount = 0;
     filesCallCount = 0;
-    versionsImpl = () =>
-      Promise.resolve({ shell: "5.9", claude: "1.0.0", codex: "0.1" });
+    versionsImpl = () => Promise.resolve(MOCK_VERSIONS);
     filesImpl = () => Promise.resolve([mockTool("Test Tool", "claude")]);
     cleanup();
   });
 
   it("T7: 首次 load 失败 → error 屏；focus 触发 reload 成功 → setError(null) 让主 UI 恢复", async () => {
     versionsImpl = () => {
-      versionsImpl = () =>
-        Promise.resolve({ shell: "5.9", claude: "1.0.0", codex: "0.1" });
+      versionsImpl = () => Promise.resolve(MOCK_VERSIONS);
       return Promise.reject(new Error("simulated first load fail"));
     };
 
@@ -76,7 +88,7 @@ describe("App.load() setError(null) (CHANGELOG_10 R_1·L1 fix)", () => {
   // load = 6 zsh spawn × 2 比修复前还差。
   it("T8: 首屏 load 期间 focus 触发 → reloadingRef guard 让 loadAllVersions 仍只调一次", async () => {
     // 给 versions 一个慢 promise 模拟首屏未完成
-    let resolveVersions: ((v: { shell: string; claude: string; codex: string }) => void) | null = null;
+    let resolveVersions: ((v: MockVersions) => void) | null = null;
     versionsImpl = () =>
       new Promise((resolve) => {
         resolveVersions = resolve;
@@ -99,7 +111,7 @@ describe("App.load() setError(null) (CHANGELOG_10 R_1·L1 fix)", () => {
 
     // 让首屏 load 完成
     await act(async () => {
-      resolveVersions!({ shell: "5.9", claude: "1.0.0", codex: "0.1" });
+      resolveVersions!(MOCK_VERSIONS);
       await new Promise((r) => setTimeout(r, 50));
     });
 

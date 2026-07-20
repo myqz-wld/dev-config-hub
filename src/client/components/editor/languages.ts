@@ -5,6 +5,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { yaml } from "@codemirror/lang-yaml";
 import { toml as legacyToml } from "@codemirror/legacy-modes/mode/toml";
 import { shell as legacyShell } from "@codemirror/legacy-modes/mode/shell";
+import { powerShell as legacyPowerShell } from "@codemirror/legacy-modes/mode/powershell";
 import type { ConfigScope } from "../../../types.ts";
 
 /**
@@ -21,6 +22,7 @@ import type { ConfigScope } from "../../../types.ts";
 export function languageExtensionFor(format: ConfigScope["format"]): Extension {
   switch (format) {
     case "json":
+    case "jsonc":
       return json();
     case "toml":
       return StreamLanguage.define(legacyToml);
@@ -28,6 +30,8 @@ export function languageExtensionFor(format: ConfigScope["format"]): Extension {
       return markdown();
     case "dotfile":
       return StreamLanguage.define(legacyShell);
+    case "powershell":
+      return StreamLanguage.define(legacyPowerShell);
     default: {
       // exhaustive check：format 加新值时编译报错
       const _exhaustive: never = format;

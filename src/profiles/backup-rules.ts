@@ -12,6 +12,8 @@
  * 否则新工具或用户自定义资产容易漏备份。
  */
 
+import type { ToolKind } from "./types.ts";
+
 export const EXCLUDE_PATTERNS: string[] = [
   "**/*.jsonl",
   "**/*.db",
@@ -66,7 +68,12 @@ export const EXCLUDE_PATTERNS: string[] = [
   "statsig/**",
   "log/**",
   "tmp/**",
+  "logs/**",
+  "memory/**",
   "memories/**",
+  "ai-tracking/**",
+  "extensions/**",
+  "skills-cursor/**",
 
   ".last-cleanup",
   ".personality_migration",
@@ -74,6 +81,8 @@ export const EXCLUDE_PATTERNS: string[] = [
   "mcp-needs-auth-cache.json",
   "plugins/install-counts-cache.json",
   ".claude.json",
+  "active_sessions.json",
+  "leader.sock",
 ];
 
 export const SENSITIVE_KEY_PATTERNS: string[] = [
@@ -90,6 +99,7 @@ export const SENSITIVE_KEY_PATTERNS: string[] = [
 export const SENSITIVE_FILES = new Set<string>([
   "credentials.json",
   "auth.json",
+  "mcp_credentials.json",
 ]);
 
 /**
@@ -111,14 +121,22 @@ const PATH_LIKE_SUFFIX_RE = /(_path|_file|_url|_endpoint|_dir|_directory)$/i;
 
 const excludeMatchers = EXCLUDE_PATTERNS.map((p) => new Bun.Glob(p.toLowerCase()));
 
+const TOOL_EXCLUDE_MATCHERS: Partial<Record<ToolKind, Bun.Glob[]>> = {
+  cursor: [new Bun.Glob("projects/**")],
+  grok: [new Bun.Glob("docs/user-guide/**")],
+};
+
 /**
  * 单条相对路径是否应纳入备份。命中黑名单返回 false；否则默认包含。
  *
  * relPath 必须是 POSIX 风格相对路径（如 `templates/changelog.template.md`，无前导 /）。
  */
-export function shouldIncludePath(relPath: string): boolean {
+export function shouldIncludePath(relPath: string, tool?: ToolKind): boolean {
   const normalizedRelPath = relPath.toLowerCase();
   for (const g of excludeMatchers) {
+    if (g.match(normalizedRelPath)) return false;
+  }
+  for (const g of tool ? (TOOL_EXCLUDE_MATCHERS[tool] ?? []) : []) {
     if (g.match(normalizedRelPath)) return false;
   }
   return true;

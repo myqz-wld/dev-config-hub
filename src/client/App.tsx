@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ToolConfig } from "../types.ts";
+import type { ConfigEnvironment } from "../config-locations.ts";
 import {
-  loadAllVersions, loadAllFiles, saveFile, saveFileIfMtime, isMtimeMismatch, getHomeDir,
+  loadAllVersions, loadAllFiles, saveFile, saveFileIfMtime, isMtimeMismatch, getConfigEnvironment,
   loadProfileDataDirect,
   type ToolVersions, type ProfileStore, type ProfileActive,
 } from "./bridge.ts";
@@ -14,7 +15,13 @@ import {
   type NavCircleVariant,
 } from "./components/NavPencilCircle.tsx";
 
-const ICONS: Record<string, string> = { terminal: ">_", claude: "C", codex: "X" };
+const ICONS: Record<string, string> = {
+  terminal: ">_",
+  claude: "C",
+  codex: "X",
+  grok: "G",
+  cursor: "⌁",
+};
 
 type View = { kind: "tool"; name: string | null } | { kind: "profile" };
 
@@ -32,9 +39,10 @@ export function App() {
   // 旧 8s timer 会在第 8s 把 ok toast 也清掉（看起来 ok toast 提前消失）。
   const toastTimerRef = useRef<number | null>(null);
 
-  // CHANGELOG_15：versions 缓存到首屏，focus reload 跳过 3 zsh spawn（每个 200-500ms）。
+  // CHANGELOG_15：versions 缓存到首屏，focus reload 跳过版本探测进程（每个约 200-500ms）。
   // 用户外部 brew upgrade 是罕见事件，需要刷新版本只能重启 app（trade-off 已记 plan）。
   const versionsRef = useRef<ToolVersions | null>(null);
+  const environmentRef = useRef<ConfigEnvironment | null>(null);
 
   // CHANGELOG_15：profile 数据走 fs 直读 (loadProfileDataDirect)，替代旧的 dchProfile.list +
   // current 双 bun spawn (~500ms × 2)。CRUD 写仍走 dch CLI（涉及锁 + hook 不能复刻），
@@ -58,10 +66,13 @@ export function App() {
       // CHANGELOG_10 review fix R_1·L1 (codex LOW)：清零 error，否则首次 load 失败 setError 后
       // focus reload 即便成功也跑不掉「if (error) return <error screen>」hard-block，UI 永远卡 error 页。
       setError(null);
-      const home = await getHomeDir();
-      const versions = await loadAllVersions();
+      const [environment, versions] = await Promise.all([
+        getConfigEnvironment(),
+        loadAllVersions(),
+      ]);
+      environmentRef.current = environment;
       versionsRef.current = versions;
-      const configs = await loadAllFiles(home, versions);
+      const configs = await loadAllFiles(environment, versions);
       setTools(configs);
     } catch (e) {
       setError(String(e));
@@ -70,18 +81,17 @@ export function App() {
     }
   }, []);
 
-  // CHANGELOG_15：focus reload 快路径——只刷文件内容，跳过 versions（3 zsh spawn 大头）。
+  // CHANGELOG_15：focus reload 快路径——只刷文件内容，跳过版本探测进程。
   // versionsRef 没缓存（首屏失败的极端情况）→ fallback 到完整 load。
   const loadFilesOnly = useCallback(async () => {
-    if (!versionsRef.current) {
-      // 首屏 load 失败的恢复路径，用完整 load 再试一次（会重新 spawn 3 zsh，但只这一次）
+    if (!versionsRef.current || !environmentRef.current) {
+      // 首屏 load 失败的恢复路径，用完整 load 再试一次（会重新探测版本，但只这一次）
       await load();
       return;
     }
     try {
       setError(null);
-      const home = await getHomeDir();
-      const configs = await loadAllFiles(home, versionsRef.current);
+      const configs = await loadAllFiles(environmentRef.current, versionsRef.current);
       setTools(configs);
     } catch (e) {
       console.warn("loadFilesOnly silent fail:", e);
@@ -91,7 +101,7 @@ export function App() {
 
   // CHANGELOG_15：focus listener 与首屏 load 共享 reloadingRef 防 race（Plan agent Q5）：
   // 首屏 load 还在跑时用户切走 + 切回 → onAppActive 触发 → versionsRef 还是 null →
-  // fallback 跑全量 load 第二份 = 6 zsh spawn × 2 比修复前还差。首屏 load 期间 set
+  // fallback 再跑一份全量版本探测，比修复前更差。首屏 load 期间 set
   // reloadingRef = true，onAppActive 直接 skip 这次。
   const lastReloadAtRef = useRef(0);
   const reloadingRef = useRef(false);
@@ -261,6 +271,7 @@ export function App() {
               active={profileActive}
               onToast={flash}
               onReloadProfile={loadProfileData}
+              onReloadConfigs={loadFilesOnly}
             />
           </div>
         </PanelVisibilityProvider>

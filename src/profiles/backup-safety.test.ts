@@ -48,7 +48,7 @@ async function setupTmpHomeWithProfiles(opts: {
 }): Promise<{ home: string }> {
   const home = await mkdtemp(join(tmpdir(), "dch-d7-"));
   await mkdir(join(home, ".dch/backups"), { recursive: true });
-  // ~/.claude / ~/.codex symlink 设默认（init 后状态等价）
+  // 工具配置根 symlink 设默认（init 后状态等价）
   for (const p of opts.profiles) {
     const dir = p.configDir.replace(/^~\//, `${home}/`);
     await mkdir(dir, { recursive: true });

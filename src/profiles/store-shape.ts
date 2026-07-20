@@ -7,7 +7,7 @@ const DEFAULT_PREFERENCES: Preferences = {
 export const EMPTY_STORE: ProfileStore = {
   version: 1,
   profiles: [],
-  active: { claude: null, codex: null },
+  active: { claude: null, codex: null, grok: null, cursor: null },
   preferences: DEFAULT_PREFERENCES,
 };
 
@@ -22,7 +22,7 @@ export function applyStoreDefaults(raw: unknown): ProfileStore {
   return {
     version: 1,
     profiles: data.profiles ?? [],
-    active: { claude: null, codex: null, ...(data.active ?? {}) },
+    active: { claude: null, codex: null, grok: null, cursor: null, ...(data.active ?? {}) },
     preferences: {
       hookTimeoutMs: rawPrefs.hookTimeoutMs ?? DEFAULT_PREFERENCES.hookTimeoutMs,
     },

@@ -4,7 +4,7 @@ import type { ToolSchema, FieldSchema } from "./types.ts";
  * `~/.dch/profiles.json` schema（PR-I）。
  *
  * **字段来源**：项目自维护，SSOT 在 `src/profiles/types.ts`：
- *   - ToolKind = "claude" | "codex"
+ *   - ToolKind = "claude" | "codex" | "grok" | "cursor"
  *   - Profile / ProfileHooks / HookScript / Preferences / ProfileStore
  *
  * **HookScript union 简化**：HookScript 是 `string | { posix?, powershell?, cmd? }` union 类型。
@@ -40,6 +40,8 @@ const PROFILE_FIELD: FieldSchema = {
       enum: [
         { value: "claude", label: "Claude Code" },
         { value: "codex", label: "Codex CLI" },
+        { value: "grok", label: "Grok" },
+        { value: "cursor", label: "Cursor" },
       ],
       enumStyle: "radio",
     },
@@ -51,7 +53,7 @@ const PROFILE_FIELD: FieldSchema = {
     },
     env: {
       type: "kv-map",
-      description: "环境变量。preSwitch / postSwitch hook 内可见。配合 `dch profile env` + ~/.zshrc wrapper 也能注入到 claude / codex 进程本身。",
+      description: "环境变量。preSwitch / postSwitch hook 内可见，也可通过 `dch profile env` 注入工具进程。",
       // REVIEW_4 R_2 L4：与 src/profiles/manager.ts ENV_KEY_RE 同源（混合大小写）
       // **注意**：与 claude-settings.env 大写专用 `^[A-Z_][A-Z0-9_]*$` 不同 —— 那是上游 Claude Code 惯例约束；
       // 本字段是 dch profile.env，由 manager.ts 控制，允许混合大小写（兼容 `http_proxy` 等小写常量）
@@ -112,6 +114,14 @@ export const DCH_STORE: ToolSchema = {
           codex: {
             type: "string",
             description: "当前激活的 codex profile id。",
+          },
+          grok: {
+            type: "string",
+            description: "当前激活的 grok profile id。",
+          },
+          cursor: {
+            type: "string",
+            description: "当前激活的 cursor profile id。",
           },
         },
       },

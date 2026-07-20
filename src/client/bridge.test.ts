@@ -11,14 +11,22 @@ import {
   MtimeMissingError,
 } from "./bridge.ts";
 
+const ROOTS = {
+  claude: "/Users/test/.claude",
+  codex: "/Users/test/.codex",
+  grok: "/Users/test/.grok",
+  cursor: "/Users/test/.cursor",
+};
+const EMPTY_LINKS = { claude: null, codex: null, grok: null, cursor: null };
+
 describe("buildProfileData — pure shape composer (替代 dch list+current)", () => {
   it("storeContent=null（profiles.json 不存在）→ EMPTY_STORE shape + active 全 null", () => {
-    const r = buildProfileData(null, { claude: null, codex: null });
+    const r = buildProfileData(null, EMPTY_LINKS, ROOTS);
     expect(r.store.profiles).toEqual([]);
-    expect(r.store.active).toEqual({ claude: null, codex: null });
+    expect(r.store.active).toEqual({ claude: null, codex: null, grok: null, cursor: null });
     expect(r.store.preferences.hookTimeoutMs).toBe(30_000);
-    expect(r.active.claude).toEqual({ id: null, symlinkTarget: null });
-    expect(r.active.codex).toEqual({ id: null, symlinkTarget: null });
+    expect(r.active.claude).toEqual({ id: null, rootPath: ROOTS.claude, symlinkTarget: null });
+    expect(r.active.codex).toEqual({ id: null, rootPath: ROOTS.codex, symlinkTarget: null });
   });
 
   it("有 store + 有 link target → 完整 shape 一致", () => {
@@ -33,18 +41,22 @@ describe("buildProfileData — pure shape composer (替代 dch list+current)", (
     const r = buildProfileData(raw, {
       claude: "/Users/test/.claude-prod",
       codex: "/Users/test/.codex-dev",
-    });
+      grok: null,
+      cursor: null,
+    }, ROOTS);
     expect(r.store.profiles).toHaveLength(2);
     expect(r.store.preferences.hookTimeoutMs).toBe(45_000);
     expect(r.active).toEqual({
-      claude: { id: "claude-prod", symlinkTarget: "/Users/test/.claude-prod" },
-      codex: { id: "codex-dev", symlinkTarget: "/Users/test/.codex-dev" },
+      claude: { id: "claude-prod", rootPath: ROOTS.claude, symlinkTarget: "/Users/test/.claude-prod" },
+      codex: { id: "codex-dev", rootPath: ROOTS.codex, symlinkTarget: "/Users/test/.codex-dev" },
+      grok: { id: null, rootPath: ROOTS.grok, symlinkTarget: null },
+      cursor: { id: null, rootPath: ROOTS.cursor, symlinkTarget: null },
     });
   });
 
   it("link 全 null（symlink 不存在 / 非 symlink）→ active.symlinkTarget = null", () => {
     const raw = JSON.stringify({ active: { claude: "p1" } });
-    const r = buildProfileData(raw, { claude: null, codex: null });
+    const r = buildProfileData(raw, EMPTY_LINKS, ROOTS);
     expect(r.active.claude.id).toBe("p1");
     expect(r.active.claude.symlinkTarget).toBeNull();
     expect(r.active.codex.symlinkTarget).toBeNull();
@@ -52,7 +64,7 @@ describe("buildProfileData — pure shape composer (替代 dch list+current)", (
 
   it("坏 JSON → throw（caller silent catch 走 console.warn）", () => {
     expect(() =>
-      buildProfileData("{not valid json", { claude: null, codex: null }),
+      buildProfileData("{not valid json", EMPTY_LINKS, ROOTS),
     ).toThrow(/无法解析/);
   });
 
@@ -61,7 +73,9 @@ describe("buildProfileData — pure shape composer (替代 dch list+current)", (
     const r = buildProfileData(raw, {
       claude: "/Users/test/.claude-p1",
       codex: "/Users/test/.codex-stale", // link 还在但 store 没记 → id 仍然 null
-    });
+      grok: null,
+      cursor: null,
+    }, ROOTS);
     expect(r.active.codex.id).toBeNull();
     expect(r.active.codex.symlinkTarget).toBe("/Users/test/.codex-stale");
   });

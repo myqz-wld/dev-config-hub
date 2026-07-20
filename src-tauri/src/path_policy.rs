@@ -4,8 +4,8 @@
 //! 写任意文件（含 /etc/hosts / ~/.ssh/authorized_keys 等系统资产）。把策略集中
 //! 到一个 enum，新加 fs command 时漏校验会立刻看出来。
 //!
-//! - HomeOnly：必须在 $HOME 下（含 $HOME 本身）—— 覆盖 settings.json / .zshrc /
-//!   profile configDir / dch backups 等所有用户配置面
+//! - HomeOnly：必须在 $HOME 下（含 $HOME 本身）—— 覆盖 profile configDir / dch backups
+//! - KnownConfigFile：HOME 下，或环境变量解析出的精确用户级配置文件路径
 //! - DchStoreOnly：仅 ~/.dch 下 —— atomic save_file_if_mtime 给 profiles.json 用
 //!
 //! `..` 段一律拒（avoid `~/foo/../../etc/passwd` 绕过 starts_with）。symlink walk
@@ -18,6 +18,8 @@ use std::path::{Component, Path};
 pub enum PathPolicy {
     /// 必须在 $HOME 下（含 $HOME 本身）。
     HomeOnly,
+    /// HOME 下，或当前环境解析出的精确用户级配置文件路径。
+    KnownConfigFile,
     /// 必须在 $HOME/.dch 下（atomic store write）。
     #[allow(dead_code)] // 预留给 atomic save_file_if_mtime 后续 lock down 时启用
     DchStoreOnly,
@@ -72,6 +74,16 @@ pub fn check_path(path: &str, policy: PathPolicy) -> Result<(), String> {
                 Ok(())
             } else {
                 Err(format!("拒绝非 HOME 路径: {}", path))
+            }
+        }
+        PathPolicy::KnownConfigFile => {
+            if p == home_p
+                || p.starts_with(home_p)
+                || crate::commands::environment::is_known_config_file(p)
+            {
+                Ok(())
+            } else {
+                Err(format!("拒绝非 HOME/已知配置文件路径: {}", path))
             }
         }
         PathPolicy::DchStoreOnly => {
@@ -158,6 +170,19 @@ fn boundary_check_canonical(canonical: &std::path::Path, policy: PathPolicy) -> 
                 Ok(())
             } else {
                 Err(format!("拒绝非 HOME 路径(canonical): {}", canonical.display()))
+            }
+        }
+        PathPolicy::KnownConfigFile => {
+            if canonical == home_canonical
+                || canonical.starts_with(&home_canonical)
+                || crate::commands::environment::canonical_known_config_file(canonical)
+            {
+                Ok(())
+            } else {
+                Err(format!(
+                    "拒绝非 HOME/已知配置文件路径(canonical): {}",
+                    canonical.display()
+                ))
             }
         }
         PathPolicy::DchStoreOnly => {

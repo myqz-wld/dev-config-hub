@@ -61,6 +61,12 @@ function makeTool(content: string, loadedMtimeUs?: number | null): ToolConfig {
   };
 }
 
+function makeMissingTool(): ToolConfig {
+  const tool = makeTool("", null);
+  tool.scopes[0] = { ...tool.scopes[0]!, exists: false, initialContent: "{}\n" };
+  return tool;
+}
+
 describe("ConfigPanel TOCTOU banner (CHANGELOG_10 R_2·H1-followup)", () => {
   beforeEach(() => {});
   afterEach(() => cleanup());
@@ -319,6 +325,30 @@ describe("ConfigPanel TOCTOU banner (CHANGELOG_10 R_2·H1-followup)", () => {
       "/Users/test/.test/settings.json",
       '{"theme":"light"}', // reload 后的新 content
       3000,                 // reload 后的新 mtime（不是 stale 1000）
+    );
+  });
+
+  it("T9: missing core file offers create and saves with null mtime", async () => {
+    const onSave = mock(() => Promise.resolve());
+    const onToast = mock(() => {});
+    const { container } = render(
+      <ConfigPanel tool={makeMissingTool()} onSave={onSave} onToast={onToast} />,
+    );
+
+    const createBtn = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "创建");
+    expect(createBtn).toBeTruthy();
+    await act(async () => { fireEvent.click(createBtn!); });
+
+    const saveBtn = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "保存");
+    expect(saveBtn).toBeTruthy();
+    await act(async () => { fireEvent.click(saveBtn!); });
+
+    expect(onSave).toHaveBeenCalledWith(
+      "/Users/test/.test/settings.json",
+      "{}\n",
+      null,
     );
   });
 });

@@ -1,4 +1,4 @@
-import type { HookScript } from "../../../profiles/types.ts";
+import { PROFILE_TOOL_IDS, type HookScript } from "../../../profiles/types.ts";
 import type { ToolKind } from "../../bridge.ts";
 
 /**
@@ -14,7 +14,7 @@ import type { ToolKind } from "../../bridge.ts";
  */
 export const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-export const TOOLS: ToolKind[] = ["claude", "codex"];
+export const TOOLS: ToolKind[] = [...PROFILE_TOOL_IDS];
 
 export const MAIN_CONFIG: Record<ToolKind, {
   filename: string;
@@ -29,7 +29,17 @@ export const MAIN_CONFIG: Record<ToolKind, {
   codex: {
     filename: "config.toml",
     format: "toml",
-    placeholder: 'model = "gpt-5.5"\nmodel_reasoning_effort = "xhigh"\n\n[projects."/Users/apple"]\ntrust_level = "trusted"\n',
+    placeholder: 'model = "gpt-5.5"\nmodel_reasoning_effort = "xhigh"\n',
+  },
+  grok: {
+    filename: "config.toml",
+    format: "toml",
+    placeholder: "# Grok user configuration\n",
+  },
+  cursor: {
+    filename: "cli-config.json",
+    format: "json",
+    placeholder: "{}\n",
   },
 };
 
