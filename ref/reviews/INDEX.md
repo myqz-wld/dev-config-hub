@@ -1,31 +1,51 @@
 # Reviews Index
 
-Debug, code review, performance audit, and security review reports. Draft review notes stay in the configured review workspace; when no stronger contract exists, use `<repo>/.ref/reviews/`, and `.ref/` must be listed in `.gitignore`. Terminal reviews are archived here. Functional changes belong in [Changelog Index](../changelogs/INDEX.md).
+## Scope
+
+Routing index for final review records. Final reviews document debug work, code review, performance audit, security review, and review-driven fixes. Keep non-final review drafts and raw reviewer output in `<repo>/.ref/reviews/` or the current review workspace, and add `.ref/` to `.gitignore`. Feature changes go in `ref/changelogs/` unless they are debug, performance, security, or review-driven fixes.
+
+This root index defines routing and bucket policy only. Per-record review rows live only in the bucket `INDEX.md` files.
 
 ## Naming
 
-Existing historical records keep their current filenames. New final reviews use `REVIEW_X_<topic>.md`. Before creating one, run `ls ref/reviews/`, set `X` to the maximum existing review number in this directory plus 1, and do not guess. `<topic>` is short stable kebab-case and must not be vague like `update`, `fix`, or `misc`. Update this index in the same change.
+Final reviews use `ref/reviews/<bucket>/REVIEW_X_<topic>.md`. Before creating one, scan `ref/reviews/*/REVIEW_*.md`, set `X` to the maximum existing review number plus 1, and do not guess. `<topic>` is short stable kebab-case and must not be vague like `update`, `fix`, or `misc`.
 
-## Record Format
+## File Structure
 
-- Trigger: user request, periodic review, pre-refactor gate, or incident.
-- Method: reviewer pairing, scope, and tools.
-- Decision list: `✅ / ❌ / ❓` with evidence such as `file:line` and short snippets.
-- Fixes grouped by severity.
-- Related changelog for fixes landed from the review.
+- Frontmatter with `review_id`, `reviewed_at`, `baseline_commit`, and expiry fields
+- Scope
+- Findings
+- Validation / evidence
+- Fixes Landed
+- Residual risk
+- Follow-ups
 
-## Index
+## Buckets
 
-| File | Topic | Severity Distribution | Related Changelog |
-|---|---|---|---|
-| [REVIEW_1.md](REVIEW_1.md) | Windows cross-platform infrastructure review with heterogeneous reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5 wrapper: 12 ✅ findings, 4 HIGH / 4 MED / 4 LOW. Fixed in 6 phase commits: platform.ts abstraction, cli/store path fixes, symlink-to-junction support, platform-specific hook protocol branching, Tauri Rust cfg guards, and Windows reader branching | 4 HIGH / 4 MED / 4 LOW | CHANGELOG_6 |
-| [REVIEW_2.md](REVIEW_2.md) | First full-dimension deep code review covering architecture, bugs, security, performance, and test gaps with heterogeneous reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5 wrapper across 3 rounds plus 1 rebuttal round. Found 3 HIGH issues, hook timeout freeze / onSave data loss / store lost update, plus 13 MED, ~30 LOW, and 2 ❌ empirically disproven findings | 3 HIGH / 13 MED / ~30 LOW | Backfill CHANGELOG_7..13 after PR-1..7 land |
-| [REVIEW_3.md](REVIEW_3.md) | Pre-landing quality gate for the first CHANGELOG_8 milestone, covering PR-A schema skeleton, PR-B jsonc-parser/Tauri read_file_with_mtime, and PR-F CodeMirror 6 integration; 2 heterogeneous reviewer rounds plus 1 rebuttal round using the REVIEW_2 pairing. R_1 found 5 HIGH, 8 MED, 5 LOW, and multiple ❌ findings; R_2 found 1 MED, 4 LOW, both reviewers approved merge, and 3 AP pitfall candidates were recorded | 5 HIGH / 9 MED / 9 LOW | CHANGELOG_8 |
-| [REVIEW_4.md](REVIEW_4.md) | Full CHANGELOG_8 closure review covering PR-D Claude settings.json, PR-E TOML/OpenCode/.mcp.json, PR-G CM6 edit with JSON Schema lint/hover/completion, PR-H Markdown rendering, PR-I ProfilePanel split, PR-J sync.ts CI/ajv/bundle splitting, and follow-ups #1-4; 2 heterogeneous reviewer rounds. R_1 found 5 HIGH, 11 MED, 7 LOW; R_2 found 2 HIGH, 5 MED, 2 LOW, multiple ❌ findings, and 3 AP candidates | 5 HIGH, with H2' rebutted so 4 fixed / 16 MED / 9 LOW | CHANGELOG_8 |
-| [REVIEW_5.md](REVIEW_5.md) | Root-cause review and hardening for prod builds stuck on raw HTML "Loading...", driven by a user hot-fix rather than a periodic review. Compared screenshot vs index.html, ruled out IPC/dist embedding, switched to dev mode for webview console, and found two independent throws: ebnf CJS interop preventing React startup and ArrayField crashing on non-array values without a top-level ErrorBoundary. Fixed with persistent bun patch for ebnf, ArrayField type guards, and main.tsx ErrorBoundary. Follow-ups fixed env KV value layout overflow and StringChipEditor plain-object rendering crashes; later TODO was custom user schema support | 2 HIGH / 2 MED + 2 Follow-up | None, pure hot-fix |
-| [REVIEW_6.md](REVIEW_6.md) | Pre-landing quality gate for CHANGELOG_10 auto-refresh on focus plus 5s mtime polling; 3 rounds and 2 rebuttal rounds with heterogeneous reviewers using Opus 4.7 xhigh and gpt-5.5 xhigh. R_1 found edit-mode silent overwrite, saving guard race, poll-overwrites-draft, and stale errors; R_2 found missing save disable in conflict banner, focus-cleared TOCTOU banner, missing prop-sync typing path, and handleRootChange await-ref issue; R_3 had 0 HIGH/MED, both reviewers approved merge, one INFO dead-code item, 2 unverified LOWs, and required 12 component tests. AP-1/AP-2/AP-3 pitfall candidates recorded | 2 HIGH / 5 MED / 1 LOW + 12 test | CHANGELOG_10 |
-| [REVIEW_7.md](REVIEW_7.md) | Full-chain profile-switch freeze fix review with heterogeneous reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5 high; after wrapper failed for 3 rounds, switched to direct bash and batch concurrency. Root cause: CHANGELOG_7 H1 fixed runHook at function level but missed bun process-level behavior, where ReadableStream pump, race timer, and detached descendants inheriting stdio pipe FDs kept the bun event loop alive and blocked Rust `command.output()`. Found 7 HIGH, 3 MED, 1 LOW; codex-only HIGHs were empirically verified by the main agent with ps and bun -e. AP-14/15/16 recorded | 7 HIGH / 3 MED / 1 LOW + 3 e2e + 5 cargo | CHANGELOG_12 |
-| [REVIEW_8.md](REVIEW_8.md) | Deep code review with 2 heterogeneous rounds, 4 reviewers across 2 batches for backend-core and cli-ui, plus Round 3 fix closure. R1 at base_commit=0a136b6 found 10 HIGH and 19 MED issues, closed by Group A-E across 5 commits; R2 validation found 4 more HIGH, 5 MED, 1 LOW, and 5 INFO, with 1 HIGH rebutted as a path_policy symlink tradeoff. R3 commit d40286c closed G1-G7 with path safety hardening, regex /i flag, atomic tmp naming, mtime sync, reload-on-CAS, bridge-mtime.ts split, truncated dch.rs propagation, 6 new bun tests, and 3 new cargo tests. 257 pass + 32 cargo / 0 regressions | 14 HIGH / 24 MED / 7 LOW, including R1+R2 with R3 closure | CHANGELOG_18 |
-| [REVIEW_9.md](REVIEW_9.md) | Deep code review R1 + R2 heterogeneous rounds and G1-G12 closure across 4 batches with reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5 xhigh, using sliding-window fan-out 5 to avoid collisions. R1 at base_commit=8ad2fa0 found 13 HIGH + 16 MED and closed them in G1-G7 across 7 commits; R2 respawned the same reviewer pair, skipped already-fixed validation, looked one layer deeper, and found 11 HIGH + 12 MED, closed in G8-G12 across 5 commits including 4 [NEW REGRESSION post-Gx] issues. Key fixes covered walkAndRedact, parseFieldPath, applySharedFile, EXCLUDE_PATTERNS depth, ToolKind IPC, path checks, read_dir contract, attemptClose propagation, RestoreBackupModal split, and 30 invariant tests. bun 339 -> 412 pass, cargo 32 -> 40 pass, 0 regressions | 24 HIGH / 28 MED / multiple LOW/INFO, all R1+R2 closed | CHANGELOG_21 |
-| [REVIEW_10.md](REVIEW_10.md) | hooks.ts Bun Subprocess.kill typecheck fix. Root cause: the `killProcessGroup` helper typed `kill` as `(signal?: string \| number) => void`, which was incompatible with Bun `Subprocess.kill(exitCode?: number \| NodeJS.Signals)`; the fallback only calls `proc.kill()` with no args, so the type was narrowed to `kill: () => void` to preserve runtime behavior and unblock `tsc --noEmit`. | 1 MED | None |
-| [REVIEW_11.md](REVIEW_11.md) | Paper UI render-path performance audit (solo, post-CHANGELOG_32). The persistently-mounted display-toggled panels were never memoized, so every sidebar click re-rendered all hidden panels and re-ran MarkdownView's remark/rehype parse on unchanged source. Wrapped ConfigPanel / ProfilePanel / MarkdownView in `React.memo` and stabilized `onSave` with `useCallback`; NavPencilCircle SVG node count rejected as a non-hot path. 428 bun pass, `tsc --noEmit` clean. | 2 MED / 1 LOW (+ 1 ❌ / 1 ❓) | CHANGELOG_33 |
+Buckets are mutually exclusive. Store each review in exactly one bucket based on `reviewed_at`.
+
+| Bucket | Date Range | Directory |
+|---|---|---|
+| Recent 3 days | `reviewed_at` is within the last 3 days, inclusive | `ref/reviews/recent-3-days/` |
+| Recent week | `reviewed_at` is older than 3 days and within the last 7 days, inclusive | `ref/reviews/recent-week/` |
+| Recent month | `reviewed_at` is older than 7 days and within the last 30 days, inclusive | `ref/reviews/recent-month/` |
+| History | `reviewed_at` is older than 30 days, or missing a parseable date | `ref/reviews/history/` |
+
+## Rebucket Rules
+
+On every new or edited final review:
+
+1. Scan all `ref/reviews/*/REVIEW_*.md` files.
+2. Recompute each file's bucket from `reviewed_at`.
+3. Move files that no longer belong in their current bucket.
+4. Update this routing index only if bucket policy changes.
+5. Update every affected bucket `INDEX.md` while preserving its table format.
+
+For full recent-week context, read `recent-3-days/` plus `recent-week/`. For full recent-month context, read `recent-3-days/`, `recent-week/`, and `recent-month/`. For full history, read all four buckets.
+
+## Bucket Indexes
+
+- `ref/reviews/recent-3-days/INDEX.md`
+- `ref/reviews/recent-week/INDEX.md`
+- `ref/reviews/recent-month/INDEX.md`
+- `ref/reviews/history/INDEX.md`

@@ -12,7 +12,7 @@ Built on [Tauri v2](https://v2.tauri.app/) (Rust + WebView), with both frontend 
 | **Windows 10 1703+ / 11** | **beta** | Symlink automatically uses junctions (no SeCreateSymbolicLinkPrivilege / Developer Mode required); hooks use PowerShell by default (string hooks are parsed as PowerShell; object hooks `{posix?, powershell?, cmd?}` explicitly split by platform); shell reader reads `$PROFILE` |
 | **Linux** | **beta** | Same symlink behavior as macOS; hooks use bash; shell reader reads zsh + bash config |
 
-Windows real-machine E2E remains pending CI validation (see [REVIEW_1](ref/reviews/REVIEW_1.md)).
+Windows real-machine E2E remains pending CI validation (see [REVIEW_1](ref/reviews/history/REVIEW_1.md)).
 
 ## Supported Tools
 
@@ -436,7 +436,9 @@ Test files (`*.test.ts(x)` / `fs_tests.rs`) live next to the files they test and
 ```
 ├── AGENTS.md                 # Companion agent entry: only entry-specific tool mechanics differences
 ├── CLAUDE.md                 # Shared project rules: Bun first / record workflow / project invariants / validation workflow
+├── UI_COPY_LANGUAGE.md        # Source of truth for user-facing UI/CLI copy language
 ├── README.md                 # User-facing feature overview, startup instructions, and project structure
+├── .ref/                     # Ignored workspace for non-final AI plans/reviews/raw notes
 ├── build/fe/                 # Frontend build output (git ignored)
 ├── src/
 │   ├── platform.ts           # Cross-platform abstraction: IS_DARWIN/IS_WIN/IS_LINUX, HOME, defaultShellRunner, defaultEditor
@@ -521,12 +523,16 @@ Test files (`*.test.ts(x)` / `fs_tests.rs`) live next to the files they test and
 │           ├── shell.rs      # shell invocation helper
 │           └── version.rs    # tool version detection IPC
 ├── ref/
-│   ├── changelogs/           # Feature / structure / dependency change records
-│   ├── reviews/              # Debug / performance / security / review records
-│   ├── plans/                # durable plan archive
-│   └── conventions/          # project convention candidate tally and promoted conventions
+│   ├── changelogs/{recent-3-days,recent-week,recent-month,history}/
+│   │                           # Feature/structure/dependency records; root + bucket indexes
+│   ├── reviews/{recent-3-days,recent-week,recent-month,history}/
+│   │                           # Debug/performance/security records; root + bucket indexes
+│   └── plans/{recent-3-days,recent-week,recent-month,history}/
+│                               # Final plan archive; root + bucket indexes
 ├── scripts/
-│   └── file-level-review-expiry.sh  # mechanical review-expiry check (see CLAUDE.md §Review Expiry)
+│   ├── file-level-review-expiry.sh  # Mechanical review-expiry check
+│   ├── ref-archive-reminder-pre-commit.sh # Advisory .ref archive hook
+│   └── write-build-info.ts           # Package build metadata generator
 └── package.json
 ```
 
