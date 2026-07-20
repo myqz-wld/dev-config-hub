@@ -1,44 +1,50 @@
-# Changelog Index
+# Changelogs Index
 
-Functional changes, including new features, behavior changes, APIs, dependencies, or structure changes. Debug, performance, security, and review-driven fixes belong in [Reviews Index](../reviews/INDEX.md); this split starts at `CHANGELOG_6`.
+## Scope
+
+Routing index for final changelog records. Final changelogs document user-visible features, behavior changes, API changes, dependency upgrades, and project setup changes. Debug, performance, security, and review-driven fixes go in `ref/reviews/`.
+
+This root index defines routing and bucket policy only. Per-record changelog rows live only in the bucket `INDEX.md` files.
 
 ## Naming
 
-Existing historical records keep their current filenames. New standalone changelogs use `CHANGELOG_X_<topic>.md`. Before creating one, run `ls ref/changelogs/`, set `X` to the maximum existing changelog number in this directory plus 1, and do not guess. `<topic>` is short stable kebab-case and must not be vague like `update`, `fix`, or `misc`. Small same-topic changes may append to the latest relevant changelog under the repository workflow.
+Final changelogs use `ref/changelogs/<bucket>/CHANGELOG_X_<topic>.md`. Before creating one, scan `ref/changelogs/*/CHANGELOG_*.md`, set `X` to the maximum existing changelog number plus 1, and do not guess. `<topic>` is short stable kebab-case and must not be vague like `update`, `fix`, or `misc`.
 
-| File | Summary |
-|---|---|
-| [CHANGELOG_1.md](CHANGELOG_1.md) | Added the Profile system: CLI and UI entry points, env and symlink switching modes, and pre/post hooks |
-| [CHANGELOG_2.md](CHANGELOG_2.md) | Fixed env-mode user-level settings.json env leakage by also performing a symlink swap in env mode |
-| [CHANGELOG_3.md](CHANGELOG_3.md) | Removed env switching mode, including spawnTerminal / TerminalApp / --mode / --terminal, and standardized on symlink switching only |
-| [CHANGELOG_4.md](CHANGELOG_4.md) | Added `dch profile env` plus a ~/.zshrc subshell wrapper so profile.env reaches claude / codex processes for OAuth / API proxy use |
-| [CHANGELOG_5.md](CHANGELOG_5.md) | Fixed frozen UI profile deletion by replacing Tauri 2 window.confirm with inline confirmation; profile creation now captures preHook/postHook and model config in one form |
-| [CHANGELOG_6.md](CHANGELOG_6.md) | Windows cross-platform support from REVIEW_1: platform.ts abstraction, cli/store path fixes, symlink-to-junction branching, PowerShell/cmd hook protocol support, Tauri Rust cfg(target_os) guards, and Windows reader branching; 38 bun tests passed on macOS with no regressions; Windows device E2E left to CI |
-| [CHANGELOG_7.md](CHANGELOG_7.md) | REVIEW_2 rollout, appended by PR: PR-1 test foundation with optional loadStore/saveStore path, 9 loadStore boundary cases, exported parseFlags, 14 regression cases, and 6 pathState cases; 38 -> 68 pass + 1 skip, with H3 deferred to PR-5 |
-| [CHANGELOG_8.md](CHANGELOG_8.md) | Schema-driven detailed config, CM6, and Markdown rendering: 10 PRs merged, 4 follow-ups, and REVIEW_3/REVIEW_4 closure; covered PR-A through PR-J, schema editing, TOML/OpenCode/.mcp.json support, CM6 lint/hover/completion, TOCTOU banners, markdown rendering, ProfilePanel split, schema sync, bundle splitting, and 30 REVIEW_4 fixes; 76 -> 209 pass / 0 regressions |
-| [CHANGELOG_9.md](CHANGELOG_9.md) | Local custom schema overrides under `~/.dch/schemas/<scopeKind>.json`, field hiding with persisted UI prefs, schema field completion for Claude/Codex/OpenCode, ebnf CJS interop bun patch, nested KV layout fix, and REVIEW_5 hot-fix closure for Loading, [object Object], enabledPlugins, KV value column layout, and hidden-field restore issues; 209 -> 218 pass / 0 regressions |
-| [CHANGELOG_10.md](CHANGELOG_10.md) | Tool config / Profile auto-refresh on focus, visibilitychange, and 5s mtime polling; closed 8 REVIEW_6 deep-review fixes across 3 heterogeneous review rounds and 2 rebuttal rounds; added 12 component tests to guard future PR regressions; 218 -> 230 pass / 0 fail / 0 regressions |
-| [CHANGELOG_11.md](CHANGELOG_11.md) | Fixed tab switching stalls with persistent panels plus display switching, eliminating repeated ConfigPanel/ProfilePanel mounts, IPC, dch CLI spawns, field-tree rebuilds, and shiki rerenders; visibility-aware 5s polling pauses 12-16 timers for hidden panels; 230 pass / 0 regressions |
-| [CHANGELOG_12.md](CHANGELOG_12.md) | Full profile-switch freeze fix from REVIEW_7: CLI flushAndExit, jsonOut async write callback to prevent macOS 65536-byte stdout truncation, forced runProfileCommand exit, Rust proc_timeout::spawn_with_timeout with process groups and incremental reads, get_tool_version aligned, UI command timeouts, 3 bun E2E tests, and 5 cargo tests; 233 pass + 5 cargo / 0 regressions |
-| [CHANGELOG_13.md](CHANGELOG_13.md) | Fixed stalls when opening the Profile tab by deduplicating IPC storms and making ProfilePanel controlled; profile data moved to App.tsx, 100ms window dedupe and reloading guard added, ProfilePanel listener removed, and CRUD no longer calls App.load() indirectly; IPC dropped from 14 to 7 concurrent calls; 233 pass / 0 regressions |
-| [CHANGELOG_14.md](CHANGELOG_14.md) | Removed the schema system, list mode, and complex create form; deleted 19 src/schemas files plus schema-mode, fields, and descriptions.ts; ConfigPanel reduced to view/edit/markdown render modes; AddProfileModal now uses a textarea for main config; Select.tsx added for dark-theme dropdowns; dch-store schema and schema-lint retained only for ProfileStoreEditor; CSS 450 -> 278 lines; 114 pass / 0 fail |
-| [CHANGELOG_15.md](CHANGELOG_15.md) | Fixed return-to-window stalls with zero focus-reload process spawns: versions cached for first paint, profile data read directly from fs instead of dch list/current, readScope switched to readFileWithMtime, store-shape.ts shared defaults added, Rust read_link IPC added, and first-paint reloadingRef guard added; cost dropped from 6 spawns + 21 IPC to 0 spawns + 11 IPC; 114 -> 132 pass + 5 -> 10 cargo / 0 regressions |
-| [CHANGELOG_16.md](CHANGELOG_16.md) | Backup/restore via single-file .dchpack archive: `dch profile backup` / `restore` and matching UI buttons package all profiles, `~/.dch/scripts/`, and `~/.agents/`; tokens and API keys are placeholder-redacted by default, name conflicts gain `-restored-<TS>`, `--no-placeholder` requires confirmation, and `--dry-run` shows conflicts, placeholders, and shared diff plan; E2E verified 41.6MB / 7794 entries / 73 redactions / restore --prefix with cleanup; 49 new unit tests passed |
-| [CHANGELOG_17.md](CHANGELOG_17.md) | Three-tier backup model with default, pinned, and history slots plus UI backup-history modal: default `dch profile backup` overwrites `~/.dch/backups/latest.dchpack`, `--keep` writes timestamped history, `backup-pin` creates never-overwritten sidecars, 3 CLI commands added, UI history modal lists restore/pin/delete actions, and cli-shared.ts / cli-backup.ts split cli-profile from 588 to 341 lines; 195 pass / 0 regressions |
-| [CHANGELOG_18.md](CHANGELOG_18.md) | Deep code review with 2 heterogeneous rounds and 3 fix rounds from REVIEW_8 across 6 commits; R1 fixed 10 HIGH + 19 MED issues, R2 found 4 more HIGH + 5 MED + 1 LOW + 5 INFO, one HIGH was rebutted, and R3 closed G1-G7 with path safety hardening, redact /i, atomic tmp naming, mtime sync, reload-on-CAS, bridge split, truncated output propagation, 6 new bun tests, and 3 new cargo tests; 257 pass + 32 cargo / 0 regressions |
-| [CHANGELOG_19.md](CHANGELOG_19.md) | Backup sensitive-field deduplication and interactive secret filling during restore: manifest `secrets_index` compressed 148 occurrences to 32 logical keys, CLI added `restore --fill-secrets` and `--secrets-json <file>`, UI RestoreBackupModal added step 3 for filling K secrets with banners, eye toggle, and skip checkbox, Tauri Rust tempfile handles the full secret lifecycle, and old dchpack files fall back without `secrets_index`; 257 -> 305 pass / 0 regressions |
-| [CHANGELOG_20.md](CHANGELOG_20.md) | UI backup/restore now shows explicit dedup lists, plain-text paths include missing valueHash, and cross-fieldName dedup now groups by `valueHash` so one token shared across alias field names is merged; compression improved from 1.08x to 5.32x to 5.91x, ExportBackupModal / RestoreBackupModal step 2 shows dedup lists and cross-field labels; 309 -> 312 pass / 0 regressions |
-| [CHANGELOG_21.md](CHANGELOG_21.md) | Deep code review R1 + R2 heterogeneous rounds and G1-G12 closure from REVIEW_9: 12 commits landed 24 HIGH and 28 MED fixes plus LOW/INFO items; R1 G1-G7 covered secrets dedup, tmpDir leaks, partial restore, rollback correctness, Rust safety, reader leaks, UI secret state hygiene, secrets-index split, backup-restore modules, and listBackups concurrency; R2 G8-G12 covered walkAndRedact, parseFieldPath, applySharedFile, EXCLUDE depth, ToolKind IPC, path checks, read_dir contract, attemptClose propagation, RestoreBackupModal split, and 30 invariant tests; bun 339 -> 412 pass, cargo 32 -> 40 pass, 0 regressions |
-| [CHANGELOG_22.md](CHANGELOG_22.md) | REVIEW_9 follow-up F1-F4 closure across 4 commits: HOME env race serialized for cargo tests, backup-restore.ts reduced from 515 to 474 lines with helpers and aliases moved to backup-shared.ts, createBackup --keep uses atomic `fs.open(wx)` placeholder reservation with cleanup, and plain-text fill UX surfaces rejected suffix errors in a friendly manual-edit section; bun 412 -> 419 pass, cargo 40 pass, 0 regressions |
-| [CHANGELOG_23.md](CHANGELOG_23.md) | build-dir-migration plan closure, modeled after agent-deck CHANGELOG_154: frontend build output moved from `dist/` to `build/fe/`, bun outDir and Tauri frontendDist aligned, `.gitignore` updated with root-anchored `/build/`, `tsconfig.json` removed `"dist"` exclude, and Tauri Rust bundle output remains under `src-tauri/target/`; deep-review R1 found 11 real mixed-kind findings with 0 rebuttals and 0 main-path bugs; bun 419 pass / 0 fail / `bunx tauri build` produced the .app |
-| [CHANGELOG_24.md](CHANGELOG_24.md) | Added the AGENTS entry, migrated the conventions tally, and split fs tests to satisfy the 500-line guardrail |
-| [CHANGELOG_25.md](CHANGELOG_25.md) | Split redact / secrets-index tests and cleaned up the 500-line guardrail |
-| [CHANGELOG_26.md](CHANGELOG_26.md) | Added `.refs/` ignore rules and aligned the foundation template entries with the ref index structure |
-| [CHANGELOG_27.md](CHANGELOG_27.md) | Second-round foundation alignment: added the review-expiry rules section to CLAUDE.md and landed the expiry script |
-| [CHANGELOG_28.md](CHANGELOG_28.md) | Deduplicated entry assets and localized them to Chinese; added README expiry cleanup support; documented `scripts/` directory rules in CLAUDE.md |
-| [CHANGELOG_29.md](CHANGELOG_29.md) | Changed backup rules to directory semantics: profile configDir is packaged as a whole directory by default, skipping only runtime, cache, and history exclusion lists |
-| [CHANGELOG_30.md](CHANGELOG_30.md) | Made UI copy more user-centered for configuration plans, backup import, secret filling, backup-rule entry points, and selected-state fixes |
-| [CHANGELOG_31.md](CHANGELOG_31.md) | Aligned root foundation instructions with current templates while preserving Dev Config Hub-specific rules |
-| [CHANGELOG_32.md](CHANGELOG_32.md) | Updated the app shell into a handwritten white-paper style with hand-drawn framed config regions, paper-backed code and Markdown bodies, doodled profile icons, and a randomized grainy red pencil circle active marker |
-| [CHANGELOG_33.md](CHANGELOG_33.md) | Consolidated the handwritten font stack into one cross-platform `--hand` variable and fixed the dark first-paint flash at its root (the inline `index.html` body style) |
-| [CHANGELOG_34_commit-build-metadata.md](CHANGELOG_34_commit-build-metadata.md) | Packaged builds include metadata; `dch` checks installed freshness by commit |
+## File Structure
+
+- Frontmatter with `changelog_id` and `changed_at`
+- Summary
+- Changes grouped by module or layer
+- Validation
+- Do Not Split Protection
+- Notes, related review, or omitted rationale
+
+## Buckets
+
+Buckets are mutually exclusive. Store each changelog in exactly one bucket based on `changed_at`.
+
+| Bucket | Date Range | Directory |
+|---|---|---|
+| Recent 3 days | `changed_at` is within the last 3 days, inclusive | `ref/changelogs/recent-3-days/` |
+| Recent week | Older than 3 days and within the last 7 days, inclusive | `ref/changelogs/recent-week/` |
+| Recent month | Older than 7 days and within the last 30 days, inclusive | `ref/changelogs/recent-month/` |
+| History | Older than 30 days, or missing a parseable date | `ref/changelogs/history/` |
+
+## Rebucket Rules
+
+On every new or edited final changelog:
+
+1. Scan all `ref/changelogs/*/CHANGELOG_*.md` files.
+2. Recompute each file's bucket from `changed_at`.
+3. Move files that no longer belong in their current bucket.
+4. Update this routing index only if bucket policy changes.
+5. Update every affected bucket `INDEX.md` while preserving its table format.
+
+For full recent-week context, read `recent-3-days/` plus `recent-week/`. For full recent-month context, read `recent-3-days/`, `recent-week/`, and `recent-month/`. For full history, read all four buckets.
+
+## Bucket Indexes
+
+- `ref/changelogs/recent-3-days/INDEX.md`
+- `ref/changelogs/recent-week/INDEX.md`
+- `ref/changelogs/recent-month/INDEX.md`
+- `ref/changelogs/history/INDEX.md`
