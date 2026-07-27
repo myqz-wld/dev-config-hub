@@ -164,12 +164,6 @@ export const ProfilePanel = memo(function ProfilePanel({
         <button className="btn-sm" onClick={() => setPolicyTarget({ scope: "tool", tool })}>
           {tool} 备份规则
         </button>
-        <button className="btn-sm" onClick={() => setPolicyTarget({
-          scope: "scripts",
-          enabled: store.backup.scriptsEnabled !== false,
-        })} title="设置 ~/.dch/scripts 中 DCH 切换脚本的备份范围与密钥处理">
-          切换脚本备份规则
-        </button>
         <button className="btn-sm" onClick={() => { setExportPresetIds(undefined); setShowExport(true); }} title="备份配置方案和切换脚本">
           <DoodleIcon kind="export" />导出备份
         </button>
@@ -224,6 +218,25 @@ export const ProfilePanel = memo(function ProfilePanel({
           ))
         )}
       </div>
+
+      <section className="profile-global-backup">
+        <div>
+          <span className="profile-global-label">DCH 全局</span>
+          <strong>切换脚本备份</strong>
+          <small>
+            仅处理 <code>~/.dch/scripts/**</code>；方案直接填写内联切换命令时可忽略。
+          </small>
+        </div>
+        <button
+          className="btn-sm"
+          onClick={() => setPolicyTarget({
+            scope: "scripts",
+            enabled: store.backup.scriptsEnabled !== false,
+          })}
+        >
+          管理备份规则
+        </button>
+      </section>
 
       <ProfileModalPortal>
         {showAdd && (

@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type {
   BackupContentSecretRule,
   BackupFieldSecretRule,
@@ -8,6 +9,7 @@ import type {
   BackupTextFormat,
   BackupWholeFileSecretRule,
 } from "../../../profiles/types.ts";
+import { PolicySelect } from "./PolicySelect.tsx";
 
 const SECRET_ACTIONS: Array<{ value: BackupSecretAction; label: string }> = [
   { value: "placeholder", label: "替换为占位符" },
@@ -15,6 +17,39 @@ const SECRET_ACTIONS: Array<{ value: BackupSecretAction; label: string }> = [
   { value: "keep-original", label: "保留原值（危险）" },
   { value: "ignore", label: "忽略命中" },
 ];
+
+const FILE_TARGETS = [
+  { value: "relative-path", label: "相对路径" },
+  { value: "basename", label: "文件名" },
+] as const;
+
+const FILE_MATCHERS = [
+  { value: "glob", label: "Glob" },
+  { value: "regex", label: "正则" },
+] as const;
+
+const FILE_ACTIONS = [
+  { value: "include", label: "包含" },
+  { value: "exclude", label: "排除" },
+] as const;
+
+const WHOLE_FILE_MATCHERS = [
+  { value: "glob", label: "Glob" },
+  { value: "regex", label: "正则" },
+] as const;
+
+const FIELD_MATCHERS = [
+  { value: "exact", label: "精确" },
+  { value: "contains", label: "包含" },
+  { value: "suffix", label: "后缀" },
+  { value: "glob", label: "Glob" },
+  { value: "regex", label: "正则" },
+] as const;
+
+const CONTENT_MATCHERS = [
+  { value: "regex", label: "正则" },
+  { value: "key-value", label: "键值" },
+] as const;
 
 function move<T>(items: T[], index: number, delta: -1 | 1): T[] {
   const target = index + delta;
@@ -28,6 +63,27 @@ function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
+function useNewRuleFocus() {
+  const sectionRef = useRef<HTMLElement>(null);
+  const [pendingRuleId, setPendingRuleId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingRuleId) return;
+    const row = sectionRef.current?.querySelector<HTMLElement>(
+      `[data-rule-id="${pendingRuleId}"]`,
+    );
+    const nameInput = row?.querySelector<HTMLInputElement>(
+      'input:not([type="checkbox"])',
+    );
+    row?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    nameInput?.focus();
+    nameInput?.select();
+    setPendingRuleId(null);
+  }, [pendingRuleId]);
+
+  return { sectionRef, focusRule: setPendingRuleId };
+}
+
 function MoveButtons({
   index,
   length,
@@ -39,8 +95,8 @@ function MoveButtons({
 }) {
   return (
     <div className="rule-order-actions">
-      <button disabled={index === 0} onClick={() => onMove(-1)} title="提高优先级">↑</button>
-      <button disabled={index === length - 1} onClick={() => onMove(1)} title="降低优先级">↓</button>
+      <button type="button" disabled={index === 0} onClick={() => onMove(-1)} title="提高优先级">↑</button>
+      <button type="button" disabled={index === length - 1} onClick={() => onMove(1)} title="降低优先级">↓</button>
     </div>
   );
 }
@@ -88,24 +144,28 @@ export function FileRuleTable({
     fileRules[index] = rule;
     onChange({ ...policy, fileRules });
   };
+  const { sectionRef, focusRule } = useNewRuleFocus();
+  const addRule = () => {
+    const rule: BackupFileRule = {
+      id: newId("file"),
+      label: "新文件规则",
+      enabled: true,
+      target: "relative-path",
+      match: { kind: "glob", pattern: "**/*.example" },
+      action: "exclude",
+    };
+    onChange({ ...policy, fileRules: [rule, ...policy.fileRules] });
+    focusRule(rule.id);
+  };
+
   return (
-    <section className="backup-rule-section">
+    <section className="backup-rule-section" ref={sectionRef}>
       <div className="backup-rule-section-head">
         <div>
           <h3>文件涵盖规则</h3>
           <p>从上到下匹配，第一条命中即停止。</p>
         </div>
-        <button className="btn-sm" onClick={() => onChange({
-          ...policy,
-          fileRules: [...policy.fileRules, {
-            id: newId("file"),
-            label: "新文件规则",
-            enabled: true,
-            target: "relative-path",
-            match: { kind: "glob", pattern: "**/*.example" },
-            action: "exclude",
-          }],
-        })}>+ 添加</button>
+        <button type="button" className="btn-sm" onClick={addRule}>+ 添加</button>
       </div>
       <div className="rule-table-wrap">
         <table className="rule-table">
@@ -117,35 +177,47 @@ export function FileRuleTable({
           </thead>
           <tbody>
             {policy.fileRules.map((rule, index) => (
-              <tr key={rule.id}>
+              <tr key={rule.id} data-rule-id={rule.id}>
                 <td><input type="checkbox" checked={rule.enabled} onChange={(event) => update(index, { ...rule, enabled: event.target.checked })} /></td>
                 <td>{index + 1}</td>
                 <td><input value={rule.label} onChange={(event) => update(index, { ...rule, label: event.target.value })} /></td>
                 <td>
-                  <select value={rule.target} onChange={(event) => update(index, { ...rule, target: event.target.value as BackupFileRule["target"] })}>
-                    <option value="relative-path">相对路径</option>
-                    <option value="basename">文件名</option>
-                  </select>
+                  <PolicySelect
+                    ariaLabel={`${rule.label} 的匹配对象`}
+                    value={rule.target}
+                    options={FILE_TARGETS}
+                    onChange={(target) => update(index, {
+                      ...rule,
+                      target: target as BackupFileRule["target"],
+                    })}
+                  />
                 </td>
                 <td>
-                  <select value={rule.match.kind} onChange={(event) => update(index, {
-                    ...rule,
-                    match: { ...rule.match, kind: event.target.value as "glob" | "regex" },
-                  })}>
-                    <option value="glob">Glob</option>
-                    <option value="regex">正则</option>
-                  </select>
+                  <PolicySelect
+                    ariaLabel={`${rule.label} 的匹配方式`}
+                    value={rule.match.kind}
+                    options={FILE_MATCHERS}
+                    onChange={(kind) => update(index, {
+                      ...rule,
+                      match: { ...rule.match, kind: kind as "glob" | "regex" },
+                    })}
+                  />
                 </td>
                 <td><input className="rule-pattern" value={rule.match.pattern} onChange={(event) => update(index, { ...rule, match: { ...rule.match, pattern: event.target.value } })} /></td>
                 <td>
-                  <select value={rule.action} onChange={(event) => update(index, { ...rule, action: event.target.value as BackupFileRule["action"] })}>
-                    <option value="include">包含</option>
-                    <option value="exclude">排除</option>
-                  </select>
+                  <PolicySelect
+                    ariaLabel={`${rule.label} 的处理动作`}
+                    value={rule.action}
+                    options={FILE_ACTIONS}
+                    onChange={(action) => update(index, {
+                      ...rule,
+                      action: action as BackupFileRule["action"],
+                    })}
+                  />
                 </td>
                 <td><span className="policy-source-label">{sourceLabel}</span></td>
                 <td>
-                  <button className="rule-remove-button" onClick={() => onChange({
+                  <button type="button" className="rule-remove-button" onClick={() => onChange({
                     ...policy,
                     fileRules: policy.fileRules.filter((_, itemIndex) => itemIndex !== index),
                   })}>删除</button>
@@ -209,6 +281,8 @@ export function SecretRuleTable({
     { kind: "field", rules: policy.secretRules.field },
     { kind: "content", rules: policy.secretRules.content },
   ];
+  const { sectionRef, focusRule } = useNewRuleFocus();
+  const [contentOpen, setContentOpen] = useState(false);
   const setRules = (kind: SecretKind, rules: SecretRule[]) => {
     const secretRules = { ...policy.secretRules };
     if (kind === "wholeFile") secretRules.wholeFile = rules as BackupWholeFileSecretRule[];
@@ -224,20 +298,22 @@ export function SecretRuleTable({
       ? { ...base, formats: ["json", "jsonc", "toml"], match: { kind: "contains", pattern: "token" }, action: "placeholder" }
       : { ...base, formats: ["text"], match: { kind: "regex", pattern: "SECRET_[A-Za-z0-9_-]+" }, action: "placeholder" };
     const section = sections.find((item) => item.kind === kind)!;
-    setRules(kind, [...section.rules, rule]);
+    setRules(kind, [rule, ...section.rules]);
+    if (kind === "content") setContentOpen(true);
+    focusRule(rule.id);
   };
 
   return (
-    <section className="backup-rule-section">
+    <section className="backup-rule-section" ref={sectionRef}>
       <div className="backup-rule-section-head">
         <div>
           <h3>密钥处理规则</h3>
           <p>整文件优先；结构化文件先看字段，再看内容。排除整个文件的结果优先。</p>
         </div>
         <div className="rule-add-actions">
-          <button className="btn-sm" onClick={() => add("wholeFile")}>+ 整文件</button>
-          <button className="btn-sm" onClick={() => add("field")}>+ 字段</button>
-          <button className="btn-sm" onClick={() => add("content")}>+ 内容</button>
+          <button type="button" className="btn-sm" onClick={() => add("wholeFile")}>+ 整文件</button>
+          <button type="button" className="btn-sm" onClick={() => add("field")}>+ 字段</button>
+          <button type="button" className="btn-sm" onClick={() => add("content")}>+ 内容</button>
         </div>
       </div>
       {sections.map(({ kind, rules }) => {
@@ -260,28 +336,42 @@ export function SecretRuleTable({
                 };
                 const matchKind = rule.match.kind;
                 return (
-                  <tr key={rule.id} className={rule.action === "keep-original" ? "rule-danger" : ""}>
+                  <tr
+                    key={rule.id}
+                    data-rule-id={rule.id}
+                    className={rule.action === "keep-original" ? "rule-danger" : ""}
+                  >
                     <td><input type="checkbox" checked={rule.enabled} onChange={(event) => update({ ...rule, enabled: event.target.checked })} /></td>
                     <td>{index + 1}</td>
                     <td>{kindLabel(kind)}</td>
                     <td><input value={rule.label} onChange={(event) => update({ ...rule, label: event.target.value })} /></td>
                     <td>
-                      <select value={matchKind} onChange={(event) => {
-                        const nextKind = event.target.value;
-                        if (kind === "content" && nextKind === "key-value") {
-                          update({ ...rule, match: { kind: "key-value", keyPattern: "TOKEN|SECRET", minValueLength: 8 } } as SecretRule);
-                        } else {
-                          update({ ...rule, match: { kind: nextKind, pattern: secretMatcher(rule) } } as SecretRule);
-                        }
-                      }}>
-                        {kind === "wholeFile" && <option value="glob">Glob</option>}
-                        {kind === "field" && <option value="exact">精确</option>}
-                        {kind === "field" && <option value="contains">包含</option>}
-                        {kind === "field" && <option value="suffix">后缀</option>}
-                        {kind === "field" && <option value="glob">Glob</option>}
-                        <option value="regex">正则</option>
-                        {kind === "content" && <option value="key-value">键值</option>}
-                      </select>
+                      <PolicySelect
+                        ariaLabel={`${rule.label} 的匹配方式`}
+                        value={matchKind}
+                        options={kind === "wholeFile"
+                          ? WHOLE_FILE_MATCHERS
+                          : kind === "field"
+                          ? FIELD_MATCHERS
+                          : CONTENT_MATCHERS}
+                        onChange={(nextKind) => {
+                          if (kind === "content" && nextKind === "key-value") {
+                            update({
+                              ...rule,
+                              match: {
+                                kind: "key-value",
+                                keyPattern: "TOKEN|SECRET",
+                                minValueLength: 8,
+                              },
+                            } as SecretRule);
+                          } else {
+                            update({
+                              ...rule,
+                              match: { kind: nextKind, pattern: secretMatcher(rule) },
+                            } as SecretRule);
+                          }
+                        }}
+                      />
                     </td>
                     <td><input className="rule-pattern" value={secretMatcher(rule)} onChange={(event) => {
                       const match = rule.match.kind === "key-value"
@@ -291,10 +381,15 @@ export function SecretRuleTable({
                     }} /></td>
                     <td>
                       {"target" in rule ? (
-                        <select value={rule.target} onChange={(event) => update({ ...rule, target: event.target.value as BackupWholeFileSecretRule["target"] })}>
-                          <option value="relative-path">相对路径</option>
-                          <option value="basename">文件名</option>
-                        </select>
+                        <PolicySelect
+                          ariaLabel={`${rule.label} 的匹配对象`}
+                          value={rule.target}
+                          options={FILE_TARGETS}
+                          onChange={(target) => update({
+                            ...rule,
+                            target: target as BackupWholeFileSecretRule["target"],
+                          })}
+                        />
                       ) : (
                         <input
                           value={formatsText(rule)}
@@ -307,13 +402,19 @@ export function SecretRuleTable({
                       )}
                     </td>
                     <td>
-                      <select value={rule.action} onChange={(event) => update({ ...rule, action: event.target.value as BackupSecretAction })}>
-                        {SECRET_ACTIONS.map((action) => <option key={action.value} value={action.value}>{action.label}</option>)}
-                      </select>
+                      <PolicySelect
+                        ariaLabel={`${rule.label} 的密钥处理动作`}
+                        value={rule.action}
+                        options={SECRET_ACTIONS}
+                        onChange={(action) => update({
+                          ...rule,
+                          action: action as BackupSecretAction,
+                        })}
+                      />
                     </td>
                     <td><span className="policy-source-label">{sourceLabel}</span></td>
                     <td>
-                      <button className="rule-remove-button" onClick={() => setRules(
+                      <button type="button" className="rule-remove-button" onClick={() => setRules(
                         kind,
                         rules.filter((_, itemIndex) => itemIndex !== index),
                       )}>删除</button>
@@ -332,7 +433,12 @@ export function SecretRuleTable({
           </>
         );
         return kind === "content" ? (
-          <details className="backup-policy-advanced rule-content-details" key={kind}>
+          <details
+            className="backup-policy-advanced rule-content-details"
+            key={kind}
+            open={contentOpen}
+            onToggle={(event) => setContentOpen(event.currentTarget.open)}
+          >
             <summary>高级内容匹配规则（正则 / 键值，共 {rules.length} 条）</summary>
             {table}
           </details>

@@ -14,75 +14,119 @@
   overscroll-behavior: contain;
 }
 
-/* Rules use one restrained notebook control language for text and choices. */
+/*
+ * The original matching-target select established this editor's control
+ * language. Text fields intentionally reuse the same sketched frame.
+ */
 .modal-policy input:not([type="checkbox"]),
-.modal-policy select,
-.modal-policy textarea.policy-raw-json {
-  border: 1.3px solid rgba(83, 58, 24, .30);
-  border-radius: 5px 8px 4px 7px;
+.modal-policy .policy-select > .select-button {
+  box-sizing: border-box;
+  min-height: 30px;
+  border: 0;
+  border-radius: 0;
   color: #2a2116;
-  background-color: rgba(255, 253, 247, .88);
-  box-shadow:
-    inset 0 -3px 0 rgba(83, 58, 24, .035),
-    0 1px 0 rgba(255, 255, 255, .55);
-  transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+  background-color: rgba(255, 252, 242, .72);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 48' preserveAspectRatio='none'%3E%3Cpath d='M7 7 C66 4 125 7 184 5 S277 4 313 8 C316 19 315 32 311 40 C249 43 190 40 130 42 S38 43 8 39 C5 28 4 17 7 7Z' fill='none' stroke='%23836a45' stroke-opacity='.43' stroke-width='1.25' vector-effect='non-scaling-stroke' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M10 9 C79 7 142 9 204 7 S284 7 310 10' fill='none' stroke='%23b99a70' stroke-opacity='.25' stroke-width='.65' vector-effect='non-scaling-stroke' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  box-shadow: inset 0 -4px 0 rgba(83, 58, 24, .025);
+  transition: background-color .15s ease, filter .15s ease;
 }
 
 .modal-policy input:not([type="checkbox"]) {
-  min-height: 32px;
-  padding: 6px 10px;
+  padding: 5px 10px;
   caret-color: #33567f;
   font: 800 12px/1.25 var(--hand);
 }
 
-.modal-policy select {
-  appearance: none;
-  -webkit-appearance: none;
-  min-height: 32px;
-  padding: 6px 31px 6px 10px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 12'%3E%3Cpath d='M2.4 3 C4.8 5.2 6.9 7.4 9.1 9 C11.5 6.7 13.5 4.8 15.8 2.7' fill='none' stroke='%2333567f' stroke-width='1.65' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M3.1 2.3 C5.2 4.3 7.1 6.2 9.2 7.9 C11.4 5.8 13.2 4.1 15 2.4' fill='none' stroke='%23836a45' stroke-opacity='.32' stroke-width='.65' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-position: right 9px center;
-  background-repeat: no-repeat;
-  background-size: 15px 10px;
+.modal-policy .policy-select {
+  width: 100%;
+  min-width: 86px;
+  flex: 0 0 auto;
+}
+
+.modal-policy .policy-select > .select-button {
+  padding: 5px 10px;
   cursor: pointer;
-  color-scheme: light;
   font: 800 12px/1.25 var(--hand);
   letter-spacing: .2px;
 }
 
+.modal-policy .policy-select .select-chev {
+  color: #33567f;
+  filter: drop-shadow(.4px .6px 0 rgba(131, 106, 69, .28));
+}
+
+.modal-policy .policy-default-select {
+  width: auto;
+  min-width: 132px;
+}
+
 .modal-policy textarea.policy-raw-json {
+  border: 1.3px solid rgba(83, 58, 24, .30);
+  border-radius: 5px 8px 4px 7px;
+  color: #2a2116;
+  background: rgba(255, 253, 247, .88);
+  box-shadow: inset 0 -3px 0 rgba(83, 58, 24, .035);
   padding: 10px 12px;
   caret-color: #33567f;
   font-family: "SF Mono", "JetBrains Mono", monospace !important;
 }
 
 .modal-policy input:not([type="checkbox"]):hover,
-.modal-policy select:hover,
+.modal-policy .policy-select > .select-button:hover,
 .modal-policy textarea.policy-raw-json:hover {
-  border-color: rgba(51, 86, 127, .43);
-  background-color: rgba(255, 255, 255, .68);
+  background-color: rgba(255, 255, 255, .58);
 }
 
 .modal-policy input:not([type="checkbox"]):focus-visible,
-.modal-policy select:focus-visible,
+.modal-policy .policy-select > .select-button:focus-visible,
+.modal-policy .policy-select.open > .select-button,
 .modal-policy textarea.policy-raw-json:focus-visible {
   outline: 2px solid rgba(51, 86, 127, .28);
-  outline-offset: 2px;
-  border-color: rgba(51, 86, 127, .58);
-  background-color: rgba(255, 255, 255, .84);
-  box-shadow: inset 0 -3px 0 rgba(51, 86, 127, .045);
+  outline-offset: 1px;
+  background-color: rgba(255, 255, 255, .68);
 }
 
 .modal-policy input:not([type="checkbox"]):disabled,
-.modal-policy select:disabled,
 .modal-policy textarea.policy-raw-json:disabled {
   cursor: default;
   opacity: .48;
 }
 
-.modal-policy select option {
+body .policy-select-popover {
+  z-index: 1400;
+  right: auto;
+  padding: 7px;
+  border: 0;
+  border-radius: 0;
+  background-color: #fff8eb;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 180' preserveAspectRatio='none'%3E%3Cpath d='M8 8 C66 3 126 8 185 5 S278 4 313 9 C318 50 315 128 311 171 C248 177 189 171 129 175 S37 178 8 170 C3 124 4 51 8 8Z' fill='none' stroke='%23836a45' stroke-opacity='.46' stroke-width='1.25' vector-effect='non-scaling-stroke' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M11 11 C76 8 139 12 204 9 S284 8 309 12' fill='none' stroke='%23b99a70' stroke-opacity='.27' stroke-width='.65' vector-effect='non-scaling-stroke' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  box-shadow: 0 12px 24px rgba(58, 43, 26, .19);
+}
+
+body .policy-select-popover .select-item {
+  min-height: 28px;
+  padding: 5px 9px;
+  border-radius: 4px 7px 3px 6px;
   color: #2a2116;
-  background: #fff8eb;
+  font: 800 12px/1.3 var(--hand);
+  letter-spacing: .2px;
+}
+
+body .policy-select-popover .select-item:hover,
+body .policy-select-popover .select-item.hover {
+  color: #33567f;
+  background: rgba(51, 86, 127, .09);
+}
+
+body .policy-select-popover .select-item.on {
+  color: #33567f;
+  background: rgba(51, 86, 127, .055);
 }
 
 .modal-policy .policy-source-label {

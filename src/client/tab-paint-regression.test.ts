@@ -31,12 +31,16 @@ describe("tab paint regression", () => {
     const css = await readFile(`${CLIENT_DIR}/profile-modals.css`, "utf8");
     const policyModal = await readFile(`${CLIENT_DIR}/components/profile/BackupPolicyModal.tsx`, "utf8");
     const ruleTable = await readFile(`${CLIENT_DIR}/components/profile/BackupRuleTable.tsx`, "utf8");
-    expect(css).toMatch(/\.modal-policy select\s*\{[^}]*appearance:\s*none/s);
-    expect(css).toContain("-webkit-appearance: none");
+    const policySelect = await readFile(`${CLIENT_DIR}/components/profile/PolicySelect.tsx`, "utf8");
+    expect(policyModal).not.toContain("<select");
+    expect(ruleTable).not.toContain("<select");
+    expect(policySelect).toContain("popoverClassName=\"policy-select-popover\"");
+    expect(policySelect).toContain("portal");
     expect(css).toContain("background-image:");
     expect(css).toContain("var(--hand)");
     expect(css).toContain('.modal-policy input:not([type="checkbox"]),');
-    expect(css).toContain("border-radius: 5px 8px 4px 7px");
+    expect(css).toContain(".modal-policy .policy-select > .select-button");
+    expect(css).toMatch(/body \.policy-select-popover\s*\{[^}]*background-image:/s);
     expect(css).toMatch(/\.modal-policy input:not\(\[type="checkbox"\]\)\s*\{[^}]*caret-color:/s);
     expect(css).toMatch(/\.modal-policy \.policy-source-label\s*\{[^}]*white-space:\s*nowrap/s);
     expect(ruleTable.match(/className="policy-source-label"/g)).toHaveLength(2);
@@ -55,6 +59,20 @@ describe("tab paint regression", () => {
     expect(files.join("\n")).not.toContain("工具级");
     expect(files[0]).toContain("`${target.tool} 备份规则`");
     expect(files[0]).toContain('tool: "工具自定义"');
+  });
+
+  test("DCH script backup is separated from the active tool toolbar", async () => {
+    const profilePanel = await readFile(`${CLIENT_DIR}/components/ProfilePanel.tsx`, "utf8");
+    const policyModal = await readFile(`${CLIENT_DIR}/components/profile/BackupPolicyModal.tsx`, "utf8");
+    const globalCss = await readFile(`${CLIENT_DIR}/profile-global.css`, "utf8");
+    const toolbar = profilePanel.match(
+      /<div className="profile-toolbar">([\s\S]*?)<\/div>\s*\n\s*<div className="profile-status">/,
+    )?.[1] ?? "";
+    expect(toolbar).not.toContain('scope: "scripts"');
+    expect(profilePanel).toContain('className="profile-global-backup"');
+    expect(profilePanel).toContain("仅处理 <code>~/.dch/scripts/**</code>");
+    expect(policyModal).toContain("这是 DCH 全局规则，只处理");
+    expect(globalCss).toMatch(/\.profile-global-backup\s*\{[^}]*display:\s*flex/s);
   });
 
   test("profile actions use rectangular notebook controls", async () => {

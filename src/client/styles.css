@@ -443,6 +443,7 @@ code.fail { color: var(--red); }
 .select-chev { color: var(--fg3); flex-shrink: 0; transition: transform .15s; }
 .select-root.open .select-chev { transform: rotate(180deg); color: var(--blue); }
 .select-popover { position: absolute; left: 0; right: 0; top: calc(100% + 4px); background: var(--bg1); border: 1px solid var(--border); border-radius: var(--rs); list-style: none; padding: 4px; margin: 0; max-height: 240px; overflow-y: auto; z-index: 200; box-shadow: 0 8px 24px rgba(58,43,26,.18); animation: pop .12s ease; }
+.select-popover-portal { right: auto; }
 .select-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; color: var(--fg1); }
 .select-item:hover, .select-item.hover { background: var(--bg3); color: var(--fg0); }
 .select-item.on { color: var(--blue); }

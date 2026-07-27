@@ -185,14 +185,6 @@
   font-weight: 700;
 }
 
-.policy-default-row select {
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--rs);
-  background: var(--bg0);
-  color: var(--fg0);
-}
-
 .policy-enabled-toggle {
   display: inline-flex;
   align-items: center;
@@ -268,7 +260,7 @@
 }
 
 .rule-table input:not([type="checkbox"]),
-.rule-table select {
+.rule-table .policy-select {
   width: 100%;
   min-width: 86px;
 }
