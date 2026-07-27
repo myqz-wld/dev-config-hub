@@ -17,7 +17,7 @@ type Prepared = {
 
 const POLICY_SOURCE_LABELS: Record<string, string> = {
   factory: "内置默认",
-  tool: "工具级",
+  tool: "工具自定义",
   "profile-snapshot": "方案独立快照",
   scripts: "切换脚本",
 };

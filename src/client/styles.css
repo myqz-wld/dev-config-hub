@@ -11,7 +11,7 @@
   --hand: "HanziPen SC", "Kaiti SC", "STKaiti", "KaiTi", "楷体", "Marker Felt", "Bradley Hand", "Ink Free", "Segoe Print", "Comic Neue", "Comic Sans MS", cursive;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #fff7e8; color: #24190f; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #fff7e8; color: #24190f; -webkit-font-smoothing: antialiased; }
 code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace; }
 
 .app { display: flex; height: 100vh; position: relative; overflow: hidden; }
@@ -171,13 +171,9 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
   color: #24190f;
 }
 .panel { position: relative; z-index: 1; }
-/* panel 常驻 + display 切换：消除 tab 切换 unmount/remount 卡顿。
-   wrapper 通过 contain/isolation 隔离绘制；同一时间只一个 visible。 */
-.panel-host {
-  display: block;
-  contain: layout paint style;
-  isolation: isolate;
-}
+/* panel 常驻 + display 切换：同一时间只绘制一个普通 block。
+   不创建 paint/isolation 层，避免 WebKit 缩放后切换字体栅格化模式。 */
+.panel-host { display: block; }
 .panel-host.panel-hidden { display: none; }
 .panel-head { position: relative; margin-bottom: 22px; padding-bottom: 16px; }
 .panel-head::after {

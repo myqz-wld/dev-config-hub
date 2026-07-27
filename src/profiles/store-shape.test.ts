@@ -54,7 +54,7 @@ describe("applyStoreDefaults — pure default 补全", () => {
     expect(r.version).toBe(2);
   });
 
-  it("缺 backup → 补空工具级规则；已有脚本开关保留", () => {
+  it("缺 backup → 补空工具规则；已有脚本开关保留", () => {
     expect(applyStoreDefaults({}).backup).toEqual({ toolPolicies: {} });
     expect(applyStoreDefaults({
       backup: { toolPolicies: {}, scriptsEnabled: false },

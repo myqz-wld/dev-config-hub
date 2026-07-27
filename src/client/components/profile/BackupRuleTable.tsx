@@ -143,7 +143,7 @@ export function FileRuleTable({
                     <option value="exclude">排除</option>
                   </select>
                 </td>
-                <td><span className="badge">{sourceLabel}</span></td>
+                <td><span className="policy-source-label">{sourceLabel}</span></td>
                 <td>
                   <button className="rule-remove-button" onClick={() => onChange({
                     ...policy,
@@ -311,7 +311,7 @@ export function SecretRuleTable({
                         {SECRET_ACTIONS.map((action) => <option key={action.value} value={action.value}>{action.label}</option>)}
                       </select>
                     </td>
-                    <td><span className="badge">{sourceLabel}</span></td>
+                    <td><span className="policy-source-label">{sourceLabel}</span></td>
                     <td>
                       <button className="rule-remove-button" onClick={() => setRules(
                         kind,

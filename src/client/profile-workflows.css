@@ -3,16 +3,7 @@
  * 单独维护，避免主样式文件超过项目的 500 行上限。
  */
 
-/* 标签页只切换显隐，不创建文字合成层，避免重复切换后的字体加深。 */
-.panel-host {
-  contain: layout paint style;
-  isolation: isolate;
-}
-
-.panel-host.panel-hidden {
-  display: none;
-}
-
+/* 文字节点不进入 transform/text-shadow 层，保持切换前后的字重一致。 */
 :is(
   .nav-tag,
   .nav-name,
@@ -58,10 +49,6 @@
   height: 24px;
   margin: 0 2px;
   background: rgba(83, 58, 24, .20);
-}
-
-.profile-toolbar-spacer {
-  flex: 1;
 }
 
 .profile-directory-modes > label {
@@ -284,12 +271,6 @@
 .rule-table select {
   width: 100%;
   min-width: 86px;
-  padding: 4px 6px;
-  border: 1px solid rgba(83, 58, 24, .24);
-  border-radius: 4px;
-  background: rgba(255, 252, 242, .78);
-  color: #2a2116;
-  font: inherit;
 }
 
 .rule-table .rule-pattern {

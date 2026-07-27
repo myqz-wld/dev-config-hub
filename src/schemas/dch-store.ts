@@ -224,7 +224,7 @@ export const DCH_STORE: ToolSchema = {
       },
       backup: {
         type: "object",
-        description: "工具级与切换脚本备份规则。方案级快照存放在对应 profile.backupPolicy。",
+        description: "各工具与切换脚本的备份规则。方案独立快照存放在对应 profile.backupPolicy。",
         additionalProperties: false,
         properties: {
           toolPolicies: {
