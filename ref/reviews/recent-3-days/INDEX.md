@@ -15,4 +15,5 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-07-26 | [REVIEW_13_profile-modal-containment.md](REVIEW_13_profile-modal-containment.md) | Profile overlay containment and notebook selects | 1 MED / 1 LOW fixed; 1 rejected; visual smoke blocked |
 | 2026-07-26 | [REVIEW_12_backup-policy-security.md](REVIEW_12_backup-policy-security.md) | Backup policy and profile workflow audit | 2 HIGH / 3 MED / 1 LOW fixed; 2 rejected; 1 blocked |

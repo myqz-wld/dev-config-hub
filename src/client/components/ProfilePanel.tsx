@@ -15,6 +15,7 @@ import {
   BackupPolicyModal,
   type PolicyTarget,
 } from "./profile/BackupPolicyModal.tsx";
+import { ProfileModalPortal } from "./profile/ProfileModalPortal.tsx";
 import { DoodleIcon } from "./DoodleIcon.tsx";
 
 const hookActionLabel = (which: "pre" | "post") => which === "pre" ? "切换前脚本" : "切换后脚本";
@@ -225,121 +226,123 @@ export const ProfilePanel = memo(function ProfilePanel({
         )}
       </div>
 
-      {showAdd && (
-        <ProfileFormModal
-          tool={tool}
-          busy={busy}
-          onClose={() => setShowAdd(false)}
-          onSubmit={async (form) => {
-            const ok = await handle(
-              () => dchProfile.add(form.tool, form.id, {
-                dir: form.dir,
-                existing: form.directoryMode === "manage-existing",
-                env: form.env,
-                description: form.description || undefined,
-                preHook: form.preHook.trim() || undefined,
-                postHook: form.postHook.trim() || undefined,
-                hookTimeoutMs: form.hookTimeoutMs,
-              }),
-              form.directoryMode === "manage-existing"
-                ? `已将 ${form.id} 纳入管理`
-                : `已创建 ${form.id} 的空目录`,
-            );
-            if (ok) setShowAdd(false);
-          }}
-        />
-      )}
+      <ProfileModalPortal>
+        {showAdd && (
+          <ProfileFormModal
+            tool={tool}
+            busy={busy}
+            onClose={() => setShowAdd(false)}
+            onSubmit={async (form) => {
+              const ok = await handle(
+                () => dchProfile.add(form.tool, form.id, {
+                  dir: form.dir,
+                  existing: form.directoryMode === "manage-existing",
+                  env: form.env,
+                  description: form.description || undefined,
+                  preHook: form.preHook.trim() || undefined,
+                  postHook: form.postHook.trim() || undefined,
+                  hookTimeoutMs: form.hookTimeoutMs,
+                }),
+                form.directoryMode === "manage-existing"
+                  ? `已将 ${form.id} 纳入管理`
+                  : `已创建 ${form.id} 的空目录`,
+              );
+              if (ok) setShowAdd(false);
+            }}
+          />
+        )}
 
-      {editingProfile && (
-        <ProfileFormModal
-          tool={editingProfile.tool}
-          profile={editingProfile}
-          busy={busy}
-          onClose={() => setEditingProfile(null)}
-          onSubmit={async (form) => {
-            const preSwitch = hookFromEditedText(
-              editingProfile.hooks?.preSwitch,
-              form.preHook,
-            );
-            const postSwitch = hookFromEditedText(
-              editingProfile.hooks?.postSwitch,
-              form.postHook,
-            );
-            const ok = await handle(
-              () => dchProfile.update(editingProfile.id, {
-                configDir: form.dir,
-                description: form.description || null,
-                env: Object.keys(form.env).length ? form.env : null,
-                hooks: preSwitch || postSwitch
-                  ? {
-                    ...(preSwitch ? { preSwitch } : {}),
-                    ...(postSwitch ? { postSwitch } : {}),
-                  }
-                  : null,
-                hookTimeoutMs: form.hookTimeoutMs,
-              }),
-              `已更新 ${editingProfile.id}`,
-            );
-            if (ok) setEditingProfile(null);
-          }}
-        />
-      )}
+        {editingProfile && (
+          <ProfileFormModal
+            tool={editingProfile.tool}
+            profile={editingProfile}
+            busy={busy}
+            onClose={() => setEditingProfile(null)}
+            onSubmit={async (form) => {
+              const preSwitch = hookFromEditedText(
+                editingProfile.hooks?.preSwitch,
+                form.preHook,
+              );
+              const postSwitch = hookFromEditedText(
+                editingProfile.hooks?.postSwitch,
+                form.postHook,
+              );
+              const ok = await handle(
+                () => dchProfile.update(editingProfile.id, {
+                  configDir: form.dir,
+                  description: form.description || null,
+                  env: Object.keys(form.env).length ? form.env : null,
+                  hooks: preSwitch || postSwitch
+                    ? {
+                      ...(preSwitch ? { preSwitch } : {}),
+                      ...(postSwitch ? { postSwitch } : {}),
+                    }
+                    : null,
+                  hookTimeoutMs: form.hookTimeoutMs,
+                }),
+                `已更新 ${editingProfile.id}`,
+              );
+              if (ok) setEditingProfile(null);
+            }}
+          />
+        )}
 
-      {hookOutput && (
-        <HookOutputModal
-          data={hookOutput}
-          onClose={() => setHookOutput(null)}
-        />
-      )}
+        {hookOutput && (
+          <HookOutputModal
+            data={hookOutput}
+            onClose={() => setHookOutput(null)}
+          />
+        )}
 
-      {showStoreEditor && (
-        <ProfileStoreEditor
-          onClose={() => setShowStoreEditor(false)}
-          onSaved={() => onReloadProfile()}
-          onToast={onToast}
-        />
-      )}
+        {showStoreEditor && (
+          <ProfileStoreEditor
+            onClose={() => setShowStoreEditor(false)}
+            onSaved={() => onReloadProfile()}
+            onToast={onToast}
+          />
+        )}
 
-      {showExport && (
-        <ExportBackupModal
-          profiles={store.profiles}
-          scriptsEnabled={store.backup.scriptsEnabled !== false}
-          presetProfileIds={exportPresetIds}
-          onClose={() => { setShowExport(false); setExportPresetIds(undefined); }}
-          onToast={onToast}
-        />
-      )}
+        {showExport && (
+          <ExportBackupModal
+            profiles={store.profiles}
+            scriptsEnabled={store.backup.scriptsEnabled !== false}
+            presetProfileIds={exportPresetIds}
+            onClose={() => { setShowExport(false); setExportPresetIds(undefined); }}
+            onToast={onToast}
+          />
+        )}
 
-      {showRestore && (
-        <RestoreBackupModal
-          profiles={store.profiles}
-          presetPackPath={restorePresetPath}
-          onClose={() => { setShowRestore(false); setRestorePresetPath(undefined); }}
-          onToast={onToast}
-          onReloadProfile={onReloadProfile}
-        />
-      )}
+        {showRestore && (
+          <RestoreBackupModal
+            profiles={store.profiles}
+            presetPackPath={restorePresetPath}
+            onClose={() => { setShowRestore(false); setRestorePresetPath(undefined); }}
+            onToast={onToast}
+            onReloadProfile={onReloadProfile}
+          />
+        )}
 
-      {showHistory && (
-        <BackupHistoryModal
-          onClose={() => setShowHistory(false)}
-          onToast={onToast}
-          onRestoreFile={(path) => {
-            setShowHistory(false);
-            setRestorePresetPath(path);
-            setShowRestore(true);
-          }}
-        />
-      )}
+        {showHistory && (
+          <BackupHistoryModal
+            onClose={() => setShowHistory(false)}
+            onToast={onToast}
+            onRestoreFile={(path) => {
+              setShowHistory(false);
+              setRestorePresetPath(path);
+              setShowRestore(true);
+            }}
+          />
+        )}
 
-      {policyTarget && (
-        <BackupPolicyModal
-          target={policyTarget}
-          onClose={() => setPolicyTarget(null)}
-          onSaved={() => onReloadProfile()}
-          onToast={onToast}
-        />
-      )}
+        {policyTarget && (
+          <BackupPolicyModal
+            target={policyTarget}
+            onClose={() => setPolicyTarget(null)}
+            onSaved={() => onReloadProfile()}
+            onToast={onToast}
+          />
+        )}
+      </ProfileModalPortal>
     </div>
   );
 });
