@@ -235,6 +235,11 @@
   border-radius: 7px;
 }
 
+/* Policy tables share the modal body's opaque two-axis scroller. */
+.modal-policy .rule-table-wrap {
+  overflow: visible;
+}
+
 .rule-table {
   width: 100%;
   min-width: 920px;

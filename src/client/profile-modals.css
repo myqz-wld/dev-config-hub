@@ -11,6 +11,12 @@
 .modal-policy > .modal-body {
   flex: 1 1 auto;
   min-height: 0;
+  /*
+   * Keep one opaque scroll backing for the entire policy editor. The rule table
+   * used to create a second transparent overflow layer; WebKit could retain
+   * differently rasterized text tiles there after live resize + tab switching.
+   */
+  overflow: auto;
   overscroll-behavior: contain;
   background: #fffaf0;
 }
