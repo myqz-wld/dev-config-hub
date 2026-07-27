@@ -73,6 +73,8 @@ streamlined at the same time.
 - Added table-based policy editing with visible source and counts, ordered
   move controls, collapsed advanced regex/raw JSON controls, restore-default
   and restore-inheritance actions, and prominent keep-original warnings.
+- Reframed the profile action toolbar and replaced its pill actions with
+  compact rectangular notebook controls.
 - Simplified export to profile selection, script inclusion, destination,
   prepare-preview, and commit. The preview exposes per-file matching rules and
   secret decisions before export.
@@ -83,15 +85,16 @@ streamlined at the same time.
 ## Validation
 
 - `bunx tsc --noEmit` (clean)
-- `bun run build:fe` (661 modules bundled)
-- `bun test` (508 pass, 0 fail, 1,284 assertions)
+- `bun run build:fe` (663 modules bundled)
+- `bun test` (511 pass, 0 fail, 1,294 assertions)
 - Isolated-HOME CLI smoke: init, empty profile creation, existing-directory
   registration, switch, policy snapshot/inherit, backup, and dry-run restore
   (clean; store v2 with three profiles)
 - `git diff --check` (clean)
 - Source/test size guardrail scan (no source above 500 LOC and no test above
   800 LOC)
-- Automated component tests and structural tab-paint regression tests (clean)
+- Automated component tests and structural tab-paint/toolbar-shape regression
+  tests (clean)
 
 ## Do Not Split Protection
 
