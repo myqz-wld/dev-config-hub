@@ -3,10 +3,6 @@ body {
   --paper-hand-font: var(--hand);
 }
 
-body .panel {
-  z-index: 3;
-}
-
 body .scope {
   border: 0;
   border-radius: 10px;

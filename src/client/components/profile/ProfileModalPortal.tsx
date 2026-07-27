@@ -2,9 +2,9 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 /**
- * Profile panels use CSS paint containment to keep repeated tab switches from
- * accumulating glyph compositing. Fixed overlays must leave that containing
- * block or they are positioned and clipped against the full profile panel.
+ * Persistent profile panels switch with display:none and keep their local UI
+ * state. Fixed overlays live directly under body so panel layout and scrolling
+ * can never become their positioning or clipping boundary.
  */
 export function ProfileModalPortal({ children }: { children: ReactNode }) {
   if (typeof document === "undefined") return null;
