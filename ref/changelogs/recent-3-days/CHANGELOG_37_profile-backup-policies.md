@@ -76,16 +76,17 @@ streamlined at the same time.
 - Reframed the profile action toolbar and replaced its pill actions with
   compact rectangular notebook controls. Its actions now wrap in document
   order instead of pushing Advanced Edit onto an isolated row.
-- Preserved the established sketched matching-target frame and applied it to
-  names, patterns, and format inputs. Policy choices now use a portaled custom
-  menu whose trigger and opened list both follow the notebook theme instead of
-  the native macOS select appearance.
+- Restored the lighter, restrained notebook borders for names, patterns,
+  formats, and policy-choice triggers. Policy choices retain a portaled custom
+  menu, now adapted to the same clean paper surface, subtle border, and compact
+  hover/selected states instead of the native macOS select appearance.
 - Made newly added rules immediately visible: they enter at the highest
   priority, scroll into view, and focus their name; adding an advanced content
   rule also opens its collapsed section.
 - Moved the global `~/.dch/scripts/**` backup control out of the active
   Claude/Codex/Grok/Cursor toolbar into a separately labeled DCH-global
-  section, with copy explaining that inline hook commands do not need it.
+  section above the tool tabs, with copy explaining that inline hook commands
+  do not need it.
 - Rendered rule-source values as plain text without oval badges.
 - Removed `工具级` from active Chinese UI and CLI copy. Tool policy titles now
   name the concrete tool directly, while saved tool rules report their source
@@ -101,7 +102,7 @@ streamlined at the same time.
 
 - `bunx tsc --noEmit` (clean)
 - `bun run build:fe` (665 modules bundled)
-- `bun test` (518 pass, 0 fail, 1,335 assertions)
+- `bun test` (518 pass, 0 fail, 1,336 assertions)
 - Isolated-HOME CLI smoke: init, empty profile creation, existing-directory
   registration, switch, policy snapshot/inherit, backup, and dry-run restore
   (clean; store v2 with three profiles)

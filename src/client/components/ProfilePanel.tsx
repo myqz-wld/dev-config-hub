@@ -143,6 +143,25 @@ export const ProfilePanel = memo(function ProfilePanel({
         </p>
       </div>
 
+      <section className="profile-global-backup">
+        <div>
+          <span className="profile-global-label">DCH 全局</span>
+          <strong>切换脚本备份</strong>
+          <small>
+            仅处理 <code>~/.dch/scripts/**</code>；方案直接填写内联切换命令时可忽略。
+          </small>
+        </div>
+        <button
+          className="btn-sm"
+          onClick={() => setPolicyTarget({
+            scope: "scripts",
+            enabled: store.backup.scriptsEnabled !== false,
+          })}
+        >
+          管理备份规则
+        </button>
+      </section>
+
       <div className="profile-tabs">
         {TOOLS.map((t) => (
           <button
@@ -218,25 +237,6 @@ export const ProfilePanel = memo(function ProfilePanel({
           ))
         )}
       </div>
-
-      <section className="profile-global-backup">
-        <div>
-          <span className="profile-global-label">DCH 全局</span>
-          <strong>切换脚本备份</strong>
-          <small>
-            仅处理 <code>~/.dch/scripts/**</code>；方案直接填写内联切换命令时可忽略。
-          </small>
-        </div>
-        <button
-          className="btn-sm"
-          onClick={() => setPolicyTarget({
-            scope: "scripts",
-            enabled: store.backup.scriptsEnabled !== false,
-          })}
-        >
-          管理备份规则
-        </button>
-      </section>
 
       <ProfileModalPortal>
         {showAdd && (
