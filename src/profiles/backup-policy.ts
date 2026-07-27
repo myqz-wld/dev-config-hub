@@ -87,7 +87,7 @@ export function validateStoreBackupPolicies(store: Pick<ProfileStore, "backup" |
     try {
       validateBackupPolicy(policy);
     } catch (error) {
-      throw new Error(`${tool} 工具级备份规则无效: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`${tool} 备份规则无效: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   if (store.backup.scriptsPolicy) {

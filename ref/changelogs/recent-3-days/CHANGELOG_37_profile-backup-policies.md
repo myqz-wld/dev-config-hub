@@ -74,19 +74,26 @@ streamlined at the same time.
   move controls, collapsed advanced regex/raw JSON controls, restore-default
   and restore-inheritance actions, and prominent keep-original warnings.
 - Reframed the profile action toolbar and replaced its pill actions with
-  compact rectangular notebook controls.
+  compact rectangular notebook controls. Its actions now wrap in document
+  order instead of pushing Advanced Edit onto an isolated row.
+- Unified policy dropdowns, text fields, and the raw editor with restrained
+  rectangular notebook controls, and rendered rule-source values as plain text
+  without oval badges.
+- Removed `工具级` from active Chinese UI and CLI copy. Tool policy titles now
+  name the concrete tool directly, while saved tool rules report their source
+  as `工具自定义`.
 - Simplified export to profile selection, script inclusion, destination,
   prepare-preview, and commit. The preview exposes per-file matching rules and
   secret decisions before export.
-- Fixed text darkening across repeated sidebar and profile-tool tab switches by
-  keeping transforms and shadows off glyph-bearing nodes and isolating
-  persistently mounted panel paint layers.
+- Stabilized text weight across window resizing and repeated tab switches by
+  keeping transforms and shadows off glyph-bearing nodes, fixing WebKit font
+  smoothing, and avoiding retained paint/isolation layers on mounted panels.
 
 ## Validation
 
 - `bunx tsc --noEmit` (clean)
 - `bun run build:fe` (663 modules bundled)
-- `bun test` (511 pass, 0 fail, 1,294 assertions)
+- `bun test` (512 pass, 0 fail, 1,309 assertions)
 - Isolated-HOME CLI smoke: init, empty profile creation, existing-directory
   registration, switch, policy snapshot/inherit, backup, and dry-run restore
   (clean; store v2 with three profiles)

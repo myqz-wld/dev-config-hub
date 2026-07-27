@@ -4,12 +4,17 @@ import { readFile } from "node:fs/promises";
 const CLIENT_DIR = import.meta.dir;
 
 describe("tab paint regression", () => {
-  test("panel visibility is paint-isolated", async () => {
-    const css = await readFile(`${CLIENT_DIR}/profile-workflows.css`, "utf8");
+  test("panel visibility avoids retained paint layers", async () => {
+    const css = await readFile(`${CLIENT_DIR}/styles.css`, "utf8");
+    const workflowCss = await readFile(`${CLIENT_DIR}/profile-workflows.css`, "utf8");
     const profilePanel = await readFile(`${CLIENT_DIR}/components/ProfilePanel.tsx`, "utf8");
-    expect(css).toContain("contain: layout paint style");
-    expect(css).toContain("isolation: isolate");
+    const panelHostBlock = css.match(/\.panel-host\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(panelHostBlock).toContain("display: block");
+    expect(panelHostBlock).not.toContain("contain:");
+    expect(panelHostBlock).not.toContain("isolation:");
+    expect(workflowCss).not.toMatch(/\.panel-host\s*\{/);
     expect(css).toMatch(/\.panel-host\.panel-hidden\s*\{[^}]*display:\s*none/s);
+    expect(css).toMatch(/body\s*\{[^}]*-webkit-font-smoothing:\s*antialiased/s);
     expect(profilePanel).toContain("<ProfileModalPortal>");
     expect(profilePanel).toMatch(/<ProfileModalPortal>[\s\S]*?<BackupPolicyModal[\s\S]*?<\/ProfileModalPortal>/);
   });
@@ -22,19 +27,45 @@ describe("tab paint regression", () => {
     expect(css).not.toMatch(/\.profile-tab\.on\s*\{[^}]*transform:(?!\s*none)/s);
   });
 
-  test("policy selects use the notebook control instead of native macOS bevels", async () => {
+  test("policy fields share notebook controls and sources stay plain", async () => {
     const css = await readFile(`${CLIENT_DIR}/profile-modals.css`, "utf8");
+    const policyModal = await readFile(`${CLIENT_DIR}/components/profile/BackupPolicyModal.tsx`, "utf8");
+    const ruleTable = await readFile(`${CLIENT_DIR}/components/profile/BackupRuleTable.tsx`, "utf8");
     expect(css).toMatch(/\.modal-policy select\s*\{[^}]*appearance:\s*none/s);
     expect(css).toContain("-webkit-appearance: none");
     expect(css).toContain("background-image:");
     expect(css).toContain("var(--hand)");
+    expect(css).toContain('.modal-policy input:not([type="checkbox"]),');
+    expect(css).toContain("border-radius: 5px 8px 4px 7px");
+    expect(css).toMatch(/\.modal-policy input:not\(\[type="checkbox"\]\)\s*\{[^}]*caret-color:/s);
+    expect(css).toMatch(/\.modal-policy \.policy-source-label\s*\{[^}]*white-space:\s*nowrap/s);
+    expect(ruleTable.match(/className="policy-source-label"/g)).toHaveLength(2);
+    expect(ruleTable).not.toContain('className="badge">{sourceLabel}');
+    expect(policyModal).toContain('来源：<span className="policy-source-label">');
+  });
+
+  test("backup policy copy names the tool without the tool-level term", async () => {
+    const files = await Promise.all([
+      readFile(`${CLIENT_DIR}/components/profile/BackupPolicyModal.tsx`, "utf8"),
+      readFile(`${CLIENT_DIR}/components/profile/ExportBackupModal.tsx`, "utf8"),
+      readFile(`${CLIENT_DIR}/../cli-profile-policy.ts`, "utf8"),
+      readFile(`${CLIENT_DIR}/../profiles/backup-policy.ts`, "utf8"),
+      readFile(`${CLIENT_DIR}/../schemas/dch-store.ts`, "utf8"),
+    ]);
+    expect(files.join("\n")).not.toContain("工具级");
+    expect(files[0]).toContain("`${target.tool} 备份规则`");
+    expect(files[0]).toContain('tool: "工具自定义"');
   });
 
   test("profile actions use rectangular notebook controls", async () => {
     const css = await readFile(`${CLIENT_DIR}/paper-overrides.css`, "utf8");
+    const workflowCss = await readFile(`${CLIENT_DIR}/profile-workflows.css`, "utf8");
+    const profilePanel = await readFile(`${CLIENT_DIR}/components/ProfilePanel.tsx`, "utf8");
     expect(css).toMatch(/body \.profile-toolbar\s*\{[^}]*border-radius:\s*6px 9px 5px 7px/s);
     expect(css).toMatch(
       /body \.profile-toolbar :is\(\.btn, \.btn-sm\)\s*\{[^}]*border-radius:\s*4px 7px 3px 6px/s,
     );
+    expect(workflowCss).toMatch(/\.profile-toolbar\s*\{[^}]*flex-wrap:\s*wrap/s);
+    expect(profilePanel).not.toContain("profile-toolbar-spacer");
   });
 });

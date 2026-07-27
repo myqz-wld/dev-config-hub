@@ -1,7 +1,7 @@
 /*
- * Profile overlays must stay viewport-sized even though the persistent profile
- * panel uses paint containment. The React portal supplies the positioning
- * boundary; these rules make the long policy editor scroll predictably.
+ * Profile overlays are portaled to document.body so persistent panels never
+ * become their positioning boundary. Keep long policy editors independently
+ * scrollable while their header and footer remain visible.
  */
 .modal-policy > .modal-head,
 .modal-policy > .modal-foot {
@@ -14,42 +14,68 @@
   overscroll-behavior: contain;
 }
 
-/*
- * Native macOS selects introduce a glossy bevel and spinner-like arrows.
- * Replace only the policy editor controls with a paper fill, sketched frame,
- * and uneven ink chevron while preserving the native menu and keyboard model.
- */
+/* Rules use one restrained notebook control language for text and choices. */
+.modal-policy input:not([type="checkbox"]),
+.modal-policy select,
+.modal-policy textarea.policy-raw-json {
+  border: 1.3px solid rgba(83, 58, 24, .30);
+  border-radius: 5px 8px 4px 7px;
+  color: #2a2116;
+  background-color: rgba(255, 253, 247, .88);
+  box-shadow:
+    inset 0 -3px 0 rgba(83, 58, 24, .035),
+    0 1px 0 rgba(255, 255, 255, .55);
+  transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+
+.modal-policy input:not([type="checkbox"]) {
+  min-height: 32px;
+  padding: 6px 10px;
+  caret-color: #33567f;
+  font: 800 12px/1.25 var(--hand);
+}
+
 .modal-policy select {
   appearance: none;
   -webkit-appearance: none;
-  min-height: 30px;
-  padding: 5px 32px 5px 10px;
-  border: 0;
-  border-radius: 0;
-  color: #2a2116;
-  background-color: rgba(255, 252, 242, .72);
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 12'%3E%3Cpath d='M2.2 3.1 C4.8 5.2 6.8 7.5 9.1 9.4 C11.4 7.1 13.5 5.1 16 2.8' fill='none' stroke='%2333567f' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M3 2.2 C5.1 4.4 7.1 6.6 9.2 8.3 C11.8 5.8 13.4 4.3 15.2 2.2' fill='none' stroke='%23836a45' stroke-opacity='.38' stroke-width='.7' stroke-linecap='round'/%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 48' preserveAspectRatio='none'%3E%3Cpath d='M7 7 C66 4 125 7 184 5 S277 4 313 8 C316 19 315 32 311 40 C249 43 190 40 130 42 S38 43 8 39 C5 28 4 17 7 7Z' fill='none' stroke='%23836a45' stroke-opacity='.43' stroke-width='1.25' vector-effect='non-scaling-stroke' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M10 9 C79 7 142 9 204 7 S284 7 310 10' fill='none' stroke='%23b99a70' stroke-opacity='.25' stroke-width='.65' vector-effect='non-scaling-stroke' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-position: right 9px center, center;
+  min-height: 32px;
+  padding: 6px 31px 6px 10px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 12'%3E%3Cpath d='M2.4 3 C4.8 5.2 6.9 7.4 9.1 9 C11.5 6.7 13.5 4.8 15.8 2.7' fill='none' stroke='%2333567f' stroke-width='1.65' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M3.1 2.3 C5.2 4.3 7.1 6.2 9.2 7.9 C11.4 5.8 13.2 4.1 15 2.4' fill='none' stroke='%23836a45' stroke-opacity='.32' stroke-width='.65' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-position: right 9px center;
   background-repeat: no-repeat;
-  background-size: 16px 11px, 100% 100%;
-  box-shadow: inset 0 -4px 0 rgba(83, 58, 24, .025);
+  background-size: 15px 10px;
   cursor: pointer;
+  color-scheme: light;
   font: 800 12px/1.25 var(--hand);
   letter-spacing: .2px;
 }
 
-.modal-policy select:hover {
-  background-color: rgba(255, 255, 255, .58);
+.modal-policy textarea.policy-raw-json {
+  padding: 10px 12px;
+  caret-color: #33567f;
+  font-family: "SF Mono", "JetBrains Mono", monospace !important;
 }
 
-.modal-policy select:focus-visible {
+.modal-policy input:not([type="checkbox"]):hover,
+.modal-policy select:hover,
+.modal-policy textarea.policy-raw-json:hover {
+  border-color: rgba(51, 86, 127, .43);
+  background-color: rgba(255, 255, 255, .68);
+}
+
+.modal-policy input:not([type="checkbox"]):focus-visible,
+.modal-policy select:focus-visible,
+.modal-policy textarea.policy-raw-json:focus-visible {
   outline: 2px solid rgba(51, 86, 127, .28);
-  outline-offset: 1px;
+  outline-offset: 2px;
+  border-color: rgba(51, 86, 127, .58);
+  background-color: rgba(255, 255, 255, .84);
+  box-shadow: inset 0 -3px 0 rgba(51, 86, 127, .045);
 }
 
-.modal-policy select:disabled {
+.modal-policy input:not([type="checkbox"]):disabled,
+.modal-policy select:disabled,
+.modal-policy textarea.policy-raw-json:disabled {
   cursor: default;
   opacity: .48;
 }
@@ -57,4 +83,10 @@
 .modal-policy select option {
   color: #2a2116;
   background: #fff8eb;
+}
+
+.modal-policy .policy-source-label {
+  color: rgba(54, 38, 20, .72);
+  font-weight: 800;
+  white-space: nowrap;
 }

@@ -5,7 +5,7 @@ import { ProfileModalPortal } from "./ProfileModalPortal.tsx";
 describe("ProfileModalPortal", () => {
   afterEach(() => cleanup());
 
-  it("mounts fixed overlays directly under body instead of the paint-contained panel", () => {
+  it("mounts fixed overlays directly under body instead of the persistent panel host", () => {
     const host = document.createElement("div");
     host.className = "panel-host";
     document.body.append(host);

@@ -15,7 +15,7 @@ type PolicyTarget =
 
 const SOURCE_LABELS: Record<BackupRuleSource, string> = {
   factory: "内置默认",
-  tool: "工具级",
+  tool: "工具自定义",
   "profile-snapshot": "方案独立快照",
   scripts: "切换脚本",
 };
@@ -42,7 +42,7 @@ export function BackupPolicyModal({
   );
 
   const title = target.scope === "tool"
-    ? `${target.tool} 工具级备份规则`
+    ? `${target.tool} 备份规则`
     : target.scope === "profile"
     ? `${target.profile.id} 方案备份规则`
     : "切换脚本备份规则";
@@ -121,7 +121,7 @@ export function BackupPolicyModal({
     try {
       if (target.scope === "profile") {
         await dchProfile.inheritProfileBackupPolicy(target.profile.id);
-        onToast("已恢复继承工具级规则", true);
+        onToast(`已恢复继承 ${target.profile.tool} 备份规则`, true);
       } else if (target.scope === "tool") {
         await dchProfile.resetBackupPolicy("tool", target.tool);
         onToast("已恢复工具内置规则", true);
@@ -151,7 +151,7 @@ export function BackupPolicyModal({
           <div>
             <h2>{title}</h2>
             <p className="form-hint">
-              来源：<span className="badge">{SOURCE_LABELS[source]}</span>
+              来源：<span className="policy-source-label">{SOURCE_LABELS[source]}</span>
               {" · "}{counts.files} 条文件规则，{counts.secrets} 条密钥规则
             </p>
           </div>
@@ -162,8 +162,8 @@ export function BackupPolicyModal({
             <>
               {target.scope === "profile" && source !== "profile-snapshot" && (
                 <p className="policy-inheritance-note">
-                  当前实时继承 {source === "tool" ? "工具级规则" : "工具内置规则"}。
-                  保存任何修改时会复制当前有效规则并建立独立快照，之后不再跟随工具级变化。
+                  当前实时继承 {target.profile.tool} {source === "tool" ? "自定义备份规则" : "内置备份规则"}。
+                  保存任何修改时会复制当前有效规则并建立独立快照，之后不再跟随该工具的规则变化。
                 </p>
               )}
               <div className="policy-default-row">

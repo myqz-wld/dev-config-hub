@@ -80,14 +80,14 @@ export async function cmdBackupPolicy(args: string[]): Promise<void> {
     if (!target) throw new Error("缺少 profile id");
     await setProfileBackupPolicy(target, "snapshot-effective");
     if (isJsonMode()) return jsonOut({ ok: true });
-    return ok("已复制当前有效规则，方案后续不再跟随工具级变化");
+    return ok("已复制当前有效规则，方案后续不再跟随对应工具的备份规则变化");
   }
 
   if (operation === "inherit" && scope === "profile") {
     if (!target) throw new Error("缺少 profile id");
     await setProfileBackupPolicy(target, null);
     if (isJsonMode()) return jsonOut({ ok: true });
-    return ok("已恢复继承工具级规则");
+    return ok("已恢复继承对应工具的备份规则");
   }
 
   if (operation === "scripts-enabled" && scope === "scripts") {

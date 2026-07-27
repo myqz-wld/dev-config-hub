@@ -167,7 +167,7 @@ export const ProfilePanel = memo(function ProfilePanel({
         <button className="btn-sm" onClick={() => setPolicyTarget({
           scope: "scripts",
           enabled: store.backup.scriptsEnabled !== false,
-        })}>
+        })} title="设置 ~/.dch/scripts 中 DCH 切换脚本的备份范围与密钥处理">
           切换脚本备份规则
         </button>
         <button className="btn-sm" onClick={() => { setExportPresetIds(undefined); setShowExport(true); }} title="备份配置方案和切换脚本">
@@ -179,7 +179,6 @@ export const ProfilePanel = memo(function ProfilePanel({
         <button className="btn-sm" onClick={() => { setRestorePresetPath(undefined); setShowRestore(true); }} title="从 .dchpack 导入为新的配置方案">
           <DoodleIcon kind="import" />导入备份
         </button>
-        <span className="profile-toolbar-spacer" />
         <button className="btn-sm" onClick={() => setShowStoreEditor(true)} title="直接编辑 ~/.dch/profiles.json">
           高级编辑
         </button>
