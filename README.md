@@ -343,6 +343,7 @@ dch profile backup-rm dch-backup-XXX.dchpack [--yes]
 ### UX
 
 - ProfilePanel separates tool tabs, primary actions, current status, and profile cards. Tool-level, profile-level, and switch-script rule editors show the active source and enabled-rule counts.
+- Backup-rule defaults stay with file coverage, long rule tables are collapsed by category, each category owns its add action, and priority is adjusted directly on the affected row.
 - Single profile cards expose edit, switch, export, and profile-rule actions; hooks and environment details stay collapsed until needed.
 - Export first prepares an immutable snapshot, then shows included/excluded counts, secret actions, policy sources, and the exact matching rule for every file. Confirming publishes those same bytes without rescanning.
 - Backup history modal shows three sections (default slot / pinned / history), each row: filename / time / size / profile count / placeholder count / source host; row actions: restore / pin / delete

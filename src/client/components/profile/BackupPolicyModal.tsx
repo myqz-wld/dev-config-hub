@@ -7,7 +7,6 @@ import {
   type ToolKind,
 } from "../../bridge.ts";
 import { FileRuleTable, SecretRuleTable } from "./BackupRuleTable.tsx";
-import { PolicySelect } from "./PolicySelect.tsx";
 
 type PolicyTarget =
   | { scope: "tool"; tool: ToolKind }
@@ -20,16 +19,6 @@ const SOURCE_LABELS: Record<BackupRuleSource, string> = {
   "profile-snapshot": "方案独立快照",
   scripts: "切换脚本",
 };
-
-const DEFAULT_FILE_ACTIONS = [
-  { value: "include", label: "默认包含" },
-  { value: "exclude", label: "默认排除" },
-] as const;
-
-const UNSCANNABLE_FILE_ACTIONS = [
-  { value: "include-with-warning", label: "包含并警告" },
-  { value: "exclude", label: "排除" },
-] as const;
 
 export function BackupPolicyModal({
   target,
@@ -149,12 +138,6 @@ export function BackupPolicyModal({
     }
   };
 
-  const hasKeepOriginal = policy && [
-    ...policy.secretRules.wholeFile,
-    ...policy.secretRules.field,
-    ...policy.secretRules.content,
-  ].some((rule) => rule.enabled && rule.action === "keep-original");
-
   return (
     <div className="modal-backdrop" onClick={busy ? undefined : onClose}>
       <div className="modal modal-policy" onClick={(event) => event.stopPropagation()}>
@@ -183,8 +166,8 @@ export function BackupPolicyModal({
                   保存任何修改时会复制当前有效规则并建立独立快照，之后不再跟随该工具的规则变化。
                 </p>
               )}
-              <div className="policy-default-row">
-                {target.scope === "scripts" && (
+              {target.scope === "scripts" && (
+                <div className="policy-default-row">
                   <label className="policy-enabled-toggle">
                     <input
                       type="checkbox"
@@ -193,37 +176,10 @@ export function BackupPolicyModal({
                     />
                     启用切换脚本备份
                   </label>
-                )}
-                <label>未命中文件</label>
-                <PolicySelect
-                  ariaLabel="未命中文件的默认动作"
-                  className="policy-default-select"
-                  value={policy.defaultFileAction}
-                  options={DEFAULT_FILE_ACTIONS}
-                  onChange={(defaultFileAction) => updatePolicy({
-                    ...policy,
-                    defaultFileAction: defaultFileAction as BackupPolicyV1["defaultFileAction"],
-                  })}
-                />
-                <label>二进制/不可扫描文件</label>
-                <PolicySelect
-                  ariaLabel="二进制或不可扫描文件的默认动作"
-                  className="policy-default-select"
-                  value={policy.unscannableFileAction}
-                  options={UNSCANNABLE_FILE_ACTIONS}
-                  onChange={(unscannableFileAction) => updatePolicy({
-                    ...policy,
-                    unscannableFileAction: unscannableFileAction as BackupPolicyV1["unscannableFileAction"],
-                  })}
-                />
-              </div>
-              {hasKeepOriginal && (
-                <div className="policy-raw-warning">
-                  ⚠ 已启用“保留原值”。匹配到的密钥会以明文进入备份，导出前必须再次确认。
                 </div>
               )}
-              <FileRuleTable policy={policy} sourceLabel={SOURCE_LABELS[source]} onChange={updatePolicy} />
-              <SecretRuleTable policy={policy} sourceLabel={SOURCE_LABELS[source]} onChange={updatePolicy} />
+              <FileRuleTable policy={policy} onChange={updatePolicy} />
+              <SecretRuleTable policy={policy} onChange={updatePolicy} />
               <details className="backup-policy-advanced">
                 <summary>高级：正则捕获组与原始 JSON</summary>
                 <p className="form-hint">

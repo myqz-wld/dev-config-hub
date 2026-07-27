@@ -81,8 +81,9 @@ describe("tab paint regression", () => {
       /\.modal-policy input:not\(\[type="checkbox"\]\),\s*body \.modal \.profile-secret-input\s*\{[^}]*caret-color:/s,
     );
     expect(css).toMatch(/\.modal-policy \.policy-source-label\s*\{[^}]*white-space:\s*nowrap/s);
-    expect(ruleTable.match(/className="policy-source-label"/g)).toHaveLength(2);
+    expect(ruleTable).not.toContain('className="policy-source-label"');
     expect(ruleTable).not.toContain('className="badge">{sourceLabel}');
+    expect(ruleTable).not.toContain("<th>来源</th>");
     expect(policyModal).toContain('来源：<span className="policy-source-label">');
     expect(rawBaseBlock).toContain("var(--hand)");
     expect(rawModalBlock).toContain("var(--hand)");
