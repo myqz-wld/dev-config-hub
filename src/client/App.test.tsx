@@ -193,4 +193,36 @@ describe("App.load() setError(null) (CHANGELOG_10 R_1·L1 fix)", () => {
       Math.random = originalRandom;
     }
   });
+
+  it("T11: 跨工具备份与高级操作不再出现在 Claude 工具页签", async () => {
+    const { container } = render(<App />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+
+    const profileNav = Array.from(container.querySelectorAll<HTMLButtonElement>(".nav-item"))
+      .find((button) => button.textContent?.includes("配置方案"));
+    expect(profileNav).toBeTruthy();
+    await act(async () => { fireEvent.click(profileNav!); });
+
+    const toolToolbar = container.querySelector(".profile-toolbar");
+    expect(toolToolbar?.textContent).toContain("新建 claude 方案");
+    expect(toolToolbar?.textContent).toContain("claude 备份规则");
+    expect(toolToolbar?.textContent).not.toContain("导出备份");
+    expect(toolToolbar?.textContent).not.toContain("备份历史");
+    expect(toolToolbar?.textContent).not.toContain("导入备份");
+    expect(toolToolbar?.textContent).not.toContain("高级编辑");
+
+    const backupTab = Array.from(container.querySelectorAll<HTMLButtonElement>(".profile-tab"))
+      .find((button) => button.textContent === "备份中心");
+    await act(async () => { fireEvent.click(backupTab!); });
+    expect(container.querySelector(".profile-workspace")?.textContent).toContain("跨工具");
+    expect(container.querySelector(".profile-workspace")?.textContent).toContain("导出备份");
+    expect(container.querySelector(".profile-workspace")?.textContent).toContain("备份历史");
+    expect(container.querySelector(".profile-workspace")?.textContent).toContain("导入备份");
+
+    const advancedTab = Array.from(container.querySelectorAll<HTMLButtonElement>(".profile-tab"))
+      .find((button) => button.textContent === "高级设置");
+    await act(async () => { fireEvent.click(advancedTab!); });
+    expect(container.querySelector(".profile-workspace")?.textContent).toContain("打开高级编辑");
+    expect(container.querySelector(".profile-workspace")?.textContent).toContain("影响所有工具页签");
+  });
 });

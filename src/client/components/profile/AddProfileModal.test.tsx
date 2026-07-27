@@ -35,7 +35,7 @@ describe("AddProfileModal env KEY regex (REVIEW_8 / Group E7)", () => {
     const keyInput = inputs.find((i) => i.placeholder === "变量名") as HTMLInputElement | undefined;
     const valInput = inputs.find((i) => i.placeholder === "值") as HTMLInputElement | undefined;
     const addBtn = Array.from(container.querySelectorAll("button"))
-      .find((b) => b.textContent === "+") as HTMLButtonElement | undefined;
+      .find((b) => b.textContent === "添加") as HTMLButtonElement | undefined;
     return { keyInput, valInput, addBtn };
   }
 
@@ -152,6 +152,19 @@ describe("AddProfileModal env KEY regex (REVIEW_8 / Group E7)", () => {
     expect(container.textContent).toContain("管理已有目录");
     expect(container.textContent).not.toContain("从已有方案复制");
     expect(container.textContent).not.toContain("settings.json 内容");
+  });
+
+  it("当前工具由页签固定，只有管理已有目录时显示目录浏览入口", () => {
+    const { container, getByText } = renderModal();
+    expect(container.textContent).toContain("当前位于 claude 页签");
+    expect(container.querySelector("select")).toBeNull();
+    expect(container.textContent).not.toContain("浏览目录");
+
+    fireEvent.click(getByText("管理已有目录"));
+
+    expect(container.textContent).toContain("已有配置目录");
+    expect(container.textContent).toContain("浏览目录");
+    expect(container.textContent).not.toContain("留空时创建");
   });
 
   it("普通编辑未改动时保留分平台脚本对象，修改后才转成字符串", () => {

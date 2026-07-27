@@ -186,6 +186,11 @@ body .policy-select-popover::-webkit-scrollbar-thumb {
   white-space: nowrap;
 }
 
+.modal-policy .policy-cache-refresh {
+  color: rgba(51, 86, 127, .68);
+  white-space: nowrap;
+}
+
 @media (max-width: 760px) {
   .modal-policy > .modal-head,
   .modal-policy > .modal-foot {

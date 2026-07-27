@@ -7,6 +7,7 @@ import {
 import { backupCache } from "../../backup-cache.ts";
 import { formatBytes } from "../../format-bytes.ts";
 import { DoodleIcon } from "../DoodleIcon.tsx";
+import { TOOLS } from "./helpers.ts";
 
 type Prepared = {
   token: string;
@@ -239,17 +240,40 @@ function BackupConfiguration({
   onNoPlaceholder: (value: boolean) => void;
   onKeep: (value: boolean) => void;
 }) {
+  const profileGroups = TOOLS
+    .map((tool) => ({
+      tool,
+      profiles: profiles.filter((profile) => profile.tool === tool),
+    }))
+    .filter((group) => group.profiles.length > 0);
+
   return (
     <>
       <div className="form-row form-row-block">
         <label>选择配置方案（{selected.size}/{profiles.length}）</label>
-        <div className="form-env-block">
-          {profiles.map((profile) => (
-            <label key={profile.id} className={`form-env-item backup-profile-choice${selected.has(profile.id) ? " selected" : ""}`}>
-              <input type="checkbox" checked={selected.has(profile.id)} onChange={() => onToggle(profile.id)} />
-              <code>{profile.id}</code>
-              <span className="profile-desc">{profile.tool} · {profile.configDir}</span>
-            </label>
+        <p className="form-hint">
+          这是跨工具备份。配置方案按所属工具分组，可组合写入同一个 .dchpack。
+        </p>
+        <div className="backup-profile-groups">
+          {profileGroups.map((group) => (
+            <section key={group.tool} className="backup-profile-group">
+              <header>
+                <strong>{group.tool}</strong>
+                <span>
+                  {group.profiles.filter((profile) => selected.has(profile.id)).length}
+                  /{group.profiles.length} 已选
+                </span>
+              </header>
+              <div className="form-env-block">
+                {group.profiles.map((profile) => (
+                  <label key={profile.id} className={`form-env-item backup-profile-choice${selected.has(profile.id) ? " selected" : ""}`}>
+                    <input type="checkbox" checked={selected.has(profile.id)} onChange={() => onToggle(profile.id)} />
+                    <code>{profile.id}</code>
+                    <span className="profile-desc">{profile.configDir}</span>
+                  </label>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       </div>

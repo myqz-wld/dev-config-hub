@@ -1,0 +1,331 @@
+/*
+ * Create/edit profile form.
+ * The form stays single-page, but separates directory intent, essentials, and
+ * optional switch automation so the primary path reads in a stable order.
+ */
+
+.profile-form-modal {
+  width: min(820px, 94vw);
+  max-height: 90vh;
+}
+
+.profile-form-subtitle {
+  margin-top: 4px;
+  color: rgba(54, 38, 20, .58);
+  font: 800 11px/1.4 var(--hand);
+}
+
+.profile-form-body {
+  gap: 14px;
+  padding: 18px 20px 20px;
+}
+
+.profile-form-section {
+  padding: 14px;
+  border: 1.3px solid rgba(83, 58, 24, .23);
+  border-radius: 7px 10px 6px 9px;
+  background: rgba(255, 253, 247, .48);
+}
+
+.profile-form-section > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 13px;
+}
+
+.profile-form-section > header > span {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border: 1.4px solid rgba(51, 86, 127, .42);
+  border-radius: 52% 43% 49% 45%;
+  color: #33567f;
+  font: 800 12px/1 var(--hand);
+}
+
+.profile-form-section h3 {
+  margin: 0;
+  color: #2a2116;
+  font: 800 14px/1.25 var(--hand);
+}
+
+.profile-form-section header p {
+  margin: 3px 0 0;
+  color: rgba(54, 38, 20, .58);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.profile-directory-modes {
+  gap: 12px;
+}
+
+.profile-directory-modes > label {
+  min-height: 76px;
+  padding: 13px 14px;
+  border-color: rgba(83, 58, 24, .25);
+  background: rgba(255, 252, 242, .54);
+}
+
+.profile-directory-modes > label:hover {
+  border-color: rgba(51, 86, 127, .40);
+  background: rgba(255, 255, 255, .42);
+}
+
+.profile-directory-modes > label.selected {
+  border-color: rgba(51, 86, 127, .58);
+  background: rgba(51, 86, 127, .075);
+}
+
+.profile-directory-modes strong {
+  font-size: 13px;
+}
+
+.profile-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px 16px;
+}
+
+.profile-form-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.profile-form-field-wide {
+  grid-column: 1 / -1;
+}
+
+.profile-form-field > label {
+  color: rgba(54, 38, 20, .72);
+  font: 800 12px/1.3 var(--hand);
+}
+
+.profile-form-field > label em {
+  color: #b13730;
+  font-style: normal;
+}
+
+.profile-form-field > small {
+  color: rgba(54, 38, 20, .56);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.profile-form-field > small code {
+  color: #287276;
+  font: 800 10.5px/1.4 var(--hand);
+}
+
+.profile-form-field input[type="text"],
+.profile-form-field input[type="number"],
+.profile-form-field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 35px;
+  padding: 7px 10px;
+  border: 1.3px solid rgba(83, 58, 24, .28);
+  border-radius: 5px 8px 4px 7px;
+  color: #2a2116;
+  background: rgba(255, 255, 255, .38);
+  box-shadow: inset 0 -3px 0 rgba(83, 58, 24, .03);
+  font: 800 12px/1.35 var(--hand);
+}
+
+.profile-form-field textarea {
+  min-height: 72px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.profile-form-field input:hover,
+.profile-form-field textarea:hover {
+  border-color: rgba(51, 86, 127, .38);
+}
+
+.profile-form-field input:focus-visible,
+.profile-form-field textarea:focus-visible {
+  outline: 2px solid rgba(51, 86, 127, .22);
+  outline-offset: 2px;
+  border-color: rgba(51, 86, 127, .58);
+  background: rgba(255, 255, 255, .70);
+}
+
+.profile-form-field input.invalid {
+  border-color: rgba(177, 55, 48, .58);
+}
+
+.profile-form-field input:disabled {
+  color: rgba(54, 38, 20, .58);
+  background: rgba(83, 58, 24, .045);
+}
+
+.profile-form-field input::placeholder,
+.profile-form-field textarea::placeholder {
+  color: rgba(54, 38, 20, .40);
+}
+
+.profile-form-tool-context {
+  display: flex;
+  min-height: 35px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1.3px dashed rgba(51, 86, 127, .30);
+  border-radius: 5px 8px 4px 7px;
+  background: rgba(51, 86, 127, .045);
+}
+
+.profile-form-tool-context strong {
+  color: #33567f;
+  font: 800 13px/1.2 var(--hand);
+}
+
+.profile-form-tool-context small {
+  color: rgba(54, 38, 20, .52);
+  font-size: 10px;
+}
+
+.profile-form-modal .form-inline {
+  align-items: stretch;
+}
+
+.profile-directory-picker {
+  min-width: 90px;
+  border-radius: 4px 7px 3px 6px;
+}
+
+.profile-form-details {
+  padding: 0;
+  overflow: hidden;
+  border-color: rgba(83, 58, 24, .23);
+  background: rgba(255, 253, 247, .42);
+}
+
+.profile-form-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  list-style: none;
+}
+
+.profile-form-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.profile-form-details > summary::after {
+  content: "＋";
+  margin-left: auto;
+  color: #33567f;
+  font-size: 15px;
+}
+
+.profile-form-details[open] > summary {
+  margin-bottom: 0;
+  background: rgba(51, 86, 127, .035);
+}
+
+.profile-form-details[open] > summary::after {
+  content: "－";
+}
+
+.profile-form-details > summary span {
+  color: #2a2116;
+  font: 800 12px/1.3 var(--hand);
+}
+
+.profile-form-details > summary small {
+  margin-left: auto;
+  color: rgba(54, 38, 20, .50);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.profile-form-advanced {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 14px;
+  border-top: 1px solid rgba(83, 58, 24, .16);
+}
+
+.profile-form-advanced > .form-hint,
+.profile-form-advanced > .profile-form-field:not(.profile-timeout-field) {
+  grid-column: 1 / -1;
+}
+
+.profile-timeout-field {
+  max-width: 240px;
+}
+
+.profile-timeout-field .form-inline > span {
+  align-self: center;
+  color: rgba(54, 38, 20, .62);
+  font-size: 11px;
+}
+
+.profile-form-modal .form-env-block {
+  width: 100%;
+}
+
+.profile-form-modal .form-env-item,
+.profile-form-modal .form-env-add input {
+  border-color: rgba(83, 58, 24, .24);
+  color: #2a2116;
+  background: rgba(255, 255, 255, .34);
+}
+
+.profile-form-modal .form-env-add {
+  display: grid;
+  grid-template-columns: minmax(120px, .7fr) minmax(160px, 1.3fr) auto;
+}
+
+.profile-form-modal .form-env-add .btn-sm {
+  min-width: 60px;
+  border-radius: 4px 7px 3px 6px;
+}
+
+.profile-form-modal .form-hint-error {
+  color: #a12f28;
+}
+
+@media (max-width: 700px) {
+  .profile-form-body {
+    padding: 14px;
+  }
+
+  .profile-form-grid,
+  .profile-form-advanced {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-form-field-wide,
+  .profile-form-advanced > .form-hint,
+  .profile-form-advanced > .profile-form-field:not(.profile-timeout-field) {
+    grid-column: auto;
+  }
+
+  .profile-form-modal .form-inline {
+    flex-direction: column;
+  }
+
+  .profile-directory-picker {
+    align-self: flex-start;
+  }
+
+  .profile-form-modal .form-env-add {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-form-details > summary small {
+    display: none;
+  }
+}

@@ -76,4 +76,24 @@ describe("ExportBackupModal copy", () => {
     expect(checkbox?.checked).toBeFalse();
     expect(checkbox?.disabled).toBeTrue();
   });
+
+  it("跨工具选择按所属工具分组，避免把 Codex 伪装成 Claude 页内选项", () => {
+    const { container } = render(
+      <ExportBackupModal
+        profiles={profiles}
+        scriptsEnabled
+        onClose={() => {}}
+        onToast={() => {}}
+      />,
+    );
+
+    const groups = Array.from(container.querySelectorAll(".backup-profile-group"));
+    expect(groups).toHaveLength(2);
+    expect(groups[0]?.querySelector("header")?.textContent).toContain("claude");
+    expect(groups[0]?.textContent).toContain("claude-main");
+    expect(groups[0]?.textContent).not.toContain("codex-main");
+    expect(groups[1]?.querySelector("header")?.textContent).toContain("codex");
+    expect(groups[1]?.textContent).toContain("codex-main");
+    expect(container.textContent).toContain("这是跨工具备份");
+  });
 });

@@ -56,7 +56,9 @@ dch profile current claude
 
 Profiles live in `~/.dch/profiles.json`. New profiles create only an empty
 management directory; `--existing` registers a directory without copying or
-modifying it. Switching replaces the tool root atomically.
+modifying it. In the desktop app, each tool has its own profile tab; profile
+creation stays in that tool context, while cross-tool backup and raw advanced
+editing live in separate tabs. Switching replaces the tool root atomically.
 
 ## Backup And Restore
 
@@ -70,7 +72,9 @@ dch profile restore ~/.dch/backups/latest.dchpack
 Profiles can inherit tool backup rules or keep an independent snapshot.
 Switch-script rules cover only `~/.dch/scripts/`. Secrets are placeholder
 redacted by default, `~/.agents/**` is never packaged, and restore follows the
-package manifest without reapplying current rules.
+package manifest without reapplying current rules. The desktop backup center
+groups export choices by tool and caches both backup history and resolved
+backup rules for fast reopening.
 
 ## Development
 

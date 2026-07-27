@@ -16,4 +16,3 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
 | 2026-07-20 | [CHANGELOG_36_user-config-catalog.md](CHANGELOG_36_user-config-catalog.md) | Added a five-tool user config catalog and four-tool profile support. |
-| 2026-07-19 | [CHANGELOG_35_foundation-time-buckets.md](CHANGELOG_35_foundation-time-buckets.md) | Aligned foundation docs, removed conventions, and bucketed final records. |
