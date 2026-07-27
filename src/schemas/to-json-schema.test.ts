@@ -95,7 +95,7 @@ describe("toolSchemaToJsonSchema (DCH_STORE round-trip)", () => {
   it("含 $schema + $id 顶层", () => {
     const r = toolSchemaToJsonSchema(DCH_STORE);
     expect(r.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
-    expect(r.$id).toBe("dch-store@1");
+    expect(r.$id).toBe("dch-store@2");
     expect(r.type).toBe("object");
   });
 
@@ -121,14 +121,26 @@ describe("toolSchemaToJsonSchema (DCH_STORE round-trip)", () => {
     expect(Object.keys(activeProps)).toEqual(["claude", "codex", "grok", "cursor"]);
   });
 
-  it("preferences.hookTimeoutMs 整数 + min/max", () => {
+  it("profile.hookTimeoutMs 是方案级整数，旧 preferences 已移除", () => {
     const r = toolSchemaToJsonSchema(DCH_STORE);
     const props = r.properties as Record<string, Record<string, unknown>>;
-    const prefs = props.preferences as Record<string, unknown>;
-    const prefsProps = prefs.properties as Record<string, Record<string, unknown>>;
-    const t = prefsProps.hookTimeoutMs;
+    expect(props.preferences).toBeUndefined();
+    const items = props.profiles?.items as Record<string, unknown>;
+    const profileProps = items.properties as Record<string, Record<string, unknown>>;
+    const t = profileProps.hookTimeoutMs;
     expect(t?.type).toBe("integer");
     expect(t?.minimum).toBe(1000);
     expect(t?.maximum).toBe(600000);
+  });
+
+  it("backup 暴露四种工具规则与切换脚本规则", () => {
+    const r = toolSchemaToJsonSchema(DCH_STORE);
+    const props = r.properties as Record<string, Record<string, unknown>>;
+    const backup = props.backup as Record<string, unknown>;
+    const backupProps = backup.properties as Record<string, Record<string, unknown>>;
+    const tools = backupProps.toolPolicies?.properties as Record<string, unknown>;
+    expect(Object.keys(tools)).toEqual(["claude", "codex", "grok", "cursor"]);
+    expect(backupProps.scriptsPolicy?.type).toBe("object");
+    expect(backupProps.scriptsEnabled?.type).toBe("boolean");
   });
 });

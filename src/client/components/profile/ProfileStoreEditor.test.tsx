@@ -87,6 +87,37 @@ describe("ProfileStoreEditor mtime CAS (REVIEW_8 H7 / Group E3)", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("保存旧结构时忽略全局超时并清理 preferences", async () => {
+    readFileWithMtimeImpl = () => Promise.resolve({
+      exists: true,
+      content: JSON.stringify({
+        version: 1,
+        profiles: [{ id: "legacy", tool: "claude", configDir: "~/.claude-legacy" }],
+        active: {},
+        preferences: { hookTimeoutMs: 120_000 },
+      }),
+      mtimeUs: 1_000,
+    });
+    let captured = "";
+    saveFileIfMtimeImpl = (_path, next) => {
+      captured = next;
+      return Promise.resolve(2_000);
+    };
+    const { container } = render(
+      <ProfileStoreEditor onClose={() => {}} onSaved={() => {}} onToast={() => {}} />,
+    );
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    const saveBtn = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "保存") as HTMLButtonElement;
+    await act(async () => { fireEvent.click(saveBtn); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+
+    const saved = JSON.parse(captured);
+    expect(saved.version).toBe(2);
+    expect(saved.preferences).toBeUndefined();
+    expect(saved.profiles[0].hookTimeoutMs).toBe(30_000);
+  });
+
   it("T2: saveFileIfMtime 抛 MtimeMismatchError → conflict banner 弹出", async () => {
     saveFileIfMtimeImpl = () =>
       Promise.reject(new MockMtimeMismatchError(1_000, 5_000));

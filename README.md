@@ -30,9 +30,9 @@ Missing primary files remain visible and can be created with valid starter conte
 | **Claude Code** | `~/.claude/settings.json`, `~/.claude/CLAUDE.md` | JSON / Markdown |
 | **Codex CLI** | `$CODEX_HOME/config.toml`; effective global instructions: `AGENTS.override.md`, otherwise `AGENTS.md` | TOML / Markdown |
 | **Grok Build** | `$GROK_HOME/config.toml`; existing optional `managed_config.toml`, `requirements.toml` | TOML |
-| **Cursor** | macOS `~/Library/Application Support/Cursor/User/{settings,keybindings}.json`; Windows `%APPDATA%\Cursor\User\...`; Linux `$XDG_CONFIG_HOME/Cursor/User/...`; plus `~/.cursor/mcp.json`, `cli-config.json`, and existing optional `hooks.json` | JSON / JSONC |
+| **Cursor** | `~/.cursor/cli-config.json` | JSON |
 
-The catalog follows the tools' current user-scope documentation: [Claude Code settings](https://docs.anthropic.com/en/docs/claude-code/settings), [Codex config](https://developers.openai.com/codex/config-basic) and [global AGENTS.md](https://developers.openai.com/codex/guides/agents-md), [Grok Build settings](https://docs.x.ai/build/settings), and Cursor [MCP](https://docs.cursor.com/context/model-context-protocol), [CLI permissions](https://docs.cursor.com/cli/reference/permissions), and [hooks](https://cursor.com/docs/hooks). Project examples in those documents are intentionally excluded here.
+The catalog follows the tools' current user-scope documentation: [Claude Code settings](https://docs.anthropic.com/en/docs/claude-code/settings), [Codex config](https://developers.openai.com/codex/config-basic) and [global AGENTS.md](https://developers.openai.com/codex/guides/agents-md), [Grok Build settings](https://docs.x.ai/build/settings), and Cursor [CLI permissions](https://docs.cursor.com/cli/reference/permissions). Project examples in those documents are intentionally excluded here.
 
 ## Core Capabilities
 
@@ -41,10 +41,10 @@ The catalog follows the tools' current user-scope documentation: [Claude Code se
 - **Markdown rendering**: markdown files such as `CLAUDE.md` use react-markdown + GFM + shiki code blocks by default
 - **Automatic tool version detection**
 - **CLI + GUI dual entry points**: `dch` subcommands cover all functionality; `dch gui` / `bun run dev` starts the desktop window
-- **Fast profile switching**: maintain multiple Claude / Codex / Grok / Cursor configs and atomically switch each tool's user config root with one action. Cursor profiles switch `~/.cursor`; editor `settings.json` / `keybindings.json` stay outside profile switching
+- **Fast profile switching**: maintain multiple Claude / Codex / Grok / Cursor configs and atomically switch each tool's user config root with one action. Cursor profiles switch `~/.cursor`; editor `settings.json` / `keybindings.json` are outside both this catalog and profile switching
 - **Pre/post switch hooks**: each profile can define `preSwitch` / `postSwitch` shell scripts for automatically killing leftover processes, starting VPN, health checks, osascript notifications, etc. `preSwitch` failure aborts the switch
 - **Shell wrapper env injection**: `dch profile env` + a shell wrapper injects `profile.env` into the selected tool process itself (OAuth / API through proxy)
-- **Backup and restore (.dchpack)**: package all profiles + shared resources (hook scripts + `~/.agents/`) into one file for cross-machine migration / local disaster recovery / sharing profiles with teammates. **Tokens / API keys are placeholder-redacted by default** for safe sharing; CLI + UI entry points are both supported. During restore, secrets-index globally deduplicates placeholders (observed: 148 placeholders -> 32 logical keys), so the user fills once and fan-out writes to every location by `fieldPath` (CLI `--fill-secrets` / `--secrets-json` + UI step 3 "fill K secrets").
+- **Editable backup and restore (.dchpack)**: ordered file-coverage and secret-handling rules can be managed at factory, tool, and profile-snapshot levels. Profiles and optional `~/.dch/scripts/` switch scripts are packaged through the same filtering/redaction engine. **Tokens / API keys are placeholder-redacted by default**; immutable preview shows every included/excluded file and its matching rules before the exact snapshot is committed.
 
 ## Requirements
 
@@ -113,7 +113,8 @@ dch edit <file>       # edit a specific config file with $EDITOR
 # Profile management
 dch profile                                  # list all profiles (grouped by tool, active marked)
 dch profile show <id>                        # print profile JSON
-dch profile add <claude|codex|grok|cursor> <id> [...] # add profile: --dir / --env K=V / --from / --desc
+dch profile add <claude|codex|grok|cursor> <id> [...] # create an empty directory; use --existing to register an existing one
+dch profile update <id> --payload <json>       # update directory, hooks, env, description, or profile timeout
 dch profile edit <id>                        # open ~/.dch/profiles.json in $EDITOR
 dch profile remove <id> [--yes]              # delete profile (does not delete configDir)
 dch profile use <id>                         # atomically switch the profile's tool root + run pre/post hooks
@@ -121,12 +122,12 @@ dch profile current [tool]                   # query current active profile
 dch profile env <claude|codex|grok|cursor>   # output active profile.env in shell-eval format
 dch profile init <claude|codex|grok|cursor>  # convert the tool root to a symlink/junction and create default profile
 dch profile hook test <id> <pre|post>        # run one hook for testing
-dch profile config hookTimeoutMs <ms>        # set hook timeout
-dch profile backup [opts]                    # back up all profiles + shared resources to .dchpack
+dch profile backup [opts]                    # back up profiles + optional DCH switch scripts to .dchpack
                                              # overwrites ~/.dch/backups/latest.dchpack by default (default slot)
                                              # [--keep] keep as dch-backup-<TS>.dchpack history copy
-                                             # [--out <file>] [--profiles <id1,id2>] [--no-shared]
+                                             # [--out <file>] [--profiles <id1,id2>] [--no-scripts]
                                              # [--no-placeholder] [--yes]
+                                             # --no-shared remains a deprecated alias for --no-scripts
 dch profile restore <pack> [opts]            # restore .dchpack (auto-adds -restored-<TS> suffix to avoid name collisions)
                                              # [--prefix <p>] [--rename OLD=NEW,...]
                                              # [--dry-run] [--yes]
@@ -147,7 +148,7 @@ All profiles are persisted in `~/.dch/profiles.json`:
 
 ```jsonc
 {
-  "version": 1,
+  "version": 2,
   "profiles": [
     {
       "id": "claude-api",
@@ -158,7 +159,8 @@ All profiles are persisted in `~/.dch/profiles.json`:
       "hooks": {
         "preSwitch":  "pkill -f 'claude' || true",
         "postSwitch": "osascript -e 'display notification \"Switched to API\" with title \"dch\"'"
-      }
+      },
+      "hookTimeoutMs": 30000
     }
   ],
   "active": {
@@ -167,11 +169,14 @@ All profiles are persisted in `~/.dch/profiles.json`:
     "grok": null,
     "cursor": null
   },
-  "preferences": {
-    "hookTimeoutMs": 30000
+  "backup": {
+    "toolPolicies": {},
+    "scriptsEnabled": true
   }
 }
 ```
+
+Creating a profile never generates `settings.json`, `config.toml`, or another tool file, and cloning another profile is not supported. Without `--existing`, `profile add` creates a new empty management directory and rejects an already-existing path. With `--existing`, it registers a real existing directory without copying or modifying its contents. Each profile owns its `hookTimeoutMs`; a missing value defaults to 30 seconds. Legacy global `preferences.hookTimeoutMs` is intentionally ignored and removed on the next store save.
 
 > By default, `profile.env` is visible only inside `preSwitch` / `postSwitch` scripts (for hook-local curl proxy settings, etc.). **To also inject env into the tool process itself** (such as OAuth login through an HTTP proxy), use `dch profile env <tool>` + a shell wrapper (see the "Shell wrapper" section below). Claude Code can alternatively receive variables through the `env` block in `<configDir>/settings.json`.
 
@@ -269,7 +274,7 @@ After switching profiles, newly started wrapped tool processes automatically use
 
 ## Backup And Restore (.dchpack)
 
-Package all profiles + shared resources (`~/.dch/scripts/` hook scripts + `~/.agents/` global agents/skills) into one `.dchpack` file for cross-machine migration / local disaster recovery / sharing profiles with teammates. **Tokens / API keys are placeholder-redacted by default** for safe sharing.
+Package profiles plus optional `~/.dch/scripts/` switch scripts into one `.dchpack` file for cross-machine migration, local disaster recovery, or controlled sharing. `~/.agents/**` is never scanned or included. Legacy packages containing `shared/agents/**` remain importable, but that payload is explicitly ignored and is never restored.
 
 ### Three-Tier Backup Model
 
@@ -286,7 +291,7 @@ Backups under `~/.dch/backups/` are grouped by purpose:
 ### Commands
 
 ```bash
-# Back up all profiles + shared resources -> ~/.dch/backups/latest.dchpack (overwrite default slot)
+# Back up all profiles + DCH switch scripts -> ~/.dch/backups/latest.dchpack
 dch profile backup
 
 # Keep as a history copy (do not overwrite default slot)
@@ -296,7 +301,11 @@ dch profile backup --keep
 # Back up a subset
 dch profile backup --profiles claude-pro,codex-pro --out /tmp/share.dchpack
 
-# Do not redact (keep raw token / API key; requires second confirmation)
+# Skip DCH switch scripts for this run (--no-shared is a deprecated alias)
+dch profile backup --no-scripts
+
+# Convert only placeholder actions to keep-original; other excludes still apply.
+# Interactive use asks for confirmation; automation must add --yes.
 dch profile backup --no-placeholder
 
 # Restore (auto-adds -restored-<TS> suffix to avoid name collisions; does not switch active)
@@ -310,7 +319,7 @@ echo '{"ANTHROPIC_AUTH_TOKEN-1":"sk-ant-...","API_KEY-1":"sk-..."}' > secrets.js
 dch profile restore <file> --secrets-json secrets.json --yes
 # Missing key -> counted as skipped (placeholder kept); extra key -> counted as unknown (warn, do not fail)
 
-# dry-run conflicts / unique secret overview (after dedup) / shared resource diff
+# dry-run conflicts / unique secret overview (after dedup) / switch-script diff
 dch profile restore <file> --dry-run
 
 # Rename specific profile
@@ -333,11 +342,11 @@ dch profile backup-rm dch-backup-XXX.dchpack [--yes]
 
 ### UX
 
-- ProfilePanel top buttons: `📦 Export Backup` / `📚 Backup History` / `📥 Import Backup`
-- Single profile card: `📦 Export` button (exports only that profile + shared resources)
-- Export modal includes a "Keep as history" toggle (default false = overwrite `latest.dchpack`; checked = write a timestamped history copy) and expandable backup-rule details
+- ProfilePanel separates tool tabs, primary actions, current status, and profile cards. Tool-level, profile-level, and switch-script rule editors show the active source and enabled-rule counts.
+- Single profile cards expose edit, switch, export, and profile-rule actions; hooks and environment details stay collapsed until needed.
+- Export first prepares an immutable snapshot, then shows included/excluded counts, secret actions, policy sources, and the exact matching rule for every file. Confirming publishes those same bytes without rescanning.
 - Backup history modal shows three sections (default slot / pinned / history), each row: filename / time / size / profile count / placeholder count / source host; row actions: restore / pin / delete
-- Restore modal shows source metadata / name-collision rename / shared resource diff / placeholders-to-fill checklist
+- Restore follows the package manifest, performs path-safety and conflict checks, and does not apply the machine's current backup rules again.
 
 ### Complete Cross-Machine Migration Flow
 
@@ -373,7 +382,7 @@ dch profile use <id>
 
 ### Filling Credentials Back In (After Migrating To A New Machine)
 
-During backup, all sensitive fields are replaced with `<<DCH_PLACEHOLDER:KEY_NAME>>` and globally merged into `manifest.secrets_index` by `(fieldName, sha256(value))`. **Observed in one 4-profile backup: 148 placeholders -> 32 logical keys (4.6x dedup compression)**. During restore, filling once automatically fans out to all locations by `fieldPath`.
+During backup, all sensitive fields are replaced with `<<DCH_PLACEHOLDER:KEY_NAME>>` and globally merged into `manifest.secrets_index` by transient `sha256(value)` identity; the most frequent field name becomes the logical-key label. **Observed in one 4-profile backup: 148 placeholders -> 32 logical keys (4.6x dedup compression)**. During restore, filling once automatically fans out to all locations by `fieldPath`.
 
 #### Three Fill Methods
 
@@ -389,7 +398,7 @@ The blue banner at the top of step 2 (rename) also lists the K logical keys (not
 - details disclosure with N packPath occurrences (first 3 by default; when >3, show "+M more")
 - top banner with 4 states: all skipped yellow / all filled green / partial filled neutral / pending blue
 
-After `📦 Export Backup` completes, the result area also shows the K unique-secret list (number + each logical key name + count + hint), so users know immediately how many values a future restore will require and what each key looks like.
+The export preview shows placeholder totals and per-file rule hits before writing the immutable snapshot. The import flow reads the package's logical-key list when credentials need to be filled.
 
 **2. CLI interactive mode** (hidden input)
 
@@ -430,24 +439,35 @@ JSON schema validation is strict: it must be a plain object and every value must
 
 #### Known Limits
 
-- **Whole-file credentials** (`auth.json` / `credentials.json` / `mcp_credentials.json`): skipped by dedup (OAuth payloads necessarily differ across profiles), so each location gets its own logical key. After fill, the file shape is `{"placeholder": "<filled string>"}`, still not a real OAuth payload. Use the tool itself to log in again for whole-file credentials; do not expect fill to reconstruct a valid OAuth payload.
+- **Whole-file credentials** (`auth.json` / `credentials.json` / `mcp_credentials.json`) are excluded by the factory rules. If a custom rule changes them to whole-file placeholders, filling cannot reconstruct the original OAuth document shape; use the tool itself to log in again.
 - **`profile.env` sections** (`_meta.json` `$.env.K`): excluded from fan-out (fieldPath does not align with the top-level `~/.dch/profiles.json` shape `{ profiles: [...], active: {...} }`), so users manually edit profiles.json afterward.
 
-### Packaging Rules
+### Editable Rule Model And Factory Defaults
 
-- **Profile config directories**: for each selected profile, recursively package every real file under `profile.configDir`; there is no maintained "included filename whitelist", so new config files and user-defined directories automatically enter the backup.
-- **Symlinks are not followed**: file/directory symlinks inside configDir are skipped to prevent backups from crossing profile boundaries and scanning external paths.
-- **Exclude rules are case-insensitive**: for example, `client.PEM`, `.NETRC`, and `history.DB-WAL` are excluded the same way as lowercase spellings.
-- **Runtime / cache / history data is excluded**: `*.jsonl` session history, `*.sqlite*` / `*.db*` databases, `*.log`, `*.lock`, `*.bak.*`, `*.backup.*`, `.DS_Store`; hidden `.cache/` / `.tmp/` at any depth; and root-level runtime directories such as `debug/`, `file-history/`, `session-env/`, `sessions/`, `shell_snapshots/`, `paste-cache/`, `cache/`, `backups/`, `ide/`, `state/`, `tasks/`, `statsig/`, `log/`, `tmp/`, `logs/`, `memory/`, `memories/`, `ai-tracking/`, `extensions/`, `skills-cursor/`. Cursor `projects/` and Grok's downloaded `docs/user-guide/` are excluded only for those tools, so same-named user assets in other tools are preserved.
-- **Credential files that cannot be safely redacted are excluded**: `.netrc`, `.ssh/**`, common SSH private-key names (`id_rsa` / `id_dsa` / `id_ecdsa` / `id_ed25519` / `ssh/id_*`), `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`. This is the safe default: these files are skipped entirely without distinguishing public certificates from private keys.
-- **A small set of root-level maintenance files is excluded**: `.last-cleanup`, `.personality_migration`, `installation_id`, `mcp-needs-auth-cache.json`, `plugins/install-counts-cache.json`, `.claude.json`, `active_sessions.json`, `leader.sock`.
-- **Shared resources**: `~/.dch/scripts/*` + `~/.agents/**` are packaged by default; `--no-shared` disables this.
+The hierarchy is **factory rule → optional saved tool rule → profile live inheritance or independent snapshot**. The first profile edit copies the then-effective rule set into a complete snapshot; later tool changes do not affect it. “Restore inheritance” deletes that snapshot and reconnects the profile to the live tool rule. Switch-script rules are global only.
 
-Implementation rules live in `src/profiles/backup-rules.ts`.
+- **Coverage**: each policy has a default include/exclude action plus sortable path rules. Enabled rules run top-to-bottom and the first match wins. Targets are relative path or basename; matchers are case-aware Glob or regex.
+- **Secrets**: whole-file rules run first and are terminal. Structured JSON, JSONC, and TOML then apply the first matching field rule before content rules; text files use content rules. Overlapping content spans are claimed by earlier rules, while any accepted `exclude-file` hit excludes the complete file.
+- **Actions**: replace with placeholder, exclude the complete file, keep the original value, or ignore the hit. `keep-original` is prominently marked as dangerous. `--no-placeholder` changes only `placeholder` actions to `keep-original`; coverage excludes and `exclude-file` remain enforced.
+- **Fixed safety boundaries**: symlinks and special files are never followed; archive and restore paths stay inside declared roots. These boundaries are not editable backup rules.
+
+All four tool policies default to include unmatched real files, include unscannable files with a warning, and exclude common private keys, databases, histories, logs, locks, caches, temporary data, and maintenance state. Specifically this includes `.netrc`, `.ssh/**`, `id_rsa` / `id_dsa` / `id_ecdsa` / `id_ed25519`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`, `*.jsonl`, `*.db*`, `*.sqlite*`, `*.log`, `*.lock`, `.cache/**`, `.tmp/**`, and the documented root runtime directories. Factory whole-file rules exclude `auth.json`, `credentials.json`, and `mcp_credentials.json`. Field rules ignore expiry/path/URL metadata before placeholder-redacting key, token, secret, password, credential, bearer, and authorization names. Content rules cover Anthropic/OpenAI/GitHub/GitLab/Slack/AWS tokens, HTTP authorization headers, and sensitive `KEY=VALUE` forms.
+
+Tool-specific additions are:
+
+| Scope | Additional factory exclusions |
+|---|---|
+| Claude | `plugins/cache/**`, `plugins/marketplaces/**` |
+| Codex | no additions beyond the common rules |
+| Grok | `docs/user-guide/**` |
+| Cursor | `projects/**` (the config page still displays only `~/.cursor/cli-config.json`; directory-semantic profile backup remains broader) |
+| DCH switch scripts | common private-key, database, log, lock, backup-copy, `.DS_Store`, `.cache/**`, and `.tmp/**` exclusions |
+
+Factory rules and reset sources live in `src/profiles/backup-policy-defaults.ts`; schema validation, matching, and transformation live in the adjacent `backup-policy-*` modules.
 
 ### Encrypted Migration (Including Real Credentials)
 
-`--no-placeholder` mode keeps raw tokens, so encrypt the outer file yourself:
+`--no-placeholder` may keep raw tokens wherever a placeholder rule matches, so inspect the preview and encrypt the outer file:
 
 ```bash
 dch profile backup --no-placeholder --keep
@@ -471,8 +491,10 @@ Test files (`*.test.ts(x)` / `fs_tests.rs`) live next to the files they test and
 │   ├── cli.ts                # CLI entry
 │   ├── cli-colors.ts         # ANSI color constants (shared by cli.ts + cli-profile.ts)
 │   ├── cli-profile.ts        # `dch profile ...` subcommand implementation, supports --json
+│   ├── cli-profile-policy.ts # Profile update + backup-policy CLI bridge commands
 │   ├── cli-shared.ts         # Shared helper for cli-profile / cli-backup (JSON_MODE / parseFlags / readStdinLine, etc.)
-│   ├── cli-backup.ts         # `dch profile backup / restore / backups / backup-rm / backup-pin` implementation
+│   ├── cli-backup-create.ts  # Immutable backup prepare / commit / cancel commands
+│   ├── cli-backup.ts         # Restore / history / delete / pin commands + backup facade exports
 │   ├── format-bytes.ts       # Byte formatting (single shared source for CLI + frontend)
 │   ├── types.ts              # Shared types (ConfigScope / ToolConfig)
 │   ├── config-locations.ts   # Shared user-level path catalog for Shell/Claude/Codex/Grok/Cursor
@@ -491,19 +513,21 @@ Test files (`*.test.ts(x)` / `fs_tests.rs`) live next to the files they test and
 │   │   ├── hooks.ts          # Run pre/post shell scripts (platform split) + pickScriptForRunner
 │   │   ├── symlink.ts        # Symlink switching (macOS/Linux symlink + Windows junction)
 │   │   ├── manager.ts        # CRUD + switch orchestration (shared core)
-│   │   ├── backup.ts         # createBackup (.dchpack archive + secrets_index integration)
+│   │   ├── backup.ts         # Stable backup facade
+│   │   ├── backup-create.ts / backup-pending.ts # Filtered archive build + immutable preview/commit
 │   │   ├── backup-shared.ts  # Shared backup types + fs / subprocess helpers
 │   │   ├── backup-restore.ts # parseBackup / applyBackup / applyBackupWithSecrets (fan-out fill)
-│   │   ├── backup-restore-paths.ts / backup-restore-secrets.ts # restore path validation / secrets fill helpers
+│   │   ├── backup-restore-files.ts / backup-restore-paths.ts / backup-restore-secrets.ts # safe file restore / path validation / secrets fill
 │   │   ├── backup-manage.ts  # listBackups / deleteBackup / pinBackup (three-tier default + pinned + history management)
-│   │   ├── backup-rules.ts   # Directory-semantic backup excludes + sensitive field detection
+│   │   ├── backup-policy-defaults.ts # Factory policies for Claude/Codex/Grok/Cursor/scripts
+│   │   ├── backup-policy-match.ts / backup-policy-transform.ts / backup-policy-validation.ts # Editable rule engine
 │   │   ├── secrets-index.ts  # Global backup placeholder dedup + restore fieldPath addressing fan-out
 │   │   ├── field-path.ts     # fieldPath parsing + addressing (split from secrets-index and re-exported through it)
-│   │   └── redact.ts         # JSON / TOML / whole-file credential redaction (includes valueHash for secrets-index)
+│   │   └── redact.ts         # Placeholder/redaction compatibility utilities used by secrets-index tests
 │   ├── readers/
 │   │   └── index.ts          # CLI adapter over shared catalog + five-tool version detection
 │   └── client/               # Tauri frontend (React)
-│       ├── index.html / main.tsx / App.tsx / styles.css / dev-server.ts
+│       ├── index.html / main.tsx / App.tsx / styles.css / profile-workflows.css / dev-server.ts
 │       ├── bridge.ts         # Tauri IPC bridge + dchProfile.* wrappers + readFileWithMtime + getHomeDir
 │       ├── bridge-core.ts    # dch CLI invoke primitive (shared base for bridge / bridge-backup)
 │       ├── bridge-mtime.ts   # mtime CAS error type + classifier (TOCTOU detection)
@@ -525,14 +549,14 @@ Test files (`*.test.ts(x)` / `fs_tests.rs`) live next to the files they test and
 │               ├── AddProfileModal.tsx
 │               ├── ProfileCard.tsx
 │               ├── ProfileStoreEditor.tsx  # schema-aware modal for ~/.dch/profiles.json
-│               ├── ExportBackupModal.tsx   # Export .dchpack (profile multi-select + shared toggle + keep / placeholder toggle)
+│               ├── BackupPolicyModal.tsx / BackupRuleTable.tsx # Ordered rule editor + hierarchy/reset controls
+│               ├── ExportBackupModal.tsx   # Prepare exact preview, audit files, then commit immutable .dchpack
 │               ├── RestoreBackupModal.tsx  # Import .dchpack (4 steps: preview + rename + fill K secrets + apply+report)
 │               ├── restore-modal-bodies.tsx / restore-modal-helpers.ts # Step bodies / helpers split from RestoreBackupModal
 │               ├── RestoreSecretsBody.tsx  # Step 3 "fill K secrets" form for K logical keys
 │               ├── UniqueSecretsList.tsx / CrossFieldBadge.tsx # Deduplicated secret list + cross-field-name badge
 │               ├── BackupHistoryModal.tsx  # Backup history (default / pinned / history groups + restore / pin / delete)
 │               ├── HookOutputModal.tsx
-│               ├── PreferencesEditor.tsx
 │               └── helpers.ts
 ├── src-tauri/                # Tauri backend (Rust)
 │   ├── Cargo.toml

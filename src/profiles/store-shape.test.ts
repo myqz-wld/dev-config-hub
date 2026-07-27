@@ -5,9 +5,8 @@ import { tmpdir } from "node:os";
 import { applyStoreDefaults, EMPTY_STORE } from "./store-shape.ts";
 import { loadStore } from "./store.ts";
 
-// CHANGELOG_15: applyStoreDefaults 是 store.ts.loadStore 与 bridge.ts.loadProfileDataDirect
-// 共享的纯函数。两套调用路径必须输出一致，否则未来给 preferences 加新字段时一边改一边忘改 →
-// CLI 落盘正常但 UI 显示 undefined（或反之）。本组测试锁同源契约。
+// applyStoreDefaults 是 store.ts.loadStore 与 bridge.ts.loadProfileDataDirect 共享的
+// 迁移入口。两套调用路径必须输出一致，尤其不能让旧全局超时从其中一条路径漏进方案。
 
 describe("applyStoreDefaults — pure default 补全", () => {
   it("空对象 → EMPTY_STORE 等价 shape", () => {
@@ -32,32 +31,34 @@ describe("applyStoreDefaults — pure default 补全", () => {
     });
   });
 
-  it("缺 preferences → 补 hookTimeoutMs=30000", () => {
-    const r = applyStoreDefaults({ profiles: [], active: {} });
-    expect(r.preferences.hookTimeoutMs).toBe(30_000);
+  it("旧全局超时被忽略，方案缺值直接补 30000", () => {
+    const r = applyStoreDefaults({
+      profiles: [{ id: "p1", tool: "claude", configDir: "~/.claude-p1" }],
+      preferences: { hookTimeoutMs: 60_000 },
+    });
+    expect(r.profiles[0]?.hookTimeoutMs).toBe(30_000);
+    expect("preferences" in r).toBeFalse();
   });
 
-  it("preferences 部分残缺 → 默认补全", () => {
-    const r = applyStoreDefaults({ preferences: {} });
-    expect(r.preferences.hookTimeoutMs).toBe(30_000);
-  });
-
-  it("自定义 hookTimeoutMs 保留", () => {
-    const r = applyStoreDefaults({ preferences: { hookTimeoutMs: 60_000 } });
-    expect(r.preferences.hookTimeoutMs).toBe(60_000);
-  });
-
-  it("profiles 数组保留", () => {
+  it("方案自己的合法超时保留，非法值回落 30000", () => {
     const profiles = [
-      { id: "p1", tool: "claude" as const, configDir: "~/.claude-p1" },
+      { id: "p1", tool: "claude" as const, configDir: "~/.claude-p1", hookTimeoutMs: 45_000 },
+      { id: "p2", tool: "codex" as const, configDir: "~/.codex-p2", hookTimeoutMs: 42 },
     ];
     const r = applyStoreDefaults({ profiles });
-    expect(r.profiles).toEqual(profiles);
+    expect(r.profiles.map((p) => p.hookTimeoutMs)).toEqual([45_000, 30_000]);
   });
 
-  it("version 强制 1（防 raw 写入旧 version 漂移）", () => {
+  it("version 强制 2（防 raw 写入旧 version 漂移）", () => {
     const r = applyStoreDefaults({ version: 999 });
-    expect(r.version).toBe(1);
+    expect(r.version).toBe(2);
+  });
+
+  it("缺 backup → 补空工具级规则；已有脚本开关保留", () => {
+    expect(applyStoreDefaults({}).backup).toEqual({ toolPolicies: {} });
+    expect(applyStoreDefaults({
+      backup: { toolPolicies: {}, scriptsEnabled: false },
+    }).backup.scriptsEnabled).toBeFalse();
   });
 });
 

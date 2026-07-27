@@ -19,7 +19,12 @@
 
 import { readdir, stat, mkdir, copyFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
-import type { ToolKind, ProfileHooks } from "./types.ts";
+import type {
+  BackupRuleSource,
+  BackupSecretAction,
+  ToolKind,
+  ProfileHooks,
+} from "./types.ts";
 import type { SecretsIndex } from "./secrets-index.ts";
 
 export const FORMAT_VERSION = 1 as const;
@@ -32,6 +37,8 @@ export interface ManifestProfile {
   hooks?: ProfileHooks;
   env_keys: string[];
   active_in_source: boolean;
+  /** New packages restore only these manifest-declared relative paths. */
+  files?: string[];
 }
 
 export interface PlaceholderEntry {
@@ -51,14 +58,16 @@ export interface Manifest {
   source_user: string;
   dch_version: string;
   options: {
-    include_shared: boolean;
+    /** New name. Missing in legacy packages. */
+    include_scripts?: boolean;
+    /** Legacy v1 option, read-only compatibility. New packages never write it. */
+    include_shared?: boolean;
     no_placeholder: boolean;
     profile_ids: string[];
   };
   profiles: ManifestProfile[];
   shared: {
     dch_scripts: string[];
-    agents_paths: string[];
   };
   placeholders: PlaceholderEntry[];
   /**
@@ -68,6 +77,49 @@ export interface Manifest {
    */
   secrets_index?: SecretsIndex;
   security_warnings: string[];
+  backup_audit?: BackupAudit;
+}
+
+export interface BackupPolicyAudit {
+  owner: string;
+  source: BackupRuleSource;
+  schema_version: 1;
+  digest: string;
+  file_rule_count: number;
+  secret_rule_count: number;
+}
+
+export interface BackupFileSecretAudit {
+  rule_id: string;
+  action: BackupSecretAction;
+  count: number;
+}
+
+export interface BackupFileAudit {
+  owner: string;
+  relative_path: string;
+  pack_path: string;
+  outcome: "included" | "excluded";
+  coverage_rule_id: string | null;
+  secret_hits: BackupFileSecretAudit[];
+  unscannable: boolean;
+  warnings: string[];
+}
+
+export interface BackupAudit {
+  schema_version: 1;
+  policies: BackupPolicyAudit[];
+  totals: {
+    included_files: number;
+    excluded_files: number;
+    unscannable_files: number;
+    placeholder_hits: number;
+    excluded_secret_hits: number;
+    retained_secret_hits: number;
+    ignored_hits: number;
+  };
+  contains_raw_secrets: boolean;
+  files: BackupFileAudit[];
 }
 
 export function tsForFilename(d: Date = new Date()): string {

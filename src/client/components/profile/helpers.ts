@@ -16,43 +16,16 @@ export const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export const TOOLS: ToolKind[] = [...PROFILE_TOOL_IDS];
 
-export const MAIN_CONFIG: Record<ToolKind, {
-  filename: string;
-  format: "json" | "toml";
-  placeholder: string;
-}> = {
-  claude: {
-    filename: "settings.json",
-    format: "json",
-    placeholder: '{\n  "model": "claude-opus-4-7",\n  "env": {\n    "DISABLE_TELEMETRY": "1"\n  },\n  "permissions": {\n    "allow": ["mcp__*"]\n  }\n}\n',
-  },
-  codex: {
-    filename: "config.toml",
-    format: "toml",
-    placeholder: 'model = "gpt-5.5"\nmodel_reasoning_effort = "xhigh"\n',
-  },
-  grok: {
-    filename: "config.toml",
-    format: "toml",
-    placeholder: "# Grok user configuration\n",
-  },
-  cursor: {
-    filename: "cli-config.json",
-    format: "json",
-    placeholder: "{}\n",
-  },
-};
-
-export interface AddForm {
+export interface ProfileFormData {
   tool: ToolKind;
   id: string;
   dir: string;
+  directoryMode: "create-empty" | "manage-existing";
   description: string;
-  from: string;
   env: Record<string, string>;
   preHook: string;
   postHook: string;
-  configContent: string;     // settings.json / config.toml 完整内容（空 = 不创建该文件）
+  hookTimeoutMs: number;
 }
 
 /**
@@ -64,6 +37,22 @@ export function hookToString(h: HookScript | undefined): string {
   if (!h) return "";
   if (typeof h === "string") return h;
   return h.posix ?? h.powershell ?? h.cmd ?? "";
+}
+
+/** Keep a platform-specific hook object intact unless the normal editor changed it. */
+export function hookFromEditedText(
+  original: HookScript | undefined,
+  edited: string,
+): HookScript | undefined {
+  const trimmed = edited.trim();
+  if (
+    original &&
+    typeof original !== "string" &&
+    trimmed === hookToString(original).trim()
+  ) {
+    return original;
+  }
+  return trimmed || undefined;
 }
 
 /** 简单遮蔽看起来像 key/token 的值（仅显示）。 */

@@ -22,9 +22,9 @@ const mockManifest = (): Manifest => ({
   source_user: "u",
   source_host: "h",
   dch_version: "1.0.0",
-  options: { no_placeholder: false, include_shared: true },
+  options: { no_placeholder: false, include_scripts: true },
   profiles: [],
-  shared: { dch_scripts: [], agents_paths: [] },
+  shared: { dch_scripts: [] },
   placeholders: [],
 } as unknown as Manifest);
 

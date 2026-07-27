@@ -38,11 +38,6 @@ describe("parseFlags (REVIEW_2 PR-1 回归保护)", () => {
     expect(r.flags["post-hook"]).toBe("--abort");
   });
 
-  it("VALUE_FLAGS：--from <id>", () => {
-    const r = parseFlags(["--from", "claude-pro"]);
-    expect(r.flags.from).toBe("claude-pro");
-  });
-
   it("VALUE_FLAGS：--desc <text>", () => {
     const r = parseFlags(["--desc", "my description"]);
     expect(r.flags.desc).toBe("my description");
@@ -92,14 +87,16 @@ describe("parseFlags (REVIEW_2 PR-1 回归保护)", () => {
     expect(r.envPairs).toEqual([["FOO", ""]]);
   });
 
-  it("VALUE_FLAGS 集合内容固定（10 项：5 个 profile flag + 5 个 backup/restore flag）", () => {
-    expect(VALUE_FLAGS.size).toBe(10);
+  it("VALUE_FLAGS 集合内容固定（新建不再支持 --from）", () => {
+    expect(VALUE_FLAGS.size).toBe(11);
     // profile add 系列
     expect(VALUE_FLAGS.has("dir")).toBe(true);
     expect(VALUE_FLAGS.has("desc")).toBe(true);
-    expect(VALUE_FLAGS.has("from")).toBe(true);
+    expect(VALUE_FLAGS.has("from")).toBe(false);
     expect(VALUE_FLAGS.has("pre-hook")).toBe(true);
     expect(VALUE_FLAGS.has("post-hook")).toBe(true);
+    expect(VALUE_FLAGS.has("timeout")).toBe(true);
+    expect(VALUE_FLAGS.has("payload")).toBe(true);
     // backup / restore 系列（CHANGELOG_16 + CHANGELOG_17 + CHANGELOG_18 加入）
     expect(VALUE_FLAGS.has("out")).toBe(true);
     expect(VALUE_FLAGS.has("profiles")).toBe(true);
@@ -124,7 +121,7 @@ describe("parseFlags (REVIEW_2 PR-1 回归保护)", () => {
   });
 
   it("allowedFlags 设置 → 未知 flag throw（REVIEW_8 M11/B6 防 typo）", () => {
-    const allowed = new Set(["dir", "from", "desc", "pre-hook", "post-hook"]);
+    const allowed = new Set(["dir", "desc", "pre-hook", "post-hook", "timeout", "existing"]);
     // 典型 typo: --no-share vs --no-shared（虽然不在 add 集合，借此演示）
     expect(() => parseFlags(["--unknown"], { allowedFlags: allowed })).toThrow(/未知 flag --unknown/);
     expect(() => parseFlags(["--no-share"], { allowedFlags: new Set(["no-shared", "yes"]) }))
@@ -137,7 +134,7 @@ describe("parseFlags (REVIEW_2 PR-1 回归保护)", () => {
   });
 
   it("allowedFlags + 已知 flag → OK", () => {
-    const allowed = new Set(["dir", "from", "desc", "pre-hook", "post-hook"]);
+    const allowed = new Set(["dir", "desc", "pre-hook", "post-hook", "timeout", "existing"]);
     const r = parseFlags(["claude", "id", "--dir", "/tmp", "--desc", "x"], { allowedFlags: allowed });
     expect(r.flags.dir).toBe("/tmp");
     expect(r.flags.desc).toBe("x");

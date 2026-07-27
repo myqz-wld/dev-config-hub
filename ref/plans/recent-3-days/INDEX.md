@@ -15,3 +15,4 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-07-26 | [PLAN_2_profile-backup-policies.md](PLAN_2_profile-backup-policies.md) | completed | Added empty profiles, editable policies, exact exports, and manifest-only restore. | [CHANGELOG_37](../../changelogs/recent-3-days/CHANGELOG_37_profile-backup-policies.md), [REVIEW_12](../../reviews/recent-3-days/REVIEW_12_backup-policy-security.md) |

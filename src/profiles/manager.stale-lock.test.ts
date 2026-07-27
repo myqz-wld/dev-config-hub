@@ -12,9 +12,9 @@ import { IS_WIN } from "../platform.ts";
  * 1200s，远 > 60s 默认 staleMs → 并发 dch profile add/remove/use 看 lockfile 时间戳判 stale
  * → unlink + 抢占 → multi-process lost update 回归（PR-5 修过的同根问题）。
  *
- * 新行为：manager.withProfileLock 按 store.preferences.hookTimeoutMs 动态算 staleMs =
- * 2 × hookTimeoutMs + 5_000。所有 6 处写操作走同一 helper → acquirer 视角 staleMs ≥ holder
- * 视角的最大持锁时长不变量成立。
+ * 新行为：manager.withProfileLock 取所有方案的最大 hookTimeoutMs，再计算 staleMs =
+ * 2 × max(hookTimeoutMs) + 5_000。所有写操作走同一 helper → acquirer 视角 staleMs ≥
+ * holder 视角的最大持锁时长不变量成立。
  *
  * 测试场景：用极小 staleMs（设置一个超小 hookTimeoutMs，让旧 path 在快速 acquirer 观察就
  * 判 stale）→ 反证新 path 不会抢占。
@@ -41,18 +41,22 @@ async function setupTmpHome(opts: SetupOpts): Promise<{ home: string }> {
   await symlink(dirA, join(home, ".claude"));
 
   const store = {
-    version: 1,
+    version: 2,
     profiles: [
-      { id: "default", tool: "claude", configDir: "~/.claude-default", isDefault: true },
+      {
+        id: "default", tool: "claude", configDir: "~/.claude-default",
+        isDefault: true, hookTimeoutMs: opts.hookTimeoutMs,
+      },
       {
         id: "slow-target",
         tool: "claude",
         configDir: "~/.claude-target",
+        hookTimeoutMs: opts.hookTimeoutMs,
         ...(opts.preSwitchSleepSec ? { hooks: { preSwitch: `sleep ${opts.preSwitchSleepSec}; exit 0` } } : {}),
       },
     ],
     active: { claude: "default", codex: null },
-    preferences: { hookTimeoutMs: opts.hookTimeoutMs },
+    backup: { toolPolicies: {} },
   };
   await writeFile(join(home, ".dch/profiles.json"), JSON.stringify(store, null, 2));
   return { home };

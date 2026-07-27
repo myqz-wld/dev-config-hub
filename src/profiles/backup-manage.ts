@@ -37,7 +37,8 @@ export interface BackupManifestSummary {
   profileIds: string[];
   placeholderCount: number;
   noPlaceholder: boolean;
-  includeShared: boolean;
+  containsRawSecrets: boolean;
+  includeScripts: boolean;
 }
 
 export interface BackupSummary {
@@ -82,7 +83,14 @@ async function readManifestSummary(packPath: string): Promise<{
     const m = JSON.parse(stdoutText) as Record<string, unknown>;
     const profiles = (m.profiles ?? []) as Array<{ id: string }>;
     const placeholders = (m.placeholders ?? []) as unknown[];
-    const options = (m.options ?? {}) as { no_placeholder?: boolean; include_shared?: boolean };
+    const options = (m.options ?? {}) as {
+      no_placeholder?: boolean;
+      include_scripts?: boolean;
+      include_shared?: boolean;
+    };
+    const backupAudit = (m.backup_audit ?? {}) as {
+      contains_raw_secrets?: boolean;
+    };
     return {
       manifest: {
         formatVersion: (m.format_version as number) ?? 0,
@@ -94,7 +102,10 @@ async function readManifestSummary(packPath: string): Promise<{
         profileIds: profiles.map((p) => p.id),
         placeholderCount: placeholders.length,
         noPlaceholder: options.no_placeholder ?? false,
-        includeShared: options.include_shared ?? true,
+        containsRawSecrets:
+          backupAudit.contains_raw_secrets === true ||
+          options.no_placeholder === true,
+        includeScripts: options.include_scripts ?? options.include_shared ?? true,
       },
     };
   } catch (e) {

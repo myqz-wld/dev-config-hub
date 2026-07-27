@@ -22,7 +22,7 @@
  * - 排序 deterministic：entries[] 按 fieldName 字典序 → idx 升序；每个 locations[] 按 packPath 字典序
  *
  * 已知边界（Step 4 caller 需处理）：
- * - **整文件场景**（packPath 末尾 auth.json / credentials.json）：redactWholeFile 把整体压成
+ * - **自定义整文件 placeholder 场景**：规则允许把整个文件压成
  *   `{"placeholder": "<<DCH_PLACEHOLDER:AUTH>>"}`，fill 后文件结构是 `{"placeholder": "<填入字符串>"}`
  *   仍非真正的 OAuth payload。caller 应在 UI / CLI 提示用户「整文件凭据请用工具自身重新登录获取」，
  *   而不是期待 fill 重建出有效 OAuth。本模块不阻止 set，只是结果无意义

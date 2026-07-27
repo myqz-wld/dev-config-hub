@@ -53,16 +53,18 @@ async function setupTmpHome(profileHooks: { preSwitch?: string; postSwitch?: str
         tool: "claude",
         configDir: "~/.claude-default",
         isDefault: true,
+        hookTimeoutMs: 1_000,
       },
       {
         id: profileId,
         tool: "claude",
         configDir: "~/.claude-test",
         hooks: profileHooks,
+        hookTimeoutMs: 1_000,
       },
     ],
     active: { claude: "test-default", codex: null },
-    preferences: { hookTimeoutMs: 500 },  // 短 timeout 让 detach 测试快收敛
+    backup: { toolPolicies: {} },
   };
   await writeFile(join(dchDir, "profiles.json"), JSON.stringify(store, null, 2));
   return { home, profileId };
@@ -101,7 +103,7 @@ describe.skipIf(IS_WIN)("cli-profile.exit-time (REVIEW_7 H6 e2e)", () => {
     try {
       const r = await spawnProfileUse(home, profileId);
       // 旧实现（未修复）：bun 进程会卡 30s（≈ sleep 30 寿命）
-      // 修复后（PR-1 process.exit）：< 3s（hookTimeoutMs 500ms + hardCap GRACE + bun exit 余量）
+      // 修复后（PR-1 process.exit）：< 3s（方案 hookTimeoutMs 1s + hardCap GRACE + 退出余量）
       // **核心断言**：bun 子进程必须快速退出（detach 孙子持 pipe FD 不应拖死 bun event loop）
       expect(r.durationMs).toBeLessThan(3000);
       // JSON 必须可 parse — 即使 hook 因 detach 被 hardCap 当 timedOut 处理（ok=false）也无所谓，
@@ -124,7 +126,7 @@ describe.skipIf(IS_WIN)("cli-profile.exit-time (REVIEW_7 H6 e2e)", () => {
     });
     try {
       const r = await spawnProfileUse(home, profileId);
-      // H7 旧实现：bun 进程会被 race 输掉的 setTimeout 拖到 hookTimeoutMs+1000ms（500+1000=1500ms+）
+      // H7 旧实现：bun 进程会被 race 输掉的 setTimeout 拖到 hookTimeoutMs+1000ms。
       // 修复后（PR-1 process.exit）：bun 立刻退（CLI 主流程跑完 ≤ 几百 ms）
       expect(r.durationMs).toBeLessThan(2000);
       expect(r.exitCode).toBe(0);
@@ -149,7 +151,7 @@ describe.skipIf(IS_WIN)("cli-profile.exit-time (REVIEW_7 H6 e2e)", () => {
       expect(r.stdout.length).toBeGreaterThan(180_000);
       const parsed = JSON.parse(r.stdout);
       expect(parsed.ok).toBe(true);
-      // hooks[0].stdout 应包含完整 200KB 'x'（runHook 内 hardCap 也可能 truncate，但 hookTimeoutMs=500ms
+      // hooks[0].stdout 应包含完整 200KB 'x'（runHook 内 hardCap 也可能 truncate，但 hookTimeoutMs=1s
       // 对 yes|head 是足够的；这里主断言是 stdout 不被 process.exit 截到 65536）
       expect(parsed.hooks).toHaveLength(1);
       expect(parsed.hooks[0].stdout.length).toBeGreaterThan(150_000);

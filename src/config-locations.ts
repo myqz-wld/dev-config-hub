@@ -91,29 +91,6 @@ function rootLabel(envValue: string | null | undefined, fallback: string, variab
   return envValue ? `$${variable}` : fallback;
 }
 
-function cursorUserDir(env: ConfigEnvironment): { path: string; label: string } {
-  if (env.platform === "darwin") {
-    return {
-      path: joinConfigPath(env.platform, env.home, "Library", "Application Support", "Cursor", "User"),
-      label: "~/Library/Application Support/Cursor/User",
-    };
-  }
-  if (env.platform === "win32") {
-    const base = expandConfigRoot(env.appData, env)
-      ?? joinConfigPath(env.platform, env.home, "AppData", "Roaming");
-    return {
-      path: joinConfigPath(env.platform, base, "Cursor", "User"),
-      label: env.appData ? "%APPDATA%\\Cursor\\User" : "~/AppData/Roaming/Cursor/User",
-    };
-  }
-  const xdg = expandConfigRoot(env.xdgConfigHome, env)
-    ?? joinConfigPath(env.platform, env.home, ".config");
-  return {
-    path: joinConfigPath(env.platform, xdg, "Cursor", "User"),
-    label: env.xdgConfigHome ? "$XDG_CONFIG_HOME/Cursor/User" : "~/.config/Cursor/User",
-  };
-}
-
 function shellFiles(env: ConfigEnvironment): ConfigFileLocation[] {
   if (env.platform === "win32") {
     return env.powerShellProfiles.map((p) => ({
@@ -165,7 +142,6 @@ export function buildConfigToolDefinitions(env: ConfigEnvironment): ConfigToolDe
   const codexRoot = profileToolRoot(env, "codex");
   const grokRoot = profileToolRoot(env, "grok");
   const cursorRoot = profileToolRoot(env, "cursor");
-  const cursorUser = cursorUserDir(env);
   const codexLabel = rootLabel(env.codexHome, "~/.codex", "CODEX_HOME");
   const grokLabel = rootLabel(env.grokHome, "~/.grok", "GROK_HOME");
 
@@ -230,13 +206,9 @@ export function buildConfigToolDefinitions(env: ConfigEnvironment): ConfigToolDe
       id: "cursor",
       name: "Cursor",
       icon: "cursor",
-      description: "AI 代码编辑器与 Agent 配置",
+      description: "Cursor CLI 配置",
       files: [
-        { level: "user", label: `${cursorUser.label}/settings.json`, filePath: joinConfigPath(env.platform, cursorUser.path, "settings.json"), format: "jsonc", initialContent: "{}\n" },
-        { level: "user", label: `${cursorUser.label}/keybindings.json`, filePath: joinConfigPath(env.platform, cursorUser.path, "keybindings.json"), format: "jsonc", initialContent: "[]\n" },
-        { level: "user", label: "~/.cursor/mcp.json", filePath: joinConfigPath(env.platform, cursorRoot, "mcp.json"), format: "json", initialContent: "{}\n" },
         { level: "user", label: "~/.cursor/cli-config.json", filePath: joinConfigPath(env.platform, cursorRoot, "cli-config.json"), format: "json", initialContent: "{}\n" },
-        { level: "user", label: "~/.cursor/hooks.json", filePath: joinConfigPath(env.platform, cursorRoot, "hooks.json"), format: "json", initialContent: "{}\n", optional: true },
       ],
     },
   ];

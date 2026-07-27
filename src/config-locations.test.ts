@@ -48,14 +48,10 @@ describe("user-level config catalog", () => {
     ]);
   });
 
-  it("Cursor exposes only the selected user-level editor and agent files", () => {
+  it("Cursor only exposes ~/.cursor/cli-config.json", () => {
     const cursor = buildConfigToolDefinitions(MAC_ENV).find((tool) => tool.id === "cursor")!;
     expect(cursor.files.map((file) => file.label)).toEqual([
-      "~/Library/Application Support/Cursor/User/settings.json",
-      "~/Library/Application Support/Cursor/User/keybindings.json",
-      "~/.cursor/mcp.json",
       "~/.cursor/cli-config.json",
-      "~/.cursor/hooks.json",
     ]);
   });
 
@@ -72,7 +68,7 @@ describe("user-level config catalog", () => {
     expect(shell.files[0]?.filePath).toBe("/Users/test/.config/zsh/.zshenv");
   });
 
-  it("Windows uses discovered PowerShell profiles and APPDATA Cursor settings", () => {
+  it("Windows uses discovered PowerShell profiles and ~/.cursor CLI config", () => {
     const env: ConfigEnvironment = {
       home: "C:\\Users\\test",
       platform: "win32",
@@ -91,7 +87,7 @@ describe("user-level config catalog", () => {
     ]);
     const cursor = definitions.find((tool) => tool.id === "cursor")!;
     expect(cursor.files[0]?.filePath).toBe(
-      "C:\\Users\\test\\AppData\\Roaming\\Cursor\\User\\settings.json",
+      "C:\\Users\\test\\.cursor\\cli-config.json",
     );
   });
 });
@@ -115,7 +111,7 @@ describe("compact display selection", () => {
     expect(grok.scopes.map((scope) => scope.label)).toContain("~/.grok/managed_config.toml");
     expect(grok.scopes.map((scope) => scope.label)).not.toContain("~/.grok/requirements.toml");
     const cursor = tools.find((tool) => tool.name === "Cursor")!;
-    expect(cursor.scopes.map((scope) => scope.label)).not.toContain("~/.cursor/hooks.json");
+    expect(cursor.scopes.map((scope) => scope.label)).toEqual(["~/.cursor/cli-config.json"]);
   });
 
   it("falls back to AGENTS.md when override is absent", async () => {

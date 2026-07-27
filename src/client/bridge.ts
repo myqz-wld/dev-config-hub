@@ -49,21 +49,6 @@ export async function readLink(path: string): Promise<string | null> {
   }
 }
 
-function expandHomePath(p: string, home: string): string {
-  if (p === "~") return home;
-  if (p.startsWith("~/")) return `${home}/${p.slice(2)}`;
-  return p;
-}
-
-// 把 `~/.x/` / `~/.x` / `/Users/apple/.x/` / `/Users/apple/.x//` 都规范成同一字符串，
-// 用于 dir 撞车校验。只展开 home + 折叠 `//` + 去尾 `/`，不解析 `..`。
-export function normalizeProfileDir(p: string, home: string): string {
-  if (!p) return "";
-  let abs = expandHomePath(p, home);
-  abs = abs.replace(/\/+/g, "/").replace(/\/+$/, "");
-  return abs || "/";
-}
-
 export async function getHomeDir(): Promise<string> {
   return call<string>("get_home_dir");
 }
@@ -80,21 +65,6 @@ export interface DirEntry {
 }
 export async function readDir(path: string): Promise<DirEntry[]> {
   return call<DirEntry[]>("read_dir", { path });
-}
-
-// 读 profile configDir 下的某个文件（如 settings.json / config.toml）。不存在返回空串。
-export async function readProfileConfigFile(configDir: string, filename: string): Promise<string> {
-  const home = await getHomeDir();
-  const dirAbs = expandHomePath(configDir, home);
-  const r = await readFileWithMtime(`${dirAbs}/${filename}`);
-  return r.exists ? r.content : "";
-}
-
-// 把内容写到 profile configDir 下的某个文件。父目录不存在时由 Rust 端 mkdir -p。
-export async function writeProfileConfigFile(configDir: string, filename: string, content: string): Promise<void> {
-  const home = await getHomeDir();
-  const dirAbs = expandHomePath(configDir, home);
-  await saveFile(`${dirAbs}/${filename}`, content);
 }
 
 /**
@@ -227,6 +197,7 @@ export {
 
 import {
   PROFILE_TOOL_IDS,
+  type BackupPolicyV1, type BackupRuleSource,
   type Profile, type ProfileStore, type SwitchResult, type ToolKind, type HookResult,
 } from "../profiles/types.ts";
 
@@ -238,18 +209,24 @@ import { dchBackup } from "./bridge-backup.ts";
 // 给本模块内 dchProfileMethods 用的 runDch / TIMEOUT_* 引用 (private import,与 above 公开 re-export 等价)
 import { runDch, TIMEOUT_FAST_MS, TIMEOUT_INIT_MS } from "./bridge-core.ts";
 
-export type { Profile, ProfileStore, SwitchResult, ToolKind, HookResult };
+export type {
+  BackupPolicyV1, BackupRuleSource,
+  Profile, ProfileStore, SwitchResult, ToolKind, HookResult,
+};
 
 const dchProfileMethods = {
   list: () => runDch<ProfileStore>(["list"], TIMEOUT_FAST_MS),
 
   add: (tool: ToolKind, id: string, opts: {
-    dir?: string; env?: Record<string, string>; description?: string; from?: string;
-    preHook?: string; postHook?: string;
+    dir?: string; env?: Record<string, string>; description?: string;
+    preHook?: string; postHook?: string; hookTimeoutMs?: number; existing?: boolean;
   } = {}) => {
     const args = ["add", tool, id];
     if (opts.dir) args.push("--dir", opts.dir);
-    if (opts.from) args.push("--from", opts.from);
+    if (opts.existing) args.push("--existing");
+    if (opts.hookTimeoutMs !== undefined) {
+      args.push("--timeout", String(opts.hookTimeoutMs));
+    }
     if (opts.description) args.push("--desc", opts.description);
     for (const [k, v] of Object.entries(opts.env ?? {})) args.push("--env", `${k}=${v}`);
     if (opts.preHook) args.push("--pre-hook", opts.preHook);
@@ -258,6 +235,20 @@ const dchProfileMethods = {
   },
 
   remove: (id: string) => runDch<{ ok: true; removed: string }>(["remove", id, "--yes"], TIMEOUT_FAST_MS),
+
+  update: (
+    id: string,
+    patch: {
+      configDir?: string;
+      description?: string | null;
+      env?: Profile["env"] | null;
+      hooks?: Profile["hooks"] | null;
+      hookTimeoutMs?: number;
+    },
+  ) => runDch<{ ok: true; profile: Profile }>(
+    ["update", id, "--payload", JSON.stringify(patch)],
+    TIMEOUT_FAST_MS,
+  ),
 
   use: (id: string, hookTimeoutMs: number) =>
     runDch<SwitchResult>(["use", id], 2 * hookTimeoutMs + 5_000),
@@ -270,8 +261,49 @@ const dchProfileMethods = {
   testHook: (id: string, which: "pre" | "post", hookTimeoutMs: number) =>
     runDch<HookResult | null>(["hook", "test", id, which], hookTimeoutMs + 5_000),
 
-  config: (key: "hookTimeoutMs", value: number) =>
-    runDch<{ ok: true }>(["config", key, String(value)], TIMEOUT_FAST_MS),
+  resolveBackupPolicy: (
+    scope: "tool" | "profile" | "scripts",
+    target?: string,
+  ) => runDch<{ ok: true; policy: BackupPolicyV1; source: BackupRuleSource }>(
+    ["backup-policy", "resolve", scope, ...(target ? [target] : [])],
+    TIMEOUT_FAST_MS,
+  ),
+
+  setBackupPolicy: (
+    scope: "tool" | "profile" | "scripts",
+    policy: BackupPolicyV1,
+    target?: string,
+  ) => runDch<{ ok: true }>(
+    [
+      "backup-policy", "set", scope, ...(target ? [target] : []),
+      "--payload", JSON.stringify(policy),
+    ],
+    TIMEOUT_FAST_MS,
+  ),
+
+  resetBackupPolicy: (scope: "tool" | "scripts", target?: string) =>
+    runDch<{ ok: true }>(
+      ["backup-policy", "reset", scope, ...(target ? [target] : [])],
+      TIMEOUT_FAST_MS,
+    ),
+
+  snapshotProfileBackupPolicy: (id: string) =>
+    runDch<{ ok: true }>(
+      ["backup-policy", "snapshot", "profile", id],
+      TIMEOUT_FAST_MS,
+    ),
+
+  inheritProfileBackupPolicy: (id: string) =>
+    runDch<{ ok: true }>(
+      ["backup-policy", "inherit", "profile", id],
+      TIMEOUT_FAST_MS,
+    ),
+
+  setScriptsBackupEnabled: (enabled: boolean) =>
+    runDch<{ ok: true }>(
+      ["backup-policy", "scripts-enabled", "scripts", String(enabled)],
+      TIMEOUT_FAST_MS,
+    ),
 };
 
 // dchProfile：profile 管理（add/remove/use/...） + backup 子组（spread 自 dchBackup）

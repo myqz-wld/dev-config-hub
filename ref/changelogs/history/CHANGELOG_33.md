@@ -7,7 +7,7 @@ changed_at: 2026-06-19
 
 ## Summary
 
-Follow-up to the handwritten paper UI (CHANGELOG_32): makes the handwritten look hold up off macOS and fixes the real root cause of the dark first-paint flash. The rendering-performance work from the same pass is recorded separately in `ref/reviews/recent-month/REVIEW_11.md`. No user-facing copy changes; `bun test` stays green (428 pass) and `tsc --noEmit` is clean.
+Follow-up to the handwritten paper UI (CHANGELOG_32): makes the handwritten look hold up off macOS and fixes the real root cause of the dark first-paint flash. The rendering-performance work from the same pass is recorded separately in `ref/reviews/history/REVIEW_11.md`. No user-facing copy changes; `bun test` stays green (428 pass) and `tsc --noEmit` is clean.
 
 ## Changes
 

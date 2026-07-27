@@ -11,32 +11,36 @@ const profiles: Profile[] = [
 describe("ExportBackupModal copy", () => {
   afterEach(() => cleanup());
 
-  it("保留为历史开关勾选后文案保持稳定，并展示备份规则入口", () => {
+  it("历史备份开关文案稳定，并说明规则在方案页维护", () => {
     const { container, getByText } = render(
       <ExportBackupModal
         profiles={profiles}
+        scriptsEnabled
         onClose={() => {}}
         onToast={() => {}}
       />,
     );
 
-    const label = getByText("保存为历史备份，不覆盖默认备份").closest("label");
+    const label = getByText((_, element) =>
+      element?.tagName === "LABEL" &&
+      element.textContent === "保留为独立历史备份，不覆盖 latest.dchpack"
+    ).closest("label");
     const checkbox = label?.querySelector<HTMLInputElement>("input[type='checkbox']");
     expect(checkbox).toBeTruthy();
 
     fireEvent.click(checkbox!);
 
-    expect(getByText("保存为历史备份，不覆盖默认备份")).toBeTruthy();
-    expect(container.textContent).toContain("不勾选时写入默认备份");
-    expect(container.textContent).toContain("dch-backup-<时间>.dchpack");
-    expect(container.querySelector(".backup-rules summary")?.textContent).toBe("查看备份规则");
-    expect(container.textContent).toContain("不会跟随配置目录里的 symlink");
+    expect(container.textContent).toContain("保留为独立历史备份");
+    expect(container.textContent).toContain("配置方案页的“备份规则”");
+    expect(container.textContent).toContain("不可变快照");
+    expect(container.querySelector(".backup-rules")).toBeNull();
   });
 
   it("配置方案选中态使用备份页固定样式，不只依赖系统 checkbox 外观", () => {
     const { getByText } = render(
       <ExportBackupModal
         profiles={profiles}
+        scriptsEnabled
         onClose={() => {}}
         onToast={() => {}}
       />,
@@ -53,5 +57,23 @@ describe("ExportBackupModal copy", () => {
 
     fireEvent.click(checkbox!);
     expect(row!.className).not.toContain("selected");
+  });
+
+  it("全局停用切换脚本时，本次导出不能重新打开", () => {
+    const { getByText } = render(
+      <ExportBackupModal
+        profiles={profiles}
+        scriptsEnabled={false}
+        onClose={() => {}}
+        onToast={() => {}}
+      />,
+    );
+    const label = getByText((_, element) =>
+      element?.tagName === "LABEL" &&
+      element.textContent === "全局规则已停用 ~/.dch/scripts/**"
+    ).closest("label");
+    const checkbox = label?.querySelector<HTMLInputElement>("input[type='checkbox']");
+    expect(checkbox?.checked).toBeFalse();
+    expect(checkbox?.disabled).toBeTrue();
   });
 });

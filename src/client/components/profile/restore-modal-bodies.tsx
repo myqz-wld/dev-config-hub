@@ -67,7 +67,7 @@ export function RestorePreviewBody({
         <label>来源</label>
         <span>{manifest.source_user}@{manifest.source_host} · {new Date(manifest.created_at).toLocaleString()} · DCH v{manifest.dch_version}</span>
       </div>
-      {manifest.options.no_placeholder && (
+      {(manifest.options.no_placeholder || manifest.backup_audit?.contains_raw_secrets) && (
         <div className="form-row form-row-block">
           <p className="form-hint" style={{ color: "var(--red)" }}>
             <DoodleIcon kind="warning" />这个备份包含未脱敏的密钥。
@@ -123,11 +123,17 @@ export function RestorePreviewBody({
 
       {plan.sharedActions.length > 0 && (
         <>
-          <div className="form-section-title">共享资源（{plan.sharedActions.length}）</div>
+          <div className="form-section-title">切换脚本（{plan.sharedActions.length}）</div>
           <div className="form-row form-row-block">
             <SharedActionsList items={plan.sharedActions} />
           </div>
         </>
+      )}
+
+      {plan.ignoredLegacyAgents > 0 && (
+        <p className="form-hint">
+          旧备份中的 <code>shared/agents/**</code> 共 {plan.ignoredLegacyAgents} 项已安全忽略，不会写回本机。
+        </p>
       )}
 
       {plan.placeholders.length > 0 && (
@@ -167,7 +173,12 @@ export function RestoreReportBody({
   return (
     <>
       <div className="form-row form-row-block">
-        <p className="form-hint">✓ 已导入 {result.appliedProfiles.length} 个配置方案（共享资源 {result.sharedActions.length} 项）。</p>
+        <p className="form-hint">✓ 已导入 {result.appliedProfiles.length} 个配置方案（切换脚本 {result.sharedActions.length} 项）。</p>
+        {result.ignoredLegacyAgents > 0 && (
+          <p className="form-hint">
+            旧备份中的 <code>shared/agents/**</code> 共 {result.ignoredLegacyAgents} 项已忽略，未写入本机。
+          </p>
+        )}
         {secretsMetrics && (
           <p className="form-hint" style={{ color: secretsMetrics.applied > 0 ? "var(--green)" : "var(--fg2)" }}>
             <DoodleIcon kind="key" />已填入 {secretsMetrics.applied} 处 · 跳过 {secretsMetrics.skipped.length} 个密钥项

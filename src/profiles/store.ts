@@ -45,14 +45,17 @@ export async function loadStore(path: string = STORE_PATH): Promise<ProfileStore
     throw new Error(`无法解析 ${path}: ${e}`);
   }
   // 默认补全走共享 store-shape.ts.applyStoreDefaults，前端 loadProfileDataDirect 也调
-  // 同一函数避免分叉（preferences 加新字段时两处忘改 → 行为分歧，难定位）。
+  // 同一函数避免 store 版本、方案超时与备份规则默认值在两端分叉。
   return applyStoreDefaults(raw);
 }
 
 export async function saveStore(store: ProfileStore, path: string = STORE_PATH): Promise<void> {
   const dir = path === STORE_PATH ? DCH_DIR : dirname(path);
   await mkdir(dir, { recursive: true });
-  await Bun.write(path, JSON.stringify(store, null, 2) + "\n");
+  // 即便调用方持有的是旧 shape，也统一以 v2 正规化结构写回；这会有意清理
+  // legacy preferences.hookTimeoutMs，且不会把旧全局值迁移到任何方案。
+  const normalized = applyStoreDefaults(store);
+  await Bun.write(path, JSON.stringify(normalized, null, 2) + "\n");
 }
 
 export const STORE_LOCK_PATH = STORE_PATH + ".lock";
@@ -60,8 +63,8 @@ export const STORE_LOCK_PATH = STORE_PATH + ".lock";
 /**
  * REVIEW_2 PR-5 (#H3) 修 multi-process lost update：
  * `loadStore → mutate → saveStore` 三步若两进程并发跑会互相覆盖（实测 spawn 5 child 各 push
- * 一个 profile 最终只剩 ~2 条）。manager 7 处写操作（add/remove/update/use/init/setPreference）
- * 全用本 helper 包：cross-process advisory lock via O_EXCL lockfile + PID + 时间戳。
+ * 一个 profile 最终只剩 ~2 条）。manager 所有写操作统一使用本 helper：
+ * cross-process advisory lock via O_EXCL lockfile + PID + 时间戳。
  *
  * 行为：
  * - O_EXCL atomic create lockfile（NFS 上不可靠但 macOS / Linux / Win 本地 fs OK）

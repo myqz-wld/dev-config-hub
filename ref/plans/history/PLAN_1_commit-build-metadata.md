@@ -29,4 +29,4 @@ Let a packaged Dev Config Hub app expose the commit it was built from and let `d
 
 ## Validation
 
-See [CHANGELOG_34_commit-build-metadata](../../changelogs/recent-month/CHANGELOG_34_commit-build-metadata.md).
+See [CHANGELOG_34_commit-build-metadata](../../changelogs/history/CHANGELOG_34_commit-build-metadata.md).

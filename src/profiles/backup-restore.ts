@@ -11,7 +11,8 @@
  * 关键设计：
  * - 还原**不**触动 active 状态（占位符未填，贸然 use 会让 claude/codex 启动失败）
  * - 还原**不**整体覆盖 ~/.dch/profiles.json（按单条 addProfile，复用 manager 的撞名校验）
- * - shared/dch/scripts/* 与 shared/agents/** 按文件 sha256 比对决定 skip / overwrite / backup-then-overwrite
+ * - shared/dch/scripts/* 按文件 sha256 比对决定 skip / overwrite / backup-then-overwrite
+ * - 旧包中的 shared/agents/** 只计数并忽略，绝不写回本机
  * - 占位符位置精准记录，UI 可定位到 final configDir 的 host 路径
  *
  * REVIEW_8 H5 / Group D3：默认强制把还原写到 `~/.dch-restored/<finalId>/` 下，忽略 manifest
@@ -30,7 +31,7 @@
  *
  * REVIEW_8 R2 R2-3/R2-4/R2-6/R2-9/R2-10 / Round 3 G1（path safety hardening）：
  * - mp.id / finalId early ID_RE 校验（早于 join，杜绝 `..` 注入逃逸 RESTORED_BASE）
- * - manifest.shared.{dch_scripts,agents_paths}[i] rel 走 safeJoinUnderRoot 防御 `../../.ssh/...`
+ * - manifest.shared.dch_scripts[i] rel 走 safeJoinUnderRoot 防御 `../../.ssh/...`
  * - validateRestorePath 加「黑名单祖先」检查（`$HOME/Library` 是 `Library/LaunchAgents` 的祖先 → 拒）
  * - validateRestorePath 大小写不敏感（macOS APFS / HFS+ 默认 case-insensitive，`.SSH` == `.ssh`）
  * - addProfile 失败 rm rollback pre-stat：finalDirAbs 在 restore 之前已存在时**不**rm，避免
@@ -51,7 +52,7 @@ import { addProfile, ID_RE } from "./manager.ts";
 import {
   FORMAT_VERSION,
   fileExists, tsForFilename, spawnSimple,
-  defaultSuffix, copyDirRecursive, applySharedFile,
+  defaultSuffix, applySharedFile,
   type Manifest, type PlaceholderEntry,
   type ConflictAction, type SharedActionResult,
 } from "./backup-shared.ts";
@@ -61,6 +62,11 @@ import {
   validateRestorePath,
   normalizePath,
 } from "./backup-restore-paths.ts";
+import {
+  hasSymlinkBelowRoot,
+  resolveSafeArchiveFile,
+  restoreManifestProfileFiles,
+} from "./backup-restore-files.ts";
 
 // caller 仍 `import { validateRestorePath } from "./backup-restore.ts"` 不变
 // (e.g. backup-safety.test.ts)
@@ -141,7 +147,7 @@ export interface AppliedProfile {
 }
 
 export interface SharedAction {
-  category: "dch_script" | "agents";
+  category: "dch_script";
   relPath: string;
   hostPath: string;
   // **REVIEW_9 follow-up F2**: 与 backup-shared.ts:applySharedFile 返回类型同源 alias,
@@ -154,6 +160,8 @@ export interface ApplyBackupResult {
   sharedActions: SharedAction[];
   placeholders: PlaceholderEntry[];
   errors: string[];
+  /** Number of legacy shared/agents payloads deliberately ignored. */
+  ignoredLegacyAgents: number;
 }
 
 // **REVIEW_9 follow-up F2**: defaultSuffix / fileSha256 / copyDirRecursive / applySharedFile
@@ -176,9 +184,6 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
   if (!Array.isArray(manifest.shared.dch_scripts)) {
     throw new Error("manifest.shared.dch_scripts 必须是数组");
   }
-  if (!Array.isArray(manifest.shared.agents_paths)) {
-    throw new Error("manifest.shared.agents_paths 必须是数组");
-  }
   if (!Array.isArray(manifest.placeholders)) {
     throw new Error("manifest.placeholders 必须是数组");
   }
@@ -200,6 +205,8 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
   const applied: AppliedProfile[] = [];
   const placeholders: PlaceholderEntry[] = [];
   const errors: string[] = [];
+  const legacyAgents = (manifest.shared as unknown as Record<string, unknown>).agents_paths;
+  const ignoredLegacyAgents = Array.isArray(legacyAgents) ? legacyAgents.length : 0;
 
   for (const mp of manifest.profiles) {
     if (!PROFILE_TOOL_IDS.includes(mp.tool as ToolKind)) {
@@ -337,11 +344,22 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
     const dirPreExisted = await fileExists(finalDirAbs);
     let appliedSuccessfully = false;
     try {
+      if (await hasSymlinkBelowRoot(HOME, finalDirAbs)) {
+        throw new Error(`还原目标含符号链接段: ${finalDirAbs}`);
+      }
       await mkdir(finalDirAbs, { recursive: true });
-      await copyDirRecursive(srcConfigDir, finalDirAbs);
-      const metaPath = join(tmpDir, "profiles", mp.id, "_meta.json");
+      await restoreManifestProfileFiles(srcConfigDir, finalDirAbs, mp.files, {
+        source: tmpDir,
+        destination: HOME,
+      });
+      const profileArchiveRoot = join(tmpDir, "profiles", mp.id);
+      const metaPath = await resolveSafeArchiveFile(
+        profileArchiveRoot,
+        "_meta.json",
+        tmpDir,
+      );
       let meta: Profile;
-      if (await fileExists(metaPath)) {
+      if (metaPath) {
         meta = await Bun.file(metaPath).json() as Profile;
       } else {
         meta = {
@@ -390,9 +408,9 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
     }
   }
 
-  // shared 资源
+  // 包内切换脚本。旧 shared/agents/** 已在上方计数并忽略，不进入任何写盘路径。
   // REVIEW_8 R2 R2-4 / R3 G1：每条 rel 走 safeJoinUnderRoot，杜绝 `../../.ssh/authorized_keys`
-  // 这种逃逸 ~/.dch/scripts 或 ~/.agents 子树的攻击。攻击模型：恶意 .dchpack 在 manifest.shared.*
+  // 这种逃逸 ~/.dch/scripts 子树的攻击。攻击模型：恶意 .dchpack 在 manifest.shared.*
   // 数组里塞 `../../.ssh/authorized_keys`，applySharedFile 调 copyFile 把 .dchpack 内的恶意文件
   // 直接覆盖到敏感路径（凭据 / LaunchAgents 持久化）。
   //
@@ -418,7 +436,15 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
       errors.push(`${label} 项被拒（path traversal / 绝对路径 / null byte）: ${JSON.stringify(rel)}`);
       return;
     }
-    const src = join(srcRoot, rel);
+    if (await hasSymlinkBelowRoot(HOME, safeDst)) {
+      errors.push(`${label} 项目标含符号链接段: ${JSON.stringify(rel)}`);
+      return;
+    }
+    const src = await resolveSafeArchiveFile(srcRoot, rel, tmpDir);
+    if (!src) {
+      errors.push(`${label} 项在包内不是安全的普通文件: ${JSON.stringify(rel)}`);
+      return;
+    }
     try {
       const action = await applySharedFile(src, safeDst, opts.sharedConflict, dryRun);
       sharedActions.push({ category, relPath: rel, hostPath: safeDst, action });
@@ -435,30 +461,13 @@ export async function applyBackup(opts: ApplyBackupOptions): Promise<ApplyBackup
       await runSharedItem("dch_script", rel, dchScriptsRoot, srcRoot, "manifest.shared.dch_scripts");
     }
   }
-  if (manifest.shared.agents_paths.length > 0) {
-    const agentsRoot = join(HOME, ".agents");
-    const srcRoot = join(tmpDir, "shared", "agents");
-    for (const rel of manifest.shared.agents_paths) {
-      await runSharedItem("agents", rel, agentsRoot, srcRoot, "manifest.shared.agents_paths");
-    }
-  }
-
-  // **REVIEW_9 B-MED-1 / B-claude M1**: 还原 ui-prefs.json。backup.ts:276 写 `tmpDir/dch/ui-prefs.json`,
-  // 但 restore 旧实现完全不读 → 跨机器 restore 静默丢失全部 UI 偏好(列宽 / 排序 / 主题等)。
-  // 用 backup-then-overwrite 策略与 shared assets 一致;dryRun 仅产 SharedAction 不写 fs。
-  // 同 B-HIGH-1 包 try/catch 让 applySharedFile 异常不阻塞返回。
-  const uiPrefsTmpPath = join(tmpDir, "dch", "ui-prefs.json");
-  if (await fileExists(uiPrefsTmpPath)) {
-    const uiPrefsHostPath = join(DCH_DIR, "ui-prefs.json");
-    try {
-      const action = await applySharedFile(uiPrefsTmpPath, uiPrefsHostPath, opts.sharedConflict, dryRun);
-      sharedActions.push({ category: "dch_script", relPath: "ui-prefs.json", hostPath: uiPrefsHostPath, action });
-    } catch (e) {
-      errors.push(`ui-prefs.json 应用失败: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }
-
-  return { appliedProfiles: applied, sharedActions, placeholders, errors };
+  return {
+    appliedProfiles: applied,
+    sharedActions,
+    placeholders,
+    errors,
+    ignoredLegacyAgents,
+  };
 }
 
 // ─── applyBackupWithSecrets ─────────────────────────────────────────────
