@@ -15,4 +15,4 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
-| 2026-07-26 | [CHANGELOG_37_profile-backup-policies.md](CHANGELOG_37_profile-backup-policies.md) | Added empty profiles, editable backup rules, and exact prepared exports. |
+| 2026-07-27 | [CHANGELOG_37_profile-backup-policies.md](CHANGELOG_37_profile-backup-policies.md) | Added empty profiles, editable backup rules, and exact prepared exports. |

@@ -7,6 +7,7 @@ import {
   type ToolKind,
 } from "../../bridge.ts";
 import { FileRuleTable, SecretRuleTable } from "./BackupRuleTable.tsx";
+import { PolicySelect } from "./PolicySelect.tsx";
 
 type PolicyTarget =
   | { scope: "tool"; tool: ToolKind }
@@ -19,6 +20,16 @@ const SOURCE_LABELS: Record<BackupRuleSource, string> = {
   "profile-snapshot": "方案独立快照",
   scripts: "切换脚本",
 };
+
+const DEFAULT_FILE_ACTIONS = [
+  { value: "include", label: "默认包含" },
+  { value: "exclude", label: "默认排除" },
+] as const;
+
+const UNSCANNABLE_FILE_ACTIONS = [
+  { value: "include-with-warning", label: "包含并警告" },
+  { value: "exclude", label: "排除" },
+] as const;
 
 export function BackupPolicyModal({
   target,
@@ -45,7 +56,7 @@ export function BackupPolicyModal({
     ? `${target.tool} 备份规则`
     : target.scope === "profile"
     ? `${target.profile.id} 方案备份规则`
-    : "切换脚本备份规则";
+    : "DCH 全局 · 切换脚本备份规则";
 
   useEffect(() => {
     let current = true;
@@ -160,6 +171,12 @@ export function BackupPolicyModal({
         <div className="modal-body backup-policy-body">
           {!policy ? <div className="empty">正在读取规则...</div> : (
             <>
+              {target.scope === "scripts" && (
+                <p className="policy-inheritance-note">
+                  这是 DCH 全局规则，只处理 <code>~/.dch/scripts/**</code>，与当前选择的
+                  Claude、Codex、Grok 或 Cursor 无关。没有从方案脚本中引用该目录时可停用。
+                </p>
+              )}
               {target.scope === "profile" && source !== "profile-snapshot" && (
                 <p className="policy-inheritance-note">
                   当前实时继承 {target.profile.tool} {source === "tool" ? "自定义备份规则" : "内置备份规则"}。
@@ -178,21 +195,27 @@ export function BackupPolicyModal({
                   </label>
                 )}
                 <label>未命中文件</label>
-                <select value={policy.defaultFileAction} onChange={(event) => updatePolicy({
-                  ...policy,
-                  defaultFileAction: event.target.value as BackupPolicyV1["defaultFileAction"],
-                })}>
-                  <option value="include">默认包含</option>
-                  <option value="exclude">默认排除</option>
-                </select>
+                <PolicySelect
+                  ariaLabel="未命中文件的默认动作"
+                  className="policy-default-select"
+                  value={policy.defaultFileAction}
+                  options={DEFAULT_FILE_ACTIONS}
+                  onChange={(defaultFileAction) => updatePolicy({
+                    ...policy,
+                    defaultFileAction: defaultFileAction as BackupPolicyV1["defaultFileAction"],
+                  })}
+                />
                 <label>二进制/不可扫描文件</label>
-                <select value={policy.unscannableFileAction} onChange={(event) => updatePolicy({
-                  ...policy,
-                  unscannableFileAction: event.target.value as BackupPolicyV1["unscannableFileAction"],
-                })}>
-                  <option value="include-with-warning">包含并警告</option>
-                  <option value="exclude">排除</option>
-                </select>
+                <PolicySelect
+                  ariaLabel="二进制或不可扫描文件的默认动作"
+                  className="policy-default-select"
+                  value={policy.unscannableFileAction}
+                  options={UNSCANNABLE_FILE_ACTIONS}
+                  onChange={(unscannableFileAction) => updatePolicy({
+                    ...policy,
+                    unscannableFileAction: unscannableFileAction as BackupPolicyV1["unscannableFileAction"],
+                  })}
+                />
               </div>
               {hasKeepOriginal && (
                 <div className="policy-raw-warning">

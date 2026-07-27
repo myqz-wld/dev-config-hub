@@ -274,7 +274,7 @@ After switching profiles, newly started wrapped tool processes automatically use
 
 ## Backup And Restore (.dchpack)
 
-Package profiles plus optional `~/.dch/scripts/` switch scripts into one `.dchpack` file for cross-machine migration, local disaster recovery, or controlled sharing. `~/.agents/**` is never scanned or included. Legacy packages containing `shared/agents/**` remain importable, but that payload is explicitly ignored and is never restored.
+Package profiles plus optional `~/.dch/scripts/` switch scripts into one `.dchpack` file for cross-machine migration, local disaster recovery, or controlled sharing. This script scope is DCH-global and is useful only when profile hooks call reusable files stored under `~/.dch/scripts/`; profiles that keep their switch commands inline do not need it. `~/.agents/**` is never scanned or included. Legacy packages containing `shared/agents/**` remain importable, but that payload is explicitly ignored and is never restored.
 
 ### Three-Tier Backup Model
 

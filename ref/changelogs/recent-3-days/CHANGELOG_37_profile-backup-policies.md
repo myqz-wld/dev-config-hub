@@ -1,6 +1,6 @@
 ---
 changelog_id: 37
-changed_at: 2026-07-26
+changed_at: 2026-07-27
 ---
 
 # CHANGELOG_37_profile-backup-policies: Profile workflows and editable backup policies
@@ -76,9 +76,17 @@ streamlined at the same time.
 - Reframed the profile action toolbar and replaced its pill actions with
   compact rectangular notebook controls. Its actions now wrap in document
   order instead of pushing Advanced Edit onto an isolated row.
-- Unified policy dropdowns, text fields, and the raw editor with restrained
-  rectangular notebook controls, and rendered rule-source values as plain text
-  without oval badges.
+- Preserved the established sketched matching-target frame and applied it to
+  names, patterns, and format inputs. Policy choices now use a portaled custom
+  menu whose trigger and opened list both follow the notebook theme instead of
+  the native macOS select appearance.
+- Made newly added rules immediately visible: they enter at the highest
+  priority, scroll into view, and focus their name; adding an advanced content
+  rule also opens its collapsed section.
+- Moved the global `~/.dch/scripts/**` backup control out of the active
+  Claude/Codex/Grok/Cursor toolbar into a separately labeled DCH-global
+  section, with copy explaining that inline hook commands do not need it.
+- Rendered rule-source values as plain text without oval badges.
 - Removed `工具级` from active Chinese UI and CLI copy. Tool policy titles now
   name the concrete tool directly, while saved tool rules report their source
   as `工具自定义`.
@@ -92,8 +100,8 @@ streamlined at the same time.
 ## Validation
 
 - `bunx tsc --noEmit` (clean)
-- `bun run build:fe` (663 modules bundled)
-- `bun test` (512 pass, 0 fail, 1,309 assertions)
+- `bun run build:fe` (665 modules bundled)
+- `bun test` (518 pass, 0 fail, 1,335 assertions)
 - Isolated-HOME CLI smoke: init, empty profile creation, existing-directory
   registration, switch, policy snapshot/inherit, backup, and dry-run restore
   (clean; store v2 with three profiles)
