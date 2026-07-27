@@ -11,7 +11,7 @@
   --hand: "HanziPen SC", "Kaiti SC", "STKaiti", "KaiTi", "楷体", "Marker Felt", "Bradley Hand", "Ink Free", "Segoe Print", "Comic Neue", "Comic Sans MS", cursive;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #fff7e8; color: #24190f; -webkit-font-smoothing: antialiased; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #fff7e8; color: #24190f; -webkit-font-smoothing: antialiased; font-synthesis: none; }
 code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace; }
 
 .app { display: flex; height: 100vh; position: relative; overflow: hidden; }
