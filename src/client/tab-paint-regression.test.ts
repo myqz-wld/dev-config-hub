@@ -6,6 +6,7 @@ const CLIENT_DIR = import.meta.dir;
 describe("tab paint regression", () => {
   test("panel visibility avoids retained paint layers", async () => {
     const css = await readFile(`${CLIENT_DIR}/styles.css`, "utf8");
+    const paperCss = await readFile(`${CLIENT_DIR}/paper-overrides.css`, "utf8");
     const workflowCss = await readFile(`${CLIENT_DIR}/profile-workflows.css`, "utf8");
     const profilePanel = await readFile(`${CLIENT_DIR}/components/ProfilePanel.tsx`, "utf8");
     const panelHostBlock = css.match(/\.panel-host\s*\{([^}]*)\}/)?.[1] ?? "";
@@ -14,6 +15,8 @@ describe("tab paint regression", () => {
     expect(panelHostBlock).not.toContain("isolation:");
     expect(workflowCss).not.toMatch(/\.panel-host\s*\{/);
     expect(css).toMatch(/\.panel-host\.panel-hidden\s*\{[^}]*display:\s*none/s);
+    expect(css).not.toMatch(/\.panel\s*\{[^}]*(?:position|z-index):/s);
+    expect(paperCss).not.toMatch(/body \.panel\s*\{[^}]*z-index:/s);
     expect(css).toMatch(/body\s*\{[^}]*-webkit-font-smoothing:\s*antialiased/s);
     expect(profilePanel).toContain("<ProfileModalPortal>");
     expect(profilePanel).toMatch(/<ProfileModalPortal>[\s\S]*?<BackupPolicyModal[\s\S]*?<\/ProfileModalPortal>/);

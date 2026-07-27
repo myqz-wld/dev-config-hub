@@ -263,8 +263,8 @@ export function App() {
       <main className="main" ref={mainRef}>
         {/* Panel 常驻渲染 + display:none 切换：消除 tab 切换时整个 ConfigPanel/ProfilePanel
             unmount/remount 卡顿（每次重 mount 会重发 N 次 readFileWithMtime IPC + 重建
-            整棵字段树 + Markdown shiki 重渲染 + spawn dch CLI）。wrapper 保持普通 block，
-            避免透明 paint containment 层在窗口缩放后复用不同的文字栅格化结果。 */}
+            整棵字段树 + Markdown shiki 重渲染 + spawn dch CLI）。wrapper 和 panel 都保持
+            普通、无 stacking context 的 block，避免缩放后显隐复用旧的文字栅格。 */}
         <PanelVisibilityProvider visible={view.kind === "profile"}>
           <div className={view.kind === "profile" ? "panel-host" : "panel-host panel-hidden"}>
             <ProfilePanel

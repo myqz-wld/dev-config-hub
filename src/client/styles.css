@@ -170,9 +170,9 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
     linear-gradient(180deg, #fffef9, #fff7e8 76%, #fff2dc);
   color: #24190f;
 }
-.panel { position: relative; z-index: 1; }
 /* panel 常驻 + display 切换：同一时间只绘制一个普通 block。
-   不创建 paint/isolation 层，避免 WebKit 缩放后切换字体栅格化模式。 */
+   `.panel` 本身保持非定位、无 z-index，避免透明 stacking layer 在 WebKit
+   缩放后反复显隐时复用旧的文字栅格。 */
 .panel-host { display: block; }
 .panel-host.panel-hidden { display: none; }
 .panel-head { position: relative; margin-bottom: 22px; padding-bottom: 16px; }

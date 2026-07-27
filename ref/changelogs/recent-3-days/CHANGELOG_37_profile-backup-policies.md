@@ -96,13 +96,15 @@ streamlined at the same time.
   secret decisions before export.
 - Stabilized text weight across window resizing and repeated tab switches by
   keeping transforms and shadows off glyph-bearing nodes, fixing WebKit font
-  smoothing, and avoiding retained paint/isolation layers on mounted panels.
+  smoothing, and removing both retained paint/isolation layers and the
+  remaining transparent positioned `z-index` stacking context from mounted
+  panels.
 
 ## Validation
 
 - `bunx tsc --noEmit` (clean)
 - `bun run build:fe` (665 modules bundled)
-- `bun test` (518 pass, 0 fail, 1,336 assertions)
+- `bun test` (518 pass, 0 fail, 1,338 assertions)
 - Isolated-HOME CLI smoke: init, empty profile creation, existing-directory
   registration, switch, policy snapshot/inherit, backup, and dry-run restore
   (clean; store v2 with three profiles)
