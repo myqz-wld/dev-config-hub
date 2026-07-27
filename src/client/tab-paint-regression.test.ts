@@ -36,11 +36,15 @@ describe("tab paint regression", () => {
     expect(ruleTable).not.toContain("<select");
     expect(policySelect).toContain("popoverClassName=\"policy-select-popover\"");
     expect(policySelect).toContain("portal");
-    expect(css).toContain("background-image:");
     expect(css).toContain("var(--hand)");
     expect(css).toContain('.modal-policy input:not([type="checkbox"]),');
     expect(css).toContain(".modal-policy .policy-select > .select-button");
-    expect(css).toMatch(/body \.policy-select-popover\s*\{[^}]*background-image:/s);
+    expect(css).toMatch(
+      /\.modal-policy input:not\(\[type="checkbox"\]\),[\s\S]*?border:\s*1\.3px solid/s,
+    );
+    expect(css).toMatch(
+      /body \.policy-select-popover\s*\{[^}]*border:\s*1\.3px solid[^}]*border-radius:/s,
+    );
     expect(css).toMatch(/\.modal-policy input:not\(\[type="checkbox"\]\)\s*\{[^}]*caret-color:/s);
     expect(css).toMatch(/\.modal-policy \.policy-source-label\s*\{[^}]*white-space:\s*nowrap/s);
     expect(ruleTable.match(/className="policy-source-label"/g)).toHaveLength(2);
@@ -71,6 +75,8 @@ describe("tab paint regression", () => {
     expect(toolbar).not.toContain('scope: "scripts"');
     expect(profilePanel).toContain('className="profile-global-backup"');
     expect(profilePanel).toContain("仅处理 <code>~/.dch/scripts/**</code>");
+    expect(profilePanel.indexOf("profile-global-backup"))
+      .toBeLessThan(profilePanel.indexOf("profile-tabs"));
     expect(policyModal).toContain("这是 DCH 全局规则，只处理");
     expect(globalCss).toMatch(/\.profile-global-backup\s*\{[^}]*display:\s*flex/s);
   });
