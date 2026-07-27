@@ -202,6 +202,7 @@
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -222,6 +223,10 @@
   display: flex;
   gap: 5px;
   align-items: center;
+}
+
+.rule-add-actions {
+  flex-wrap: wrap;
 }
 
 .rule-table-wrap {
@@ -267,7 +272,9 @@
 
 .rule-table .rule-pattern {
   min-width: 180px;
-  font-family: "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--hand);
+  font-weight: 800;
+  letter-spacing: .2px;
 }
 
 .rule-order-actions button {
@@ -360,12 +367,14 @@
   min-height: 260px;
   margin: 8px 0;
   resize: vertical;
-  font: 11px/1.5 "SF Mono", "JetBrains Mono", monospace;
+  font: 800 12px/1.55 var(--hand);
+  letter-spacing: .2px;
 }
 
 .modal-foot-left {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-right: auto;
 }
