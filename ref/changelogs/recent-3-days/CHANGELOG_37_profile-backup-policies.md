@@ -73,6 +73,11 @@ streamlined at the same time.
 - Added table-based policy editing with visible source and counts, ordered
   move controls, collapsed advanced regex/raw JSON controls, restore-default
   and restore-inheritance actions, and prominent keep-original warnings.
+- Reorganized the backup-rule editor without changing its visual theme:
+  file defaults now live beside file coverage, long rule tables start collapsed
+  by category, each secret-rule type owns its nearby add action, and priority
+  controls sit on the affected row. Repeated per-row source and type columns
+  were removed while the authoritative source and totals remain in the header.
 - Reframed the profile action toolbar and replaced its pill actions with
   compact rectangular notebook controls. Its actions now wrap in document
   order instead of pushing Advanced Edit onto an isolated row.
@@ -112,7 +117,7 @@ streamlined at the same time.
 
 - `bunx tsc --noEmit` (clean)
 - `bun run build:fe` (665 modules bundled)
-- `bun test` (519 pass, 0 fail, 1,356 assertions)
+- `bun test` (521 pass, 0 fail, 1,368 assertions)
 - Isolated-HOME CLI smoke: init, empty profile creation, existing-directory
   registration, switch, policy snapshot/inherit, backup, and dry-run restore
   (clean; store v2 with three profiles)
