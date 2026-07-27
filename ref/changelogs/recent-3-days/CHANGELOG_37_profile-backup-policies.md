@@ -80,6 +80,11 @@ streamlined at the same time.
   formats, and policy-choice triggers. Policy choices retain a portaled custom
   menu, now adapted to the same clean paper surface, subtle border, and compact
   hover/selected states instead of the native macOS select appearance.
+- Completed the profile theme pass: raw policy JSON, regular-expression and
+  Glob fields, restore-secret locations, and password inputs now use the same
+  handwritten notebook typography and paper controls. Directory-mode radios
+  no longer fall back to the native macOS appearance, and narrow windows wrap
+  rule actions, card headings, and modal footers without breaking alignment.
 - Made newly added rules immediately visible: they enter at the highest
   priority, scroll into view, and focus their name; adding an advanced content
   rule also opens its collapsed section.
@@ -98,13 +103,16 @@ streamlined at the same time.
   keeping transforms and shadows off glyph-bearing nodes, fixing WebKit font
   smoothing, and removing both retained paint/isolation layers and the
   remaining transparent positioned `z-index` stacking context from mounted
-  panels.
+  panels. The long policy editor additionally uses an opaque scroll surface
+  and opaque controls, while modal isolation, backdrop blur, and text-bearing
+  translate animations are removed so WebKit cannot rasterize adjacent scroll
+  tiles with visibly different glyph weight.
 
 ## Validation
 
 - `bunx tsc --noEmit` (clean)
 - `bun run build:fe` (665 modules bundled)
-- `bun test` (518 pass, 0 fail, 1,338 assertions)
+- `bun test` (519 pass, 0 fail, 1,356 assertions)
 - Isolated-HOME CLI smoke: init, empty profile creation, existing-directory
   registration, switch, policy snapshot/inherit, backup, and dry-run restore
   (clean; store v2 with three profiles)

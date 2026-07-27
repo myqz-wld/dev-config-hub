@@ -269,19 +269,12 @@ body .modal-backdrop {
 }
 
 body .modal {
-  position: relative;
-  isolation: isolate;
   border: 0;
   overflow: hidden;
   background:
     radial-gradient(circle at 16% 10%, rgba(116,78,29,.045), transparent 34%),
     linear-gradient(180deg, #fffdf7, #fff8eb 78%, #fff4df);
   box-shadow: 0 20px 46px rgba(58,43,26,.32);
-}
-
-body .modal > * {
-  position: relative;
-  z-index: 1;
 }
 
 body .modal-head,

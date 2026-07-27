@@ -148,6 +148,7 @@ const SecretEntryRow = React.memo(function SecretEntryRow({
 
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
         <input
+          className="profile-secret-input"
           type={reveal ? "text" : "password"}
           value={value}
           onChange={(e) => onValueChange(entry.name, e.target.value)}
@@ -194,7 +195,7 @@ const SecretEntryRow = React.memo(function SecretEntryRow({
           使用位置 ({entry.locations.length})
         </summary>
         {previewLocations.map((loc, i) => (
-          <p key={i} className="form-hint" style={{ marginLeft: 16, marginTop: 2, fontFamily: "ui-monospace, monospace", fontSize: 11 }}>
+          <p key={i} className="form-hint" style={{ marginLeft: 16, marginTop: 2, fontSize: 11 }}>
             {loc.packPath}
             <span style={{ color: "var(--fg3)" }}> · {loc.fieldPath}</span>
           </p>
