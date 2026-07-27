@@ -29,4 +29,12 @@ describe("tab paint regression", () => {
     expect(css).toContain("background-image:");
     expect(css).toContain("var(--hand)");
   });
+
+  test("profile actions use rectangular notebook controls", async () => {
+    const css = await readFile(`${CLIENT_DIR}/paper-overrides.css`, "utf8");
+    expect(css).toMatch(/body \.profile-toolbar\s*\{[^}]*border-radius:\s*6px 9px 5px 7px/s);
+    expect(css).toMatch(
+      /body \.profile-toolbar :is\(\.btn, \.btn-sm\)\s*\{[^}]*border-radius:\s*4px 7px 3px 6px/s,
+    );
+  });
 });
