@@ -41,14 +41,16 @@ interface Props {
   onReloadConfigs: () => Promise<void>;
 }
 
+type ProfilePanelTab = ToolKind | "backups" | "advanced";
+
 // memo：常驻挂载 + display 切换下，App 重渲染时隐藏的 ProfilePanel 也会跟着重渲染。
 // store/active 仅在 profile reload 时变，三个 callback 在 App 已 useCallback 稳定。
 export const ProfilePanel = memo(function ProfilePanel({
   store, active, onToast, onReloadProfile, onReloadConfigs,
 }: Props) {
-  const [tool, setTool] = useState<ToolKind>("claude");
+  const [activeTab, setActiveTab] = useState<ProfilePanelTab>("claude");
   const [busy, setBusy] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
+  const [creatingTool, setCreatingTool] = useState<ToolKind | null>(null);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [showStoreEditor, setShowStoreEditor] = useState(false);
   const [showExport, setShowExport] = useState(false);
@@ -131,8 +133,13 @@ export const ProfilePanel = memo(function ProfilePanel({
 
   if (!store || !active) return <div className="empty">正在读取配置方案...</div>;
 
-  const profiles = store.profiles.filter((p) => p.tool === tool);
-  const toolActive = active[tool];
+  const tool = TOOLS.includes(activeTab as ToolKind)
+    ? activeTab as ToolKind
+    : null;
+  const profiles = tool
+    ? store.profiles.filter((profile) => profile.tool === tool)
+    : [];
+  const toolActive = tool ? active[tool] : null;
 
   return (
     <div className="panel profile-panel">
@@ -143,107 +150,161 @@ export const ProfilePanel = memo(function ProfilePanel({
         </p>
       </div>
 
-      <section className="profile-global-backup">
-        <div>
-          <span className="profile-global-label">DCH 全局</span>
-          <strong>切换脚本备份</strong>
-          <small>
-            仅处理 <code>~/.dch/scripts/**</code>；方案直接填写内联切换命令时可忽略。
-          </small>
-        </div>
-        <button
-          className="btn-sm"
-          onClick={() => setPolicyTarget({
-            scope: "scripts",
-            enabled: store.backup.scriptsEnabled !== false,
-          })}
-        >
-          管理备份规则
-        </button>
-      </section>
-
       <div className="profile-tabs">
         {TOOLS.map((t) => (
           <button
             key={t}
-            className={`profile-tab ${t === tool ? "on" : ""}`}
-            onClick={() => setTool(t)}
+            className={`profile-tab ${t === activeTab ? "on" : ""}`}
+            onClick={() => setActiveTab(t)}
           >
             {t}
             <span className="profile-tab-count">{store.profiles.filter((p) => p.tool === t).length}</span>
           </button>
         ))}
-      </div>
-
-      <div className="profile-toolbar">
-        <button className="btn primary" onClick={() => setShowAdd(true)} disabled={busy}>
-          + 新建配置方案
+        <span className="profile-tab-divider" aria-hidden="true" />
+        <button
+          className={`profile-tab profile-tab-workspace ${activeTab === "backups" ? "on" : ""}`}
+          onClick={() => setActiveTab("backups")}
+        >
+          备份中心
         </button>
-        <span className="profile-toolbar-separator" />
-        <button className="btn-sm" onClick={() => setPolicyTarget({ scope: "tool", tool })}>
-          {tool} 备份规则
-        </button>
-        <button className="btn-sm" onClick={() => { setExportPresetIds(undefined); setShowExport(true); }} title="备份配置方案和切换脚本">
-          <DoodleIcon kind="export" />导出备份
-        </button>
-        <button className="btn-sm" onClick={() => setShowHistory(true)} title="查看、置顶、还原或删除备份">
-          <DoodleIcon kind="history" />备份历史
-        </button>
-        <button className="btn-sm" onClick={() => { setRestorePresetPath(undefined); setShowRestore(true); }} title="从 .dchpack 导入为新的配置方案">
-          <DoodleIcon kind="import" />导入备份
-        </button>
-        <button className="btn-sm" onClick={() => setShowStoreEditor(true)} title="直接编辑 ~/.dch/profiles.json">
-          高级编辑
+        <button
+          className={`profile-tab profile-tab-workspace ${activeTab === "advanced" ? "on" : ""}`}
+          onClick={() => setActiveTab("advanced")}
+        >
+          高级设置
         </button>
       </div>
 
-      <div className="profile-status">
-        <div>
-          <span className="profile-status-label">当前使用</span>
-          <code>{toolActive.id ?? "<未设置>"}</code>
+      {tool && toolActive ? (
+        <div className="profile-tool-workspace">
+          <div className="profile-toolbar">
+            <button className="btn primary" onClick={() => setCreatingTool(tool)} disabled={busy}>
+              + 新建 {tool} 方案
+            </button>
+            <span className="profile-toolbar-separator" />
+            <button className="btn-sm" onClick={() => setPolicyTarget({ scope: "tool", tool })}>
+              {tool} 备份规则
+            </button>
+          </div>
+
+          <div className="profile-status">
+            <div>
+              <span className="profile-status-label">当前使用</span>
+              <code>{toolActive.id ?? "<未设置>"}</code>
+            </div>
+            <div>
+              <span className="profile-status-label">{toolActive.rootPath}</span>
+              <code>{toolActive.symlinkTarget ?? "(尚未接管目录)"}</code>
+            </div>
+            {!toolActive.symlinkTarget && (
+              <button
+                className="btn ghost btn-init"
+                disabled={busy}
+                onClick={() => handle(() => dchProfile.init(tool), `已初始化 ${tool}`, true)}
+              >
+                初始化 {tool} 配置目录
+              </button>
+            )}
+          </div>
+
+          <div className="profile-list">
+            {profiles.length === 0 ? (
+              <div className="empty">暂无 {tool} 配置方案。可以新建空目录，或纳入一个已有目录。</div>
+            ) : (
+              profiles.map((p) => (
+                <ProfileCard
+                  key={p.id}
+                  profile={p}
+                  isActive={p.id === toolActive.id}
+                  busy={busy}
+                  onUse={onUse}
+                  onDelete={(id) => handle(() => dchProfile.remove(id), `已删除 ${id}`)}
+                  onTestHook={onTestHook}
+                  onExport={(id) => { setExportPresetIds([id]); setShowExport(true); }}
+                  onEdit={(profile) => setEditingProfile(profile)}
+                  onBackupRules={(profile) => setPolicyTarget({ scope: "profile", profile })}
+                />
+              ))
+            )}
+          </div>
         </div>
-        <div>
-          <span className="profile-status-label">{toolActive.rootPath}</span>
-          <code>{toolActive.symlinkTarget ?? "(尚未接管目录)"}</code>
+      ) : activeTab === "backups" ? (
+        <div className="profile-workspace">
+          <div className="profile-workspace-head">
+            <span className="profile-workspace-eyebrow">跨工具</span>
+            <h2>备份中心</h2>
+            <p>这里处理 Claude、Codex、Grok 和 Cursor 的组合备份，不隶属于任何一个工具页签。</p>
+          </div>
+          <div className="profile-operation-grid">
+            <article>
+              <DoodleIcon kind="export" />
+              <div><h3>导出备份</h3><p>按工具分组选择方案，预览规则命中后再写入快照。</p></div>
+              <button className="btn-sm" onClick={() => {
+                setExportPresetIds(undefined);
+                setShowExport(true);
+              }}>开始导出</button>
+            </article>
+            <article>
+              <DoodleIcon kind="history" />
+              <div><h3>备份历史</h3><p>查看默认、置顶和历史备份，并可继续导入或清理。</p></div>
+              <button className="btn-sm" onClick={() => setShowHistory(true)}>查看历史</button>
+            </article>
+            <article>
+              <DoodleIcon kind="import" />
+              <div><h3>导入备份</h3><p>读取 .dchpack 内容，确认改名和密钥后创建新方案。</p></div>
+              <button className="btn-sm" onClick={() => {
+                setRestorePresetPath(undefined);
+                setShowRestore(true);
+              }}>选择备份</button>
+            </article>
+          </div>
+          <section className="profile-global-backup">
+            <div>
+              <span className="profile-global-label">DCH 全局</span>
+              <strong>切换脚本备份</strong>
+              <small>
+                仅处理 <code>~/.dch/scripts/**</code>；方案直接填写内联切换命令时可忽略。
+              </small>
+            </div>
+            <button
+              className="btn-sm"
+              onClick={() => setPolicyTarget({
+                scope: "scripts",
+                enabled: store.backup.scriptsEnabled !== false,
+              })}
+            >
+              管理备份规则
+            </button>
+          </section>
         </div>
-        {!toolActive.symlinkTarget && (
-          <button
-            className="btn ghost btn-init"
-            disabled={busy}
-            onClick={() => handle(() => dchProfile.init(tool), `已初始化 ${tool}`, true)}
-          >
-            初始化 {tool} 配置目录
-          </button>
-        )}
-      </div>
-
-      <div className="profile-list">
-        {profiles.length === 0 ? (
-          <div className="empty">暂无配置方案。点「+ 新建」或先初始化 {tool} 配置目录。</div>
-        ) : (
-          profiles.map((p) => (
-            <ProfileCard
-              key={p.id}
-              profile={p}
-              isActive={p.id === toolActive.id}
-              busy={busy}
-              onUse={onUse}
-              onDelete={(id) => handle(() => dchProfile.remove(id), `已删除 ${id}`)}
-              onTestHook={onTestHook}
-              onExport={(id) => { setExportPresetIds([id]); setShowExport(true); }}
-              onEdit={(profile) => setEditingProfile(profile)}
-              onBackupRules={(profile) => setPolicyTarget({ scope: "profile", profile })}
-            />
-          ))
-        )}
-      </div>
+      ) : (
+        <div className="profile-workspace">
+          <div className="profile-workspace-head">
+            <span className="profile-workspace-eyebrow">谨慎操作</span>
+            <h2>高级设置</h2>
+            <p>用于处理普通表单未覆盖的跨平台脚本对象和底层字段，修改会影响所有工具页签。</p>
+          </div>
+          <article className="profile-advanced-card">
+            <div>
+              <h3>直接编辑配置方案数据</h3>
+              <p>
+                打开 <code>~/.dch/profiles.json</code> 的结构化编辑器。日常修改请优先使用方案卡片上的“编辑”。
+              </p>
+            </div>
+            <button className="btn-sm" onClick={() => setShowStoreEditor(true)}>
+              打开高级编辑
+            </button>
+          </article>
+        </div>
+      )}
 
       <ProfileModalPortal>
-        {showAdd && (
+        {creatingTool && (
           <ProfileFormModal
-            tool={tool}
+            tool={creatingTool}
             busy={busy}
-            onClose={() => setShowAdd(false)}
+            onClose={() => setCreatingTool(null)}
             onSubmit={async (form) => {
               const ok = await handle(
                 () => dchProfile.add(form.tool, form.id, {
@@ -259,7 +320,7 @@ export const ProfilePanel = memo(function ProfilePanel({
                   ? `已将 ${form.id} 纳入管理`
                   : `已创建 ${form.id} 的空目录`,
               );
-              if (ok) setShowAdd(false);
+              if (ok) setCreatingTool(null);
             }}
           />
         )}

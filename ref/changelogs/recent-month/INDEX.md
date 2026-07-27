@@ -15,3 +15,4 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-19 | [CHANGELOG_35_foundation-time-buckets.md](CHANGELOG_35_foundation-time-buckets.md) | Aligned foundation docs, removed conventions, and bucketed final records. |

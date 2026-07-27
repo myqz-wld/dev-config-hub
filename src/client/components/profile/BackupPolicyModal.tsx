@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   dchProfile,
   type BackupPolicyV1,
@@ -6,6 +6,10 @@ import {
   type Profile,
   type ToolKind,
 } from "../../bridge.ts";
+import {
+  BACKUP_POLICY_CACHE_TTL_MS,
+  backupPolicyCache,
+} from "../../backup-cache.ts";
 import { FileRuleTable, SecretRuleTable } from "./BackupRuleTable.tsx";
 
 type PolicyTarget =
@@ -31,11 +35,22 @@ export function BackupPolicyModal({
   onSaved: () => Promise<void>;
   onToast: (message: string, ok: boolean) => void;
 }) {
-  const [policy, setPolicy] = useState<BackupPolicyV1 | null>(null);
-  const [source, setSource] = useState<BackupRuleSource>("factory");
-  const [raw, setRaw] = useState("");
+  const targetId = target.scope === "tool"
+    ? target.tool
+    : target.scope === "profile"
+    ? target.profile.id
+    : undefined;
+  const cachedRef = useRef(backupPolicyCache.get(target.scope, targetId));
+  const cached = cachedRef.current;
+  const editedRef = useRef(false);
+  const [policy, setPolicy] = useState<BackupPolicyV1 | null>(cached?.policy ?? null);
+  const [source, setSource] = useState<BackupRuleSource>(cached?.source ?? "factory");
+  const [raw, setRaw] = useState(
+    cached ? JSON.stringify(cached.policy, null, 2) : "",
+  );
   const [rawDirty, setRawDirty] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [scriptsEnabled, setScriptsEnabled] = useState(
     target.scope === "scripts" ? target.enabled : true,
@@ -48,23 +63,35 @@ export function BackupPolicyModal({
     : "DCH 全局 · 切换脚本备份规则";
 
   useEffect(() => {
+    if (
+      cached &&
+      Date.now() - cached.fetchedAt < BACKUP_POLICY_CACHE_TTL_MS
+    ) {
+      return;
+    }
     let current = true;
     const scope = target.scope;
-    const id = scope === "tool"
-      ? target.tool
-      : scope === "profile"
-      ? target.profile.id
-      : undefined;
-    dchProfile.resolveBackupPolicy(scope, id).then((result) => {
+    if (cached) setRefreshing(true);
+    dchProfile.resolveBackupPolicy(scope, targetId).then((result) => {
       if (!current) return;
-      setPolicy(result.policy);
-      setSource(result.source);
-      setRaw(JSON.stringify(result.policy, null, 2));
+      backupPolicyCache.set(scope, targetId, result.policy, result.source);
+      if (!editedRef.current) {
+        setPolicy(result.policy);
+        setSource(result.source);
+        setRaw(JSON.stringify(result.policy, null, 2));
+      }
     }).catch((error) => {
-      if (current) onToast(error instanceof Error ? error.message : String(error), false);
+      if (!current) return;
+      if (cached) {
+        console.warn("BackupPolicyModal silent refresh failed:", error);
+      } else {
+        onToast(error instanceof Error ? error.message : String(error), false);
+      }
+    }).finally(() => {
+      if (current) setRefreshing(false);
     });
     return () => { current = false; };
-  }, [target, onToast]);
+  }, [cached, onToast, target, targetId]);
 
   const counts = useMemo(() => {
     if (!policy) return { files: 0, secrets: 0 };
@@ -77,6 +104,7 @@ export function BackupPolicyModal({
   }, [policy]);
 
   const updatePolicy = (next: BackupPolicyV1) => {
+    editedRef.current = true;
     setPolicy(next);
     if (!rawDirty) setRaw(JSON.stringify(next, null, 2));
   };
@@ -102,6 +130,17 @@ export function BackupPolicyModal({
         await dchProfile.setBackupPolicy("scripts", next);
         await dchProfile.setScriptsBackupEnabled(scriptsEnabled);
       }
+      backupPolicyCache.clear();
+      backupPolicyCache.set(
+        target.scope,
+        targetId,
+        next,
+        target.scope === "tool"
+          ? "tool"
+          : target.scope === "profile"
+          ? "profile-snapshot"
+          : "scripts",
+      );
       await onSaved();
       onToast("备份规则已保存", true);
       onClose();
@@ -129,6 +168,7 @@ export function BackupPolicyModal({
         await dchProfile.resetBackupPolicy("scripts");
         onToast("切换脚本已恢复内置规则", true);
       }
+      backupPolicyCache.clear();
       await onSaved();
       onClose();
     } catch (error) {
@@ -147,6 +187,7 @@ export function BackupPolicyModal({
             <p className="form-hint">
               来源：<span className="policy-source-label">{SOURCE_LABELS[source]}</span>
               {" · "}{counts.files} 条文件规则，{counts.secrets} 条密钥规则
+              {refreshing && <span className="policy-cache-refresh"> · 正在同步…</span>}
             </p>
           </div>
           <button className="modal-close" onClick={onClose} disabled={busy}>×</button>
@@ -172,7 +213,10 @@ export function BackupPolicyModal({
                     <input
                       type="checkbox"
                       checked={scriptsEnabled}
-                      onChange={(event) => setScriptsEnabled(event.target.checked)}
+                      onChange={(event) => {
+                        editedRef.current = true;
+                        setScriptsEnabled(event.target.checked);
+                      }}
                     />
                     启用切换脚本备份
                   </label>
@@ -190,6 +234,7 @@ export function BackupPolicyModal({
                   className="raw policy-raw-json"
                   value={raw}
                   onChange={(event) => {
+                    editedRef.current = true;
                     setRaw(event.target.value);
                     setRawDirty(true);
                   }}

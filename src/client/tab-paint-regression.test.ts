@@ -125,7 +125,8 @@ describe("tab paint regression", () => {
     expect(profilePanel).toContain('className="profile-global-backup"');
     expect(profilePanel).toContain("仅处理 <code>~/.dch/scripts/**</code>");
     expect(profilePanel.indexOf("profile-global-backup"))
-      .toBeLessThan(profilePanel.indexOf("profile-tabs"));
+      .toBeGreaterThan(profilePanel.indexOf("profile-tabs"));
+    expect(profilePanel).toContain('activeTab === "backups"');
     expect(policyModal).toContain("这是 DCH 全局规则，只处理");
     expect(globalCss).toMatch(/\.profile-global-backup\s*\{[^}]*display:\s*flex/s);
   });
