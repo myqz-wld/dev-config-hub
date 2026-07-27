@@ -17,7 +17,7 @@ import {
   parseFlags, readStdinLine, readStdinSecret, formatBytes,
 } from "./cli-shared.ts";
 import {
-  createBackup, parseBackup, applyBackup, applyBackupWithSecrets, cleanupParsed,
+  parseBackup, applyBackup, applyBackupWithSecrets, cleanupParsed,
   type Manifest, type ApplyBackupResult, type ApplyBackupWithSecretsResult,
 } from "./profiles/backup.ts";
 import type { SecretsIndex } from "./profiles/secrets-index.ts";
@@ -27,62 +27,16 @@ import {
   type BackupSummary,
 } from "./profiles/backup-manage.ts";
 
-// REVIEW_8 M11 / B6：每个 cmd 显式 allowed flag 集合（防 typo 被吞）。
-const BACKUP_ALLOWED = new Set(["out", "profiles", "no-shared", "no-placeholder", "yes", "keep"]);
 const RESTORE_ALLOWED = new Set(["prefix", "rename", "dry-run", "yes", "allow-original-path", "fill-secrets", "secrets-json"]);
 const BACKUP_RM_ALLOWED = new Set(["yes"]);
 const BACKUP_PIN_ALLOWED = new Set(["unpin"]);
 
-// ─── backup ──────────────────────────────────────────────────────────────
-
-export async function cmdBackup(args: string[]): Promise<void> {
-  const { flags } = parseFlags(args, { allowedFlags: BACKUP_ALLOWED });
-  const noPlaceholder = flags["no-placeholder"] === true;
-  const includeShared = flags["no-shared"] !== true;
-  const yes = flags.yes === true;
-  const keep = flags.keep === true;
-  const profileIds = typeof flags.profiles === "string"
-    ? flags.profiles.split(",").map((s) => s.trim()).filter(Boolean)
-    : undefined;
-  const outFile = typeof flags.out === "string" ? flags.out : undefined;
-
-  if (noPlaceholder && !yes) {
-    if (isJsonMode()) {
-      err("--no-placeholder 在 --json 模式下必须配 --yes（避免脚本误用泄露明文凭据）");
-    }
-    process.stdout.write(`${c.yellow}⚠ --no-placeholder：备份将含明文 token / API key${c.reset}\n`);
-    process.stdout.write(`${c.yellow}  请确认你只在加密渠道（gpg / age / 本地）使用此包。继续? [y/N] ${c.reset}`);
-    const line = await readStdinLine();
-    if (line.toLowerCase() !== "y" && line.toLowerCase() !== "yes") {
-      info("已取消");
-      return;
-    }
-  }
-
-  const result = await createBackup({ outFile, profileIds, includeShared, noPlaceholder, keep });
-
-  if (isJsonMode()) return jsonOut({ ok: true, ...result });
-  const slot = !outFile && !keep
-    ? `${c.gray}（默认位，已覆盖）${c.reset}`
-    : !outFile && keep
-    ? `${c.gray}（历史副本，已保留）${c.reset}`
-    : "";
-  ok(`已写入 ${result.outFile} (${formatBytes(result.bytes)}) ${slot}`);
-  info(`包含 ${result.manifest.profiles.length} 个 profile: ${result.manifest.profiles.map((p) => p.id).join(", ")}`);
-  if (result.manifest.shared.dch_scripts.length || result.manifest.shared.agents_paths.length) {
-    info(`共享资源: ${result.manifest.shared.dch_scripts.length} 个 hook 脚本, ${result.manifest.shared.agents_paths.length} 个 agent 文件`);
-  }
-  if (result.manifest.placeholders.length > 0) {
-    process.stdout.write(`${c.yellow}⚠ 已脱敏 ${result.manifest.placeholders.length} 处凭据${c.reset}\n`);
-  }
-  if (noPlaceholder) {
-    process.stdout.write(`${c.red}⚠ --no-placeholder 模式：包内含明文凭据，请只通过加密渠道分享${c.reset}\n`);
-  }
-  info(`还原方式: dch profile restore ${result.outFile}`);
-  if (!outFile && !keep) {
-    info(`列出所有备份: dch profile backups`);
-  }
-}
+export {
+  cmdBackup,
+  cmdBackupCancel,
+  cmdBackupCommit,
+  cmdBackupPrepare,
+} from "./cli-backup-create.ts";
 
 // ─── restore ─────────────────────────────────────────────────────────────
 
@@ -296,10 +250,13 @@ async function printRestoreResult(
     info(`  ${ap.originalId} → ${c.bold}${ap.finalId}${c.reset} (${ap.configDir})${tag}`);
   }
   if (result.sharedActions.length > 0) {
-    info(`共享资源 ${result.sharedActions.length} 项:`);
+    info(`切换脚本 ${result.sharedActions.length} 项:`);
     for (const sa of result.sharedActions) {
       info(`  ${sa.category} ${sa.relPath} → ${sa.action}`);
     }
+  }
+  if (result.ignoredLegacyAgents > 0) {
+    info(`旧包 shared/agents/** ${result.ignoredLegacyAgents} 项已忽略，未写回本机`);
   }
 
   if ("secretsApplied" in result) {
@@ -342,8 +299,11 @@ function printRestorePreview(manifest: Manifest, plan: ApplyBackupResult): void 
   console.log(`${c.bold}${c.blue}DRY-RUN — 不会修改文件${c.reset}\n`);
   console.log(`${c.bold}来源：${c.reset}${manifest.source_user}@${manifest.source_host} · ${manifest.created_at}`);
   console.log(`${c.bold}DCH 版本：${c.reset}${manifest.dch_version}`);
-  if (manifest.options.no_placeholder) {
-    console.log(`${c.red}⚠ 包内含明文凭据 (--no-placeholder 模式)${c.reset}`);
+  if (
+    manifest.options.no_placeholder ||
+    manifest.backup_audit?.contains_raw_secrets
+  ) {
+    console.log(`${c.red}⚠ 包内含规则保留的明文凭据${c.reset}`);
   }
   console.log();
 
@@ -356,10 +316,13 @@ function printRestorePreview(manifest: Manifest, plan: ApplyBackupResult): void 
   }
 
   if (plan.sharedActions.length > 0) {
-    console.log(`\n${c.bold}共享资源:${c.reset}`);
+    console.log(`\n${c.bold}切换脚本:${c.reset}`);
     for (const sa of plan.sharedActions) {
       console.log(`  ${sa.category} ${sa.relPath} → ${sa.action}`);
     }
+  }
+  if (plan.ignoredLegacyAgents > 0) {
+    console.log(`\n${c.gray}旧包 shared/agents/** ${plan.ignoredLegacyAgents} 项已忽略，不会写回本机。${c.reset}`);
   }
 
   // 优先 secrets_index 总览（新 pack）；旧 pack fall back 到原 placeholders dump
@@ -410,7 +373,7 @@ function printGroup(title: string, items: BackupSummary[]): void {
   for (const it of items) {
     const m = it.manifest;
     const summary = m
-      ? `profile:${m.profileCount}${m.placeholderCount > 0 ? ` 占位符:${m.placeholderCount}` : ""}${m.noPlaceholder ? ` ${c.red}[明文]${c.reset}` : ""}`
+      ? `profile:${m.profileCount}${m.placeholderCount > 0 ? ` 占位符:${m.placeholderCount}` : ""}${m.containsRawSecrets ? ` ${c.red}[明文]${c.reset}` : ""}`
       : `${c.red}manifest 解析失败: ${it.manifestError}${c.reset}`;
     const ts = new Date(it.mtimeMs).toISOString().slice(0, 19).replace("T", " ");
     console.log(`  ${c.bold}${c.white}${it.filename}${c.reset} ${c.gray}${formatBytes(it.bytes)} · ${ts}${c.reset}`);

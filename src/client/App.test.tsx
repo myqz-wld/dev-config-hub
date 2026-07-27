@@ -38,7 +38,7 @@ mock.module("./bridge.ts", () => ({
   },
   saveFile: () => Promise.resolve(),
   loadProfileDataDirect: () => Promise.resolve({
-    store: { version: 1, profiles: [], active: { claude: null, codex: null, grok: null, cursor: null }, preferences: { hookTimeoutMs: 30_000 } },
+    store: { version: 2, profiles: [], active: { claude: null, codex: null, grok: null, cursor: null }, backup: { toolPolicies: {} } },
     active: {
       claude: { id: null, rootPath: "/Users/test/.claude", symlinkTarget: null },
       codex: { id: null, rootPath: "/Users/test/.codex", symlinkTarget: null },

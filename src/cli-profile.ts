@@ -2,7 +2,7 @@
 import { PROFILE_TOOL_IDS, type Profile, type ToolKind, type HookResult } from "./profiles/types.ts";
 import {
   listProfiles, getProfile, addProfile, removeProfile,
-  useProfile, initTool, getActive, testHook, setPreference,
+  useProfile, initTool, getActive, testHook,
 } from "./profiles/manager.ts";
 import { TOOL_PATHS } from "./profiles/symlink.ts";
 import { collapseHome, expandHome, STORE_PATH } from "./profiles/store.ts";
@@ -14,8 +14,13 @@ import {
   parseFlags, readStdinLine, VALUE_FLAGS,
 } from "./cli-shared.ts";
 import {
-  cmdBackup, cmdRestore, cmdBackups, cmdBackupRm, cmdBackupPin,
+  cmdBackup, cmdBackupPrepare, cmdBackupCommit, cmdBackupCancel,
+  cmdRestore, cmdBackups, cmdBackupRm, cmdBackupPin,
 } from "./cli-backup.ts";
+import {
+  cmdBackupPolicy,
+  cmdUpdateProfile,
+} from "./cli-profile-policy.ts";
 
 // 兼容旧 import 路径（src/profiles/manager.test.ts 等导入 parseFlags / VALUE_FLAGS / readStdinLine）
 export { parseFlags, VALUE_FLAGS } from "./cli-shared.ts";
@@ -80,7 +85,9 @@ function fmtProfileLine(p: Profile, isActive: boolean): string {
 }
 
 // REVIEW_8 M11 / B6：每个 cmd 显式 allowed flag 集合（防 `--no-share` 这类 typo 被静默吞）。
-const ADD_ALLOWED = new Set(["dir", "from", "desc", "pre-hook", "post-hook"]);
+const ADD_ALLOWED = new Set([
+  "dir", "desc", "pre-hook", "post-hook", "timeout", "existing",
+]);
 const REMOVE_ALLOWED = new Set(["yes"]);
 
 async function cmdList() {
@@ -102,7 +109,6 @@ async function cmdList() {
     console.log();
   }
 
-  console.log(`${c.gray}hook 超时: ${c.reset}${store.preferences.hookTimeoutMs}ms`);
 }
 
 async function cmdShow(id: string) {
@@ -114,48 +120,36 @@ async function cmdShow(id: string) {
 async function cmdAdd(args: string[]) {
   const { positional, flags, envPairs } = parseFlags(args, { allowedFlags: ADD_ALLOWED });
   const [toolRaw, id] = positional;
-  if (!toolRaw || !id) err(`用法: dch profile add <${TOOL_USAGE}> <id> [--dir <path>] [--env K=V ...] [--from <id>] [--desc <text>] [--pre-hook <script>] [--post-hook <script>]`);
+  if (!toolRaw || !id) err(`用法: dch profile add <${TOOL_USAGE}> <id> [--dir <path>] [--existing] [--timeout <ms>] [--env K=V ...] [--desc <text>] [--pre-hook <script>] [--post-hook <script>]`);
   if (!TOOLS.includes(toolRaw as ToolKind)) err(`tool 必须是 ${TOOL_USAGE} 之一 (收到 ${toolRaw})`);
   const tool = toolRaw as ToolKind;
 
-  let base: Partial<Profile> = {};
-  if (flags.from && typeof flags.from === "string") {
-    const src = await getProfile(flags.from);
-    if (src.tool !== tool) {
-      err(`--from ${src.id} 属于 ${src.tool}，不能复制到 ${tool}`);
-    }
-    base = {
-      tool: src.tool,
-      configDir: src.configDir,
-      env: { ...(src.env ?? {}) },
-      hooks: { ...(src.hooks ?? {}) },
-      // PR-6 (#M2)：原版漏 description → line 146 `base.description` 永远 undefined
-      // → clone 出来的 profile description 永远丢失
-      description: src.description,
-    };
-  }
-
-  const env: Record<string, string> = { ...(base.env ?? {}) };
+  const env: Record<string, string> = {};
   for (const [k, v] of envPairs) env[k] = v;
 
-  const preHook = typeof flags["pre-hook"] === "string" ? flags["pre-hook"] : base.hooks?.preSwitch;
-  const postHook = typeof flags["post-hook"] === "string" ? flags["post-hook"] : base.hooks?.postSwitch;
+  const preHook = typeof flags["pre-hook"] === "string" ? flags["pre-hook"] : undefined;
+  const postHook = typeof flags["post-hook"] === "string" ? flags["post-hook"] : undefined;
   const hooks = (preHook || postHook)
     ? { ...(preHook ? { preSwitch: preHook } : {}), ...(postHook ? { postSwitch: postHook } : {}) }
     : undefined;
+  const timeout = flags.timeout === undefined ? 30_000 : Number(flags.timeout);
+  if (!Number.isInteger(timeout) || timeout < 1_000 || timeout > 600_000) {
+    err("--timeout 必须是 1000-600000 之间的整数（毫秒，1 秒至 10 分钟）");
+  }
 
   const profile: Profile = {
     id,
     tool,
-    configDir: typeof flags.dir === "string" ? flags.dir : (base.configDir ?? defaultProfileDir(tool, id)),
+    configDir: typeof flags.dir === "string" ? flags.dir : defaultProfileDir(tool, id),
     env: Object.keys(env).length > 0 ? env : undefined,
-    description: typeof flags.desc === "string" ? flags.desc : base.description,
+    description: typeof flags.desc === "string" ? flags.desc : undefined,
     hooks,
+    hookTimeoutMs: timeout,
   };
 
-  await addProfile(profile);
+  await addProfile(profile, flags.existing ? "manage-existing" : "create-empty");
   if (isJsonMode()) return jsonOut({ ok: true, profile });
-  ok(`已添加 profile ${c.bold}${id}${c.reset} → ${profile.configDir}`);
+  ok(`${flags.existing ? "已纳入管理" : "已创建空目录并添加"} profile ${c.bold}${id}${c.reset} → ${profile.configDir}`);
   info(`提示: dch profile use ${id} 切换；dch profile edit ${id} 改细节`);
 }
 
@@ -300,44 +294,30 @@ async function cmdHook(args: string[]) {
   }
 }
 
-async function cmdConfig(args: string[]) {
-  const [key, value] = args;
-  if (!key || value === undefined) err("用法: dch profile config hookTimeoutMs <value>");
-  if (key === "hookTimeoutMs") {
-    const n = Number(value);
-    // REVIEW_4 M5：与 src/schemas/dch-store.ts 的 hookTimeoutMs min:1000 max:600000 + UI 三方对齐
-    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1000 || n > 600000) {
-      err("hookTimeoutMs 必须是 1000-600000 之间的整数（毫秒，1s ~ 10 分钟）");
-    }
-    await setPreference("hookTimeoutMs", n);
-  } else {
-    err(`未知配置项: ${key}（仅支持 hookTimeoutMs）`);
-  }
-  if (isJsonMode()) return jsonOut({ ok: true, key, value });
-  ok(`已设置 ${key} = ${value}`);
-}
-
 function help() {
   console.log(`${c.bold}${c.blue}dch profile${c.reset} - Profile 快速切换
 
 ${c.bold}子命令:${c.reset}
   ${c.cyan}list${c.reset}                          列出所有 profile
   ${c.cyan}show${c.reset}    <id>                  打印 profile JSON
-  ${c.cyan}add${c.reset}     <${TOOL_USAGE}> <id>   添加 profile [--dir <path>] [--env K=V ...] [--from <id>] [--desc <text>] [--pre-hook <script>] [--post-hook <script>]
+  ${c.cyan}add${c.reset}     <${TOOL_USAGE}> <id>   创建空方案目录并添加 profile
+                                  [--dir <path>] [--existing] [--timeout <ms>] [--env K=V ...]
+                                  [--desc <text>] [--pre-hook <script>] [--post-hook <script>]
   ${c.cyan}edit${c.reset}    <id>                  $EDITOR 打开 ${STORE_PATH}
+  ${c.cyan}update${c.reset}  <id> --payload <json> 更新方案目录、说明、变量、脚本或超时
   ${c.cyan}remove${c.reset}  <id>                  删除 profile (不删 configDir) [--yes]
   ${c.cyan}use${c.reset}     <id>                  原子切换工具配置根目录 symlink/junction + 跑 pre/post hook
   ${c.cyan}current${c.reset} [tool]                查询当前 active
   ${c.cyan}env${c.reset}     <${TOOL_USAGE}>        输出当前 active profile.env 为 shell-eval 格式
   ${c.cyan}init${c.reset}    <${TOOL_USAGE}>        接管工具用户配置根目录并建立 default profile
   ${c.cyan}hook test${c.reset} <id> <pre|post>     单独运行 hook 测试
-  ${c.cyan}config${c.reset}  hookTimeoutMs <ms>    设置 hook 超时
 
 ${c.bold}备份 / 还原:${c.reset}
-  ${c.cyan}backup${c.reset}                        备份所有 profile + 共享资源到 .dchpack
+  ${c.cyan}backup${c.reset}                        备份配置方案 + 可选切换脚本到 .dchpack
                                   默认覆盖 ~/.dch/backups/latest.dchpack（默认位）
                                   [--keep] 保留为 dch-backup-<TS>.dchpack 历史副本
-                                  [--out <file>] [--profiles <id1,id2>] [--no-shared] [--no-placeholder] [--yes]
+                                  [--out <file>] [--profiles <id1,id2>] [--no-scripts] [--no-placeholder] [--yes]
+                                  --no-shared 是 --no-scripts 的兼容别名
   ${c.cyan}restore${c.reset} <pack>                还原 .dchpack（自动加 -restored-<TS> 后缀避免撞名）
                                   [--prefix <p>] [--rename OLD=NEW,...] [--dry-run] [--yes]
   ${c.cyan}backups${c.reset}                       列出所有 .dchpack（默认位 / 置顶 / 历史 三组）
@@ -377,14 +357,18 @@ export async function runProfileCommand(args: string[]): Promise<void> {
   if (!sub || sub === "list") await cmdList();
   else if (sub === "show") rest[0] ? await cmdShow(rest[0]) : err("用法: dch profile show <id>");
   else if (sub === "add") await cmdAdd(rest);
+  else if (sub === "update") await cmdUpdateProfile(rest);
   else if (sub === "remove" || sub === "rm") await cmdRemove(rest);
   else if (sub === "use") await cmdUse(rest);
   else if (sub === "current") await cmdCurrent(rest);
   else if (sub === "env") await cmdEnv(rest);
   else if (sub === "init") await cmdInit(rest);
   else if (sub === "hook") await cmdHook(rest);
-  else if (sub === "config") await cmdConfig(rest);
   else if (sub === "backup") await cmdBackup(rest);
+  else if (sub === "backup-policy") await cmdBackupPolicy(rest);
+  else if (sub === "backup-prepare") await cmdBackupPrepare(rest);
+  else if (sub === "backup-commit") await cmdBackupCommit(rest);
+  else if (sub === "backup-cancel") await cmdBackupCancel(rest);
   else if (sub === "restore") await cmdRestore(rest);
   else if (sub === "backups") await cmdBackups(rest);
   else if (sub === "backup-rm") await cmdBackupRm(rest);

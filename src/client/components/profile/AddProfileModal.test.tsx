@@ -9,11 +9,12 @@ import { render, cleanup, act, fireEvent } from "@testing-library/react";
  * 落盘但 wrapper 模式 silently 丢的非法 key（CHANGELOG_4 守口仅在 CLI 端）。
  */
 
-mock.module("../../bridge.ts", () => ({
-  readProfileConfigFile: () => Promise.resolve(""),
+mock.module("@tauri-apps/plugin-dialog", () => ({
+  open: () => Promise.resolve(null),
 }));
 
 import { AddProfileModal } from "./AddProfileModal.tsx";
+import { hookFromEditedText } from "./helpers.ts";
 
 describe("AddProfileModal env KEY regex (REVIEW_8 / Group E7)", () => {
   afterEach(() => cleanup());
@@ -23,7 +24,6 @@ describe("AddProfileModal env KEY regex (REVIEW_8 / Group E7)", () => {
       <AddProfileModal
         tool="claude"
         busy={false}
-        existing={[]}
         onClose={() => {}}
         onSubmit={() => {}}
       />,
@@ -144,5 +144,22 @@ describe("AddProfileModal env KEY regex (REVIEW_8 / Group E7)", () => {
     });
     expect(addBtn!.disabled).toBe(true);
     expect(container.querySelector(".form-hint-error")).toBeTruthy();
+  });
+
+  it("新建只提供空目录或已有目录，不再提供复制和配置文件内容", () => {
+    const { container } = renderModal();
+    expect(container.textContent).toContain("创建空目录");
+    expect(container.textContent).toContain("管理已有目录");
+    expect(container.textContent).not.toContain("从已有方案复制");
+    expect(container.textContent).not.toContain("settings.json 内容");
+  });
+
+  it("普通编辑未改动时保留分平台脚本对象，修改后才转成字符串", () => {
+    const original = {
+      posix: "echo posix",
+      powershell: "Write-Output windows",
+    };
+    expect(hookFromEditedText(original, "echo posix")).toEqual(original);
+    expect(hookFromEditedText(original, "echo changed")).toBe("echo changed");
   });
 });

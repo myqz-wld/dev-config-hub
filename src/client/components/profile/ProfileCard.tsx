@@ -4,7 +4,8 @@ import { hookToString, maskValue } from "./helpers.ts";
 import { DoodleIcon } from "../DoodleIcon.tsx";
 
 export function ProfileCard({
-  profile, isActive, busy, onUse, onDelete, onTestHook, onExport,
+  profile, isActive, busy, onUse, onDelete, onTestHook, onExport, onEdit,
+  onBackupRules,
 }: {
   profile: Profile;
   isActive: boolean;
@@ -13,6 +14,8 @@ export function ProfileCard({
   onDelete: (id: string) => void;
   onTestHook: (id: string, which: "pre" | "post") => void;
   onExport?: (id: string) => void;
+  onEdit?: (profile: Profile) => void;
+  onBackupRules?: (profile: Profile) => void;
 }) {
   const envCount = Object.keys(profile.env ?? {}).length;
   const hasPreHook = !!profile.hooks?.preSwitch;
@@ -37,6 +40,7 @@ export function ProfileCard({
           {envCount > 0 && <span className="badge env">变量 {envCount}</span>}
           {hasPreHook && <span className="badge hook">切换前</span>}
           {hasPostHook && <span className="badge hook">切换后</span>}
+          <span className="badge">{(profile.hookTimeoutMs ?? 30_000) / 1_000}s</span>
         </div>
       </div>
       <div className="profile-card-body">
@@ -50,27 +54,32 @@ export function ProfileCard({
             <span className="profile-desc">{profile.description}</span>
           </div>
         )}
-        {envCount > 0 && (
-          <div className="profile-row">
-            <span className="profile-row-label">脚本变量</span>
-            <div className="profile-env-list">
-              {Object.entries(profile.env ?? {}).map(([k, v]) => (
-                <span key={k} className="tag"><code>{k}</code>=<code>{maskValue(k, v)}</code></span>
-              ))}
-            </div>
-          </div>
-        )}
-        {hasPreHook && (
-          <div className="profile-row">
-            <span className="profile-row-label">切换前脚本</span>
-            <pre className="profile-hook-script">{hookToString(profile.hooks!.preSwitch)}</pre>
-          </div>
-        )}
-        {hasPostHook && (
-          <div className="profile-row">
-            <span className="profile-row-label">切换后脚本</span>
-            <pre className="profile-hook-script">{hookToString(profile.hooks!.postSwitch)}</pre>
-          </div>
+        {(envCount > 0 || hasPreHook || hasPostHook) && (
+          <details className="profile-card-details">
+            <summary>查看脚本与变量</summary>
+            {envCount > 0 && (
+              <div className="profile-row">
+                <span className="profile-row-label">脚本变量</span>
+                <div className="profile-env-list">
+                  {Object.entries(profile.env ?? {}).map(([k, v]) => (
+                    <span key={k} className="tag"><code>{k}</code>=<code>{maskValue(k, v)}</code></span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {hasPreHook && (
+              <div className="profile-row">
+                <span className="profile-row-label">切换前脚本</span>
+                <pre className="profile-hook-script">{hookToString(profile.hooks!.preSwitch)}</pre>
+              </div>
+            )}
+            {hasPostHook && (
+              <div className="profile-row">
+                <span className="profile-row-label">切换后脚本</span>
+                <pre className="profile-hook-script">{hookToString(profile.hooks!.postSwitch)}</pre>
+              </div>
+            )}
+          </details>
         )}
       </div>
       <div className="profile-card-actions">
@@ -88,8 +97,18 @@ export function ProfileCard({
           </button>
         )}
         {onExport && (
-          <button className="btn-sm" disabled={busy} onClick={() => onExport(profile.id)} title="只备份此方案和共享资源">
+          <button className="btn-sm" disabled={busy} onClick={() => onExport(profile.id)} title="只备份此方案和切换脚本">
             <DoodleIcon kind="export" />导出
+          </button>
+        )}
+        {onEdit && (
+          <button className="btn-sm" disabled={busy} onClick={() => onEdit(profile)}>
+            编辑
+          </button>
+        )}
+        {onBackupRules && (
+          <button className="btn-sm" disabled={busy} onClick={() => onBackupRules(profile)}>
+            备份规则
           </button>
         )}
         <div className="profile-card-actions-spacer" />

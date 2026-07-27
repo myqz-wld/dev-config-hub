@@ -1,262 +1,213 @@
-import { useState, useEffect, useRef } from "react";
-import { dchProfile, type Profile, type Manifest } from "../../bridge.ts";
+import { useEffect, useRef, useState } from "react";
+import {
+  dchProfile,
+  type Manifest,
+  type Profile,
+} from "../../bridge.ts";
 import { backupCache } from "../../backup-cache.ts";
 import { formatBytes } from "../../format-bytes.ts";
-import { SecretsSummaryList } from "./UniqueSecretsList.tsx";
 import { DoodleIcon } from "../DoodleIcon.tsx";
 
-/**
- * 导出备份 modal:选 profile / 共享开关 / 明文凭据开关 → 备份。
- *
- * UX:
- * - 默认全选所有 profile
- * - 默认带共享资源(hook 脚本 + ~/.agents)
- * - 明文凭据默认关,开启时显示红色警告
- * - 备份过程中显示 spinner + 阶段提示 + 已耗时 + 预期时间(让用户知道「不是卡死」)
- * - 备份完成后 backupCache.clear(),让「备份历史」拿到最新数据
- *
- * REVIEW_9 D-claude LOW 1: useState lazy init,避免每次 render 重建 Set。
- * REVIEW_9 D-claude LOW 2: elapsed timer 250ms 而非 100ms(3s 备份原本 30 次 re-render →
- * 12 次足够给用户「时间在走」反馈,显著降低 React reconciliation overhead)。
- * REVIEW_9 D-MED-4: formatBytes 抽 ../../format-bytes.ts 共用。
- * REVIEW_9 D-MED-7: SecretsSummaryList 抽 UniqueSecretsList.tsx 共用 + ⚡N 标签走 CrossFieldBadge。
- */
+type Prepared = {
+  token: string;
+  bytes: number;
+  manifest: Manifest;
+  expiresAt: string;
+};
+
+const POLICY_SOURCE_LABELS: Record<string, string> = {
+  factory: "内置默认",
+  tool: "工具级",
+  "profile-snapshot": "方案独立快照",
+  scripts: "切换脚本",
+};
+
+const SECRET_ACTION_LABELS: Record<string, string> = {
+  placeholder: "替换为占位符",
+  "exclude-file": "排除整个文件",
+  "keep-original": "保留原值",
+  ignore: "忽略命中",
+};
+
 export function ExportBackupModal({
-  profiles, presetProfileIds, presetKeep, onClose, onToast,
+  profiles,
+  scriptsEnabled,
+  presetProfileIds,
+  presetKeep,
+  onClose,
+  onToast,
 }: {
   profiles: Profile[];
-  /** 单 profile 卡片打开时只预选该 profile;不传 = 全选 */
+  scriptsEnabled: boolean;
   presetProfileIds?: string[];
-  /** 默认 keep 状态(来自调用上下文,如「备份历史 → 备份」可预设 keep=true) */
   presetKeep?: boolean;
   onClose: () => void;
-  onToast: (msg: string, ok: boolean) => void;
+  onToast: (message: string, ok: boolean) => void;
 }) {
-  // REVIEW_9 D-claude LOW 1: lazy init,避免每次 render 重建 Set / iterate profiles
-  const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(presetProfileIds ?? profiles.map((p) => p.id)),
+  const [selected, setSelected] = useState(
+    () => new Set(presetProfileIds ?? profiles.map((profile) => profile.id)),
   );
-  const [includeShared, setIncludeShared] = useState(true);
+  const [includeScripts, setIncludeScripts] = useState(scriptsEnabled);
   const [noPlaceholder, setNoPlaceholder] = useState(false);
-  const [confirmRaw, setConfirmRaw] = useState(false);
   const [keep, setKeep] = useState(!!presetKeep);
-  const [busy, setBusy] = useState(false);
+  const [prepared, setPrepared] = useState<Prepared | null>(null);
+  const [confirmRaw, setConfirmRaw] = useState(false);
+  const [busy, setBusy] = useState<"prepare" | "commit" | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [result, setResult] = useState<{ outFile: string; bytes: number; manifest: Manifest } | null>(null);
-  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [result, setResult] = useState<{
+    outFile: string;
+    bytes: number;
+    manifest: Manifest;
+  } | null>(null);
+  const pendingTokenRef = useRef<string | null>(null);
 
-  // 备份开始后启动 elapsed 计时器,每 250ms 更新一次(REVIEW_9 D-claude LOW 2:从 100ms 降到 250ms,
-  // 3s 备份从 30 次 re-render 降到 12 次,仍给用户「时间在走」反馈)
   useEffect(() => {
-    if (busy) {
-      const startedAt = Date.now();
-      setElapsedMs(0);
-      elapsedTimerRef.current = setInterval(() => {
-        setElapsedMs(Date.now() - startedAt);
-      }, 250);
-    } else if (elapsedTimerRef.current) {
-      clearInterval(elapsedTimerRef.current);
-      elapsedTimerRef.current = null;
-    }
-    return () => {
-      if (elapsedTimerRef.current) {
-        clearInterval(elapsedTimerRef.current);
-        elapsedTimerRef.current = null;
-      }
-    };
+    if (!busy) return;
+    const start = Date.now();
+    const timer = setInterval(() => setElapsedMs(Date.now() - start), 250);
+    return () => clearInterval(timer);
   }, [busy]);
 
-  /**
-   * **REVIEW_9 D-MED-1 / D-codex M2 + D-claude M1 双方独立**: backdrop / X 在 in-flight 时
-   * 应拒绝关闭。R1 D-HIGH-2 fix 只覆盖 RestoreBackupModal,本 modal 同款 vulnerable —
-   * 备份过程中点 backdrop / × 触发 onClose 让 React unmount 而 IPC 仍 in-flight,setState
-   * on unmounted warn / state 紊乱。同款 attemptClose:busy 中直接 no-op(进度区已显示
-   * spinner + 阶段提示让用户知道不能关)。
-   */
-  const attemptClose = () => {
-    if (busy) return;
-    onClose();
-  };
+  useEffect(() => () => {
+    const token = pendingTokenRef.current;
+    if (token) void dchProfile.backupCancel(token).catch(() => {});
+  }, []);
 
-  /**
-   * **REVIEW_9 D-INFO-1 / D-claude I2**: functional setSelected 替代闭包捕获。旧实现直接用
-   * `selected` 闭包,React batched render 之间用旧 selected 让连续点击丢中间状态(虽然
-   * onChange 不会触发 batched 但仍是反模式 + future risk)。functional update 让 React 总
-   * 拿最新 prev state。
-   */
   const toggle = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
+    setSelected((current) => {
+      const next = new Set(current);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   };
 
-  const onStart = async () => {
+  const close = async () => {
+    if (busy) return;
+    if (pendingTokenRef.current) {
+      await dchProfile.backupCancel(pendingTokenRef.current).catch(() => {});
+      pendingTokenRef.current = null;
+    }
+    onClose();
+  };
+
+  const prepare = async () => {
     if (selected.size === 0) {
       onToast("请至少选择一个配置方案", false);
       return;
     }
-    if (noPlaceholder && !confirmRaw) {
-      onToast("请先勾选风险确认，再导出含明文密钥的备份", false);
-      return;
-    }
-    setBusy(true);
+    setBusy("prepare");
+    setElapsedMs(0);
     try {
-      const r = await dchProfile.backup({
-        profileIds: Array.from(selected),
-        noShared: !includeShared,
+      const next = await dchProfile.backupPrepare({
+        profileIds: [...selected],
+        noScripts: !includeScripts,
         noPlaceholder,
         keep,
-        yes: true,
       });
-      setResult(r);
-      backupCache.clear(); // 让「备份历史」拿到最新(latest.dchpack 或新历史副本)
-      onToast(`已写入 ${r.outFile}`, true);
-    } catch (e) {
-      onToast(e instanceof Error ? e.message : String(e), false);
+      pendingTokenRef.current = next.token;
+      setPrepared(next);
+      setConfirmRaw(false);
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error), false);
     } finally {
-      setBusy(false);
+      setBusy(null);
+    }
+  };
+
+  const discardPreview = async () => {
+    if (!prepared || busy) return;
+    setBusy("commit");
+    try {
+      await dchProfile.backupCancel(prepared.token);
+      pendingTokenRef.current = null;
+      setPrepared(null);
+      setConfirmRaw(false);
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error), false);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const commit = async () => {
+    if (!prepared) return;
+    const containsRaw = prepared.manifest.backup_audit?.contains_raw_secrets === true;
+    if (containsRaw && !confirmRaw) {
+      onToast("请确认明文密钥风险后再写入备份", false);
+      return;
+    }
+    setBusy("commit");
+    setElapsedMs(0);
+    try {
+      const committed = await dchProfile.backupCommit(prepared.token, confirmRaw);
+      // Protocol invariant: commit must return the exact manifest shown in preview.
+      if (JSON.stringify(committed.manifest) !== JSON.stringify(prepared.manifest)) {
+        throw new Error("备份提交结果与预览不一致，已停止展示结果");
+      }
+      pendingTokenRef.current = null;
+      setPrepared(null);
+      setResult(committed);
+      backupCache.clear();
+      onToast(`已写入 ${committed.outFile}`, true);
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error), false);
+    } finally {
+      setBusy(null);
     }
   };
 
   return (
-    <div className="modal-backdrop" onClick={attemptClose}>
-      <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-backdrop" onClick={close}>
+      <div className="modal modal-wide backup-export-modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal-head">
           <h2><DoodleIcon kind="export" />导出备份</h2>
-          <button className="modal-close" onClick={attemptClose}>×</button>
+          <button className="modal-close" onClick={close} disabled={!!busy}>×</button>
         </div>
         <div className="modal-body">
           {busy ? (
-            <BackupProgress
-              elapsedMs={elapsedMs}
-              profileCount={selected.size}
-              keep={keep}
-            />
+            <BackupProgress mode={busy} elapsedMs={elapsedMs} />
           ) : result ? (
-            <div className="form-row form-row-block">
-              <p className="form-hint">✓ 备份完成({formatBytes(result.bytes)})</p>
-              <pre className="raw">{result.outFile}</pre>
-              <p className="form-hint">
-                {keep ? "已保留为历史备份" : "已覆盖默认备份 latest.dchpack"} · 包含 {result.manifest.profiles.length} 个配置方案
-                {result.manifest.secrets_index && result.manifest.secrets_index.entries.length > 0
-                  ? <> · <DoodleIcon kind="key" /><strong>{result.manifest.secrets_index.total_logical_keys}</strong> 个不同密钥项，来自 {result.manifest.secrets_index.total_occurrences} 处脱敏位置</>
-                  : <>，{result.manifest.placeholders.length} 处已脱敏</>}
-                。
-                <br />
-                导入方式：使用 <code>dch profile restore &lt;path&gt;</code>，或回到配置方案页点「导入备份」。
-              </p>
-              {result.manifest.secrets_index && result.manifest.secrets_index.entries.length > 0 && (
-                <SecretsSummaryList idx={result.manifest.secrets_index} />
-              )}
-            </div>
+            <BackupResult result={result} keep={keep} />
+          ) : prepared ? (
+            <BackupPreview
+              prepared={prepared}
+              confirmRaw={confirmRaw}
+              onConfirmRaw={setConfirmRaw}
+            />
           ) : (
-            <>
-              <div className="form-row form-row-block">
-                <label>选择配置方案 ({selected.size}/{profiles.length})</label>
-                <div className="form-env-block">
-                  {profiles.map((p) => (
-                    <label
-                      key={p.id}
-                      className={`form-env-item backup-profile-choice${selected.has(p.id) ? " selected" : ""}`}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selected.has(p.id)}
-                        onChange={() => toggle(p.id)}
-                        disabled={busy}
-                      />
-                      <code>{p.id}</code>
-                      <span className="profile-desc"> {p.tool} · 配置目录 {p.configDir}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="form-row">
-                <label>包含共享资源</label>
-                <label style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    type="checkbox"
-                    checked={includeShared}
-                    onChange={(e) => setIncludeShared(e.target.checked)}
-                    disabled={busy}
-                  />
-                  <span>包含 ~/.dch/scripts/* 和 ~/.agents/**（切换脚本可能会用到）</span>
-                </label>
-              </div>
-
-              <div className="form-row">
-                <label>保留为历史</label>
-                <label style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    type="checkbox"
-                    checked={keep}
-                    onChange={(e) => setKeep(e.target.checked)}
-                    disabled={busy}
-                  />
-                  <span>保存为历史备份，不覆盖默认备份</span>
-                </label>
-              </div>
-              <p className="form-hint">
-                不勾选时写入默认备份 <code>latest.dchpack</code>，下次直接备份会覆盖；勾选后写入
-                <code>dch-backup-&lt;时间&gt;.dchpack</code>，作为单独快照保留。
-              </p>
-
-              <div className="form-row">
-                <label>密钥处理</label>
-                <label style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    type="checkbox"
-                    checked={noPlaceholder}
-                    onChange={(e) => { setNoPlaceholder(e.target.checked); setConfirmRaw(false); }}
-                    disabled={busy}
-                  />
-                  <span>保留原始密钥，不做脱敏</span>
-                </label>
-              </div>
-
-              {noPlaceholder && (
-                <div className="form-row form-row-block">
-                  <p className="form-hint" style={{ color: "var(--red)", borderLeft: "3px solid var(--red)", paddingLeft: 12 }}>
-                    <DoodleIcon kind="warning" />备份包将包含未脱敏的密钥或令牌。请只通过加密工具、密码管理器或本机保存。
-                    <br />
-                    不要通过明文邮件、聊天窗口或公开仓库分享。
-                  </p>
-                  <label style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-                    <input
-                      type="checkbox"
-                      checked={confirmRaw}
-                      onChange={(e) => setConfirmRaw(e.target.checked)}
-                      disabled={busy}
-                    />
-                    <span>我已了解风险，确认导出含明文密钥的备份包</span>
-                  </label>
-                </div>
-              )}
-
-              <p className="form-hint">
-                备份保存在 <code>~/.dch/backups/</code>。完成后可在 Finder 打开。
-              </p>
-              <BackupRulesDisclosure />
-            </>
+            <BackupConfiguration
+              profiles={profiles}
+              selected={selected}
+              includeScripts={includeScripts}
+              scriptsEnabled={scriptsEnabled}
+              noPlaceholder={noPlaceholder}
+              keep={keep}
+              onToggle={toggle}
+              onIncludeScripts={setIncludeScripts}
+              onNoPlaceholder={setNoPlaceholder}
+              onKeep={setKeep}
+            />
           )}
         </div>
         <div className="modal-foot">
-          <button className="btn ghost" onClick={attemptClose} disabled={busy}>
-            {result ? "关闭" : busy ? "备份中…" : "取消"}
+          <button className="btn ghost" onClick={result ? close : prepared ? discardPreview : close} disabled={!!busy}>
+            {result ? "关闭" : prepared ? "放弃预览" : "取消"}
           </button>
-          {!result && (
+          {!result && !prepared && (
+            <button className="btn primary" onClick={prepare} disabled={selected.size === 0}>
+              生成精确预览
+            </button>
+          )}
+          {prepared && (
             <button
               className="btn primary"
-              onClick={onStart}
-              disabled={busy || selected.size === 0 || (noPlaceholder && !confirmRaw)}
+              onClick={commit}
+              disabled={
+                prepared.manifest.backup_audit?.contains_raw_secrets === true &&
+                !confirmRaw
+              }
             >
-              {busy
-                ? <><span className="spinner-inline" /> 备份中… {(elapsedMs / 1000).toFixed(1)}s</>
-                : "开始备份"}
+              确认写入此快照
             </button>
           )}
         </div>
@@ -265,58 +216,182 @@ export function ExportBackupModal({
   );
 }
 
-function BackupRulesDisclosure() {
+function BackupConfiguration({
+  profiles,
+  selected,
+  includeScripts,
+  scriptsEnabled,
+  noPlaceholder,
+  keep,
+  onToggle,
+  onIncludeScripts,
+  onNoPlaceholder,
+  onKeep,
+}: {
+  profiles: Profile[];
+  selected: Set<string>;
+  includeScripts: boolean;
+  scriptsEnabled: boolean;
+  noPlaceholder: boolean;
+  keep: boolean;
+  onToggle: (id: string) => void;
+  onIncludeScripts: (value: boolean) => void;
+  onNoPlaceholder: (value: boolean) => void;
+  onKeep: (value: boolean) => void;
+}) {
   return (
-    <details className="backup-rules">
-      <summary>查看备份规则</summary>
-      <ul>
-        <li>包含所选配置方案目录内的普通文件；自定义配置文件也会进入备份。</li>
-        <li>默认同时包含 <code>~/.dch/scripts/*</code> 和 <code>~/.agents/**</code>，可关闭「包含共享资源」。</li>
-        <li>默认会把 token、API key 等密钥替换为占位符；导入后再按提示填回。</li>
-        <li>不会跟随配置目录里的 symlink，避免备份越过配置方案边界。</li>
-        <li>跳过会话历史、数据库、日志、缓存、临时文件，以及私钥、证书等不适合打包的凭据文件。</li>
-      </ul>
+    <>
+      <div className="form-row form-row-block">
+        <label>选择配置方案（{selected.size}/{profiles.length}）</label>
+        <div className="form-env-block">
+          {profiles.map((profile) => (
+            <label key={profile.id} className={`form-env-item backup-profile-choice${selected.has(profile.id) ? " selected" : ""}`}>
+              <input type="checkbox" checked={selected.has(profile.id)} onChange={() => onToggle(profile.id)} />
+              <code>{profile.id}</code>
+              <span className="profile-desc">{profile.tool} · {profile.configDir}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="form-row">
+        <label>切换脚本</label>
+        <label className="form-check">
+          <input
+            type="checkbox"
+            checked={includeScripts}
+            disabled={!scriptsEnabled}
+            onChange={(event) => onIncludeScripts(event.target.checked)}
+          />
+          {scriptsEnabled ? "本次包含 " : "全局规则已停用 "}
+          <code>~/.dch/scripts/**</code>
+        </label>
+      </div>
+      <div className="form-row">
+        <label>备份位置</label>
+        <label className="form-check">
+          <input type="checkbox" checked={keep} onChange={(event) => onKeep(event.target.checked)} />
+          保留为独立历史备份，不覆盖 <code>latest.dchpack</code>
+        </label>
+      </div>
+      <div className="form-row">
+        <label>临时覆盖</label>
+        <label className="form-check">
+          <input type="checkbox" checked={noPlaceholder} onChange={(event) => onNoPlaceholder(event.target.checked)} />
+          将“替换为占位符”临时改为“保留原值”
+        </label>
+      </div>
+      {noPlaceholder && (
+        <p className="policy-raw-warning">
+          此选项不会放行被文件规则或“排除整个文件”规则拒绝的内容。实际是否含明文密钥以预览为准。
+        </p>
+      )}
       <p className="form-hint">
-        完整规则见 README 的「备份与还原」/「打包规则」，实现位于 <code>src/profiles/backup-rules.ts</code>。
+        文件范围和密钥处理请在配置方案页的“备份规则”中编辑。下一步会先生成不可变快照，
+        显示逐文件规则命中，再由你确认写入。
       </p>
-    </details>
+    </>
   );
 }
 
-/**
- * 备份进行中的进度区。后端 createBackup 是一次性 IPC 不分阶段上报,前端按 elapsedMs 估算
- * 文字阶段(粗粒度但有反馈)。让用户知道「不是卡死,正在做事 + 还要多久」。
- *
- * 阶段时间粗估(4 profile 80MB 配置 → gzip -1 ~2-3s 总计;单 profile ~1s):
- *   0-300ms: 扫描 profile 与共享资源
- *   300ms-3s: 脱敏凭据 + 写临时目录
- *   3s+: 压缩归档(gzip -1)
- */
-function BackupProgress({ elapsedMs, profileCount, keep }: {
-  elapsedMs: number;
-  profileCount: number;
+function BackupPreview({
+  prepared,
+  confirmRaw,
+  onConfirmRaw,
+}: {
+  prepared: Prepared;
+  confirmRaw: boolean;
+  onConfirmRaw: (value: boolean) => void;
+}) {
+  const audit = prepared.manifest.backup_audit;
+  if (!audit) return <div className="empty">预览缺少审计信息，不能提交。</div>;
+  return (
+    <div className="backup-preview">
+      <div className="backup-preview-summary">
+        <span>包含文件 <strong>{audit.totals.included_files}</strong></span>
+        <span>排除文件 <strong>{audit.totals.excluded_files}</strong></span>
+        <span>占位符 <strong>{audit.totals.placeholder_hits}</strong></span>
+        <span>密钥排除 <strong>{audit.totals.excluded_secret_hits}</strong></span>
+        <span>保留明文 <strong>{audit.totals.retained_secret_hits}</strong></span>
+        <span>忽略命中 <strong>{audit.totals.ignored_hits}</strong></span>
+      </div>
+      <div className="backup-policy-sources">
+        {audit.policies.map((policy) => (
+          <span key={policy.owner} className="tag">
+            <code>{policy.owner}</code> · {POLICY_SOURCE_LABELS[policy.source] ?? policy.source} ·
+            {policy.file_rule_count}/{policy.secret_rule_count} 条
+          </span>
+        ))}
+      </div>
+      {audit.contains_raw_secrets && (
+        <div className="policy-raw-warning">
+          <DoodleIcon kind="warning" />此快照包含规则保留的明文密钥。请仅在加密存储或加密渠道中使用。
+          <label className="form-check">
+            <input type="checkbox" checked={confirmRaw} onChange={(event) => onConfirmRaw(event.target.checked)} />
+            我已了解风险，确认写入含明文密钥的备份
+          </label>
+        </div>
+      )}
+      <div className="rule-table-wrap backup-preview-files">
+        <table className="rule-table">
+          <thead>
+            <tr><th>文件</th><th>结果</th><th>文件规则</th><th>密钥规则与动作</th><th>警告</th></tr>
+          </thead>
+          <tbody>
+            {audit.files.map((file) => (
+              <tr key={`${file.owner}:${file.relative_path}`}>
+                <td><code>{file.owner}/{file.relative_path}</code></td>
+                <td>{file.outcome === "included" ? "包含" : "排除"}</td>
+                <td><code>{file.coverage_rule_id ?? "默认动作"}</code></td>
+                <td>{file.secret_hits.length
+                  ? file.secret_hits.map((hit) => (
+                    `${hit.rule_id} → ${SECRET_ACTION_LABELS[hit.action] ?? hit.action} ×${hit.count}`
+                  )).join("；")
+                  : "—"}</td>
+                <td>{file.warnings.join("；") || (file.unscannable ? "不可扫描" : "—")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="form-hint">
+        预览对应已准备的 {formatBytes(prepared.bytes)} 不可变快照；确认时不会重新扫描文件。
+      </p>
+    </div>
+  );
+}
+
+function BackupResult({
+  result,
+  keep,
+}: {
+  result: { outFile: string; bytes: number; manifest: Manifest };
   keep: boolean;
 }) {
-  const stage =
-    elapsedMs < 300 ? "收集配置方案和共享资源…" :
-    elapsedMs < 3000 ? "脱敏密钥并准备文件…" :
-    "压缩备份包…";
-  const eta = profileCount === 1 ? "约 1-3 秒" : profileCount <= 2 ? "约 2-5 秒" : "约 3-15 秒";
-  const target = keep ? "历史备份 dch-backup-<时间>.dchpack" : "默认备份 latest.dchpack";
   return (
-    <div style={{
-      display: "flex", flexDirection: "column", alignItems: "center",
-      gap: 16, padding: "32px 16px",
-    }}>
+    <div className="backup-result">
+      <p>✓ 备份完成（{formatBytes(result.bytes)}）</p>
+      <pre className="raw">{result.outFile}</pre>
+      <p className="form-hint">
+        {keep ? "已保留为历史备份" : "已写入默认备份位置"} ·
+        包含 {result.manifest.profiles.length} 个配置方案和
+        {result.manifest.shared.dch_scripts.length} 个切换脚本文件。
+      </p>
+    </div>
+  );
+}
+
+function BackupProgress({
+  mode,
+  elapsedMs,
+}: {
+  mode: "prepare" | "commit";
+  elapsedMs: number;
+}) {
+  return (
+    <div className="backup-progress">
       <div className="spinner" />
-      <div style={{ fontSize: 16, fontWeight: 500 }}>{stage}</div>
-      <div style={{ fontSize: 13, opacity: 0.7, textAlign: "center", lineHeight: 1.6 }}>
-        正在备份 {profileCount} 个配置方案和共享资源到 {target}<br />
-        预计{eta} · 已耗时 <code>{(elapsedMs / 1000).toFixed(1)}s</code>
-      </div>
-      <div style={{ fontSize: 12, opacity: 0.5, textAlign: "center" }}>
-        请稍候,不要关闭窗口
-      </div>
+      <strong>{mode === "prepare" ? "正在扫描、过滤并生成预览快照…" : "正在写入已确认的快照…"}</strong>
+      <span>已耗时 <code>{(elapsedMs / 1_000).toFixed(1)}s</code></span>
     </div>
   );
 }

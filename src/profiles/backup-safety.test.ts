@@ -387,7 +387,7 @@ describe.skipIf(IS_WIN)("backup safety roundtrip (REVIEW_8 Group D)", () => {
       }
     }, 60_000);
 
-    test("R2-4: 恶意 manifest.shared.agents_paths[i] 含 .. 被拒，不写入 ~/Library/LaunchAgents", async () => {
+    test("旧 manifest.shared.agents_paths 整体忽略，绝不写入 ~/Library/LaunchAgents", async () => {
       const { home } = await setupTmpHomeWithProfiles({
         profiles: [{ id: "src", configDir: "~/.claude-src", files: { "x.json": "{}" } }],
       });
@@ -397,8 +397,10 @@ describe.skipIf(IS_WIN)("backup safety roundtrip (REVIEW_8 Group D)", () => {
         expect(bk.exitCode).toBe(0);
 
         const malicious = await repackWithMaliciousManifest(out, (m) => {
-          // 注入恶意 agents rel：`../Library/LaunchAgents/persist.plist`
-          m.shared.agents_paths = ["../Library/LaunchAgents/persist.plist"];
+          // 模拟旧包注入 agents payload；新类型不再暴露该字段。
+          (m.shared as unknown as Record<string, unknown>).agents_paths = [
+            "../Library/LaunchAgents/persist.plist",
+          ];
         });
 
         await writeFile(join(home, ".dch/profiles.json"), JSON.stringify({
@@ -407,10 +409,10 @@ describe.skipIf(IS_WIN)("backup safety roundtrip (REVIEW_8 Group D)", () => {
         }));
 
         const rs = await runCli(home, ["profile", "restore", malicious, "--yes", "--json"]);
-        expect(rs.exitCode).toBe(1); // R2-4 R3 G1: errors 非空 cli 走 exit 1
+        expect(rs.exitCode).toBe(0);
         const result = JSON.parse(rs.stdout.trim());
-        const allErrors = (result.errors as string[] | undefined) ?? [];
-        expect(allErrors.join("\n")).toMatch(/manifest\.shared\.agents_paths.*被拒/);
+        expect(result.ignoredLegacyAgents).toBe(1);
+        expect(result.sharedActions).toEqual([]);
         // 验 ~/Library/LaunchAgents/persist.plist 未被写入
         const evilExists = await stat(join(home, "Library/LaunchAgents/persist.plist"))
           .then(() => true).catch(() => false);

@@ -39,9 +39,9 @@ const FAKE_MANIFEST = {
   source_user: "tester",
   source_host: "test-mac",
   dch_version: "1.0.0",
-  options: { include_shared: true, no_placeholder: false, profile_ids: ["claude-default"] },
+  options: { include_scripts: true, no_placeholder: false, profile_ids: ["claude-default"] },
   profiles: [{ id: "claude-default", tool: "claude" }],
-  shared: { dch_scripts: ["a.sh"], agents_paths: [] },
+  shared: { dch_scripts: ["a.sh"] },
   placeholders: [{ packPath: "x", fieldName: "TOKEN", fieldPath: "$.t", hint: "" }],
 };
 

@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-06-24 | [PLAN_1_commit-build-metadata.md](PLAN_1_commit-build-metadata.md) | completed | Package commit metadata and expose installed freshness checks. | [CHANGELOG_34](../../changelogs/history/CHANGELOG_34_commit-build-metadata.md) |
 | 2026-05-26 | [build-dir-migration-20260526.md](build-dir-migration-20260526.md) | completed | Migrated frontend artifacts to `build/fe/`. | [CHANGELOG_23](../../changelogs/history/CHANGELOG_23.md) |
 | 2026-05-15 | [dch-deep-review-followup-20260515.md](dch-deep-review-followup-20260515.md) | completed | Closed REVIEW_9 follow-ups F1-F4. | [CHANGELOG_22](../../changelogs/history/CHANGELOG_22.md), [REVIEW_9](../../reviews/history/REVIEW_9.md) |
 | 2026-05-15 | [dch-deep-review-20260515.md](dch-deep-review-20260515.md) | completed | Closed deep-review groups G1-G12. | [CHANGELOG_21](../../changelogs/history/CHANGELOG_21.md), [REVIEW_9](../../reviews/history/REVIEW_9.md) |

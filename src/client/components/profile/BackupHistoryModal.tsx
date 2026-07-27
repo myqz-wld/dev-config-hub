@@ -290,7 +290,7 @@ function BackupRow({
           <code>{item.filename}</code>
           {item.pinned && <span className="badge env" style={{ marginLeft: 6 }}><DoodleIcon kind="pin" />置顶</span>}
           {item.category === "default" && <span className="badge default" style={{ marginLeft: 6 }}>默认备份</span>}
-          {m?.noPlaceholder && <span className="badge env" style={{ marginLeft: 6, color: "#c00" }}>明文凭据</span>}
+          {m?.containsRawSecrets && <span className="badge env" style={{ marginLeft: 6, color: "#c00" }}>明文凭据</span>}
         </div>
         <div className="profile-card-meta">
           <span className="profile-desc">{formatBytes(item.bytes)} · {ts}</span>

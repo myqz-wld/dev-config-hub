@@ -46,10 +46,11 @@ async function setupTmpHome(profiles: Array<{ id: string; configDir: string; isD
       tool: "claude",
       configDir: p.configDir,
       isDefault: p.isDefault,
+      hookTimeoutMs: 1_000,
       ...(p.preSwitch ? { hooks: { preSwitch: p.preSwitch } } : {}),
     })),
     active: { claude: defaultProfile.id, codex: null },
-    preferences: { hookTimeoutMs: 500 },
+    backup: { toolPolicies: {} },
   };
   await writeFile(join(dchDir, "profiles.json"), JSON.stringify(store, null, 2));
   return { home };

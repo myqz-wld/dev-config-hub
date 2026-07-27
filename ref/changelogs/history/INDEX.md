@@ -15,6 +15,9 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-06-24 | [CHANGELOG_34_commit-build-metadata.md](CHANGELOG_34_commit-build-metadata.md) | Packaged builds expose commit metadata and installed freshness checks. |
+| 2026-06-19 | [CHANGELOG_33.md](CHANGELOG_33.md) | Unified the font stack and fixed the dark first-paint flash. |
+| 2026-06-19 | [CHANGELOG_32.md](CHANGELOG_32.md) | Reworked the application shell into a handwritten paper style. |
 | 2026-06-18 | [CHANGELOG_31.md](CHANGELOG_31.md) | Aligned root instructions with the foundation templates. |
 | 2026-06-16 | [CHANGELOG_30.md](CHANGELOG_30.md) | Reworded UI copy around user goals instead of internal fields. |
 | 2026-06-16 | [CHANGELOG_29.md](CHANGELOG_29.md) | Changed backup selection to directory semantics with exclusions. |

@@ -15,4 +15,3 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-06-19 | [REVIEW_11.md](REVIEW_11.md) | Paper UI render-path performance | 2 MED / 1 LOW (+ 1 rejected / 1 uncertain) |

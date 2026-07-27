@@ -73,17 +73,20 @@ The frontend uses Bun HTML imports and the built-in bundler with automatic React
 - The profile roots are `~/.claude`, `$CODEX_HOME` or `~/.codex`, `$GROK_HOME` or `~/.grok`, and `~/.cursor`. Each points to a `<configDir>` through filesystem indirection: POSIX symlink on macOS/Linux and NTFS junction on Windows. `dch profile use <id>` performs atomic replacement with temporary-name creation and rename. Windows junction targets must be absolute directory paths on the same volume.
 - Before the first switch, `dch profile init <tool>` moves the existing real directory to `~/.<tool>-default`, links back to it, and registers it as the default profile.
 - Env-only switching is forbidden. Do not add a path that skips symlink/junction switching and changes only environment variables or one config file; it leaks across working directories and is not equivalent across tools.
-- Cursor profile switching covers `~/.cursor` only. Its platform-specific editor `settings.json` and `keybindings.json` remain display/edit-only and must not be folded into the profile root.
+- Cursor profile switching covers `~/.cursor` only. Its platform-specific editor `settings.json` and `keybindings.json` are outside both the configuration catalog and the profile root.
 - Switching runs `preSwitch` with `profile.env`, aborts without changing active state on failure, atomically swaps the link, writes `active.<tool>` to `~/.dch/profiles.json`, then runs `postSwitch` as warning-only.
 
 ### Backup And Restore (`.dchpack`)
 
-- Backups are safe-share by default: sensitive values become `<<DCH_PLACEHOLDER:KEY_NAME>>`. Raw-token backup requires explicit `--no-placeholder` handling and external encryption.
+- Backups use ordered editable policies: factory rules feed optional tool rules, while profiles either inherit live or hold a complete snapshot. Switch-script rules are global only.
+- Backups are safe-share by default: sensitive values become `<<DCH_PLACEHOLDER:KEY_NAME>>`. `keep-original` and `--no-placeholder` require an explicit raw-secret confirmation and external encryption.
 - `manifest.secrets_index` is the restore fan-out source of truth. It must not contain `valueHash` or real secret values; hashes may exist only as transient in-memory grouping data during backup.
-- Restore fills each logical secret once and fans it out by `fieldPath`. Whole-file credentials such as `auth.json` and `credentials.json` remain per-location placeholders, and `profile.env` sections may require manual `~/.dch/profiles.json` edits after restore.
+- Restore fills each logical secret once and fans it out by `fieldPath`. Factory rules exclude whole credential files; custom whole-file placeholders cannot reconstruct OAuth document shape. `profile.env` sections may require manual `~/.dch/profiles.json` edits after restore.
 - Do not follow symlinks inside profile config directories. Keep path-boundary checks and case-insensitive excludes for runtime, cache, history, database, log, lock, backup, private-key, and maintenance files.
+- Never scan, package, or restore `~/.agents/**`. Legacy `.dchpack` files remain importable, but `shared/agents/**` must be ignored. Shared backup scope contains only `~/.dch/scripts/**`.
+- Restore copies only manifest-declared package files and must not reapply the destination machine's current backup policy.
 - UI secret fill crosses the Tauri Rust tempfile route only once with restrictive permissions and guaranteed cleanup; webview TypeScript must not receive the tempfile path.
-- Backup include/exclude and sensitive-field rules live in `src/profiles/backup-rules.ts`; update that source and matching tests when package semantics change.
+- Factory defaults live in `src/profiles/backup-policy-defaults.ts`; validation, matching, transformation, preview audit, and fixtures live in the adjacent `backup-policy-*` / `backup-*` modules.
 
 ### Dual Injection Path For `profile.env`
 

@@ -2,15 +2,21 @@
  * REVIEW_9 follow-up F4 — splitErrorsForReport pure helper test。
  *
  * RestoreReportBody 用本 helper 把 result.errors[] 拆成「plain-text fill 失败」+「其他」两组,
- * 让 UI 单独友好显示前者(避免「文件后缀非 .json/.toml...」这种字面 error 堆在普通错误里
- * 用户看不懂含义)。本 helper 是 pure 函数,unit test 就够;React 渲染走手工 UI 冒烟。
+ * 让 UI 单独友好显示前者。文件尾部另覆盖自定义 keep-original 包的明文风险提示。
  *
  * 匹配 regex 与 field-path.ts:fillSingleFile 报的文案对齐(R1 G1 落地的 "文件后缀非
  * .json/.toml,不支持自动 fill" 这种格式)— 改 field-path.ts 文案需同步本 helper RE。
  */
 
-import { describe, expect, it } from "bun:test";
-import { splitErrorsForReport } from "./restore-modal-bodies.tsx";
+import { afterEach, describe, expect, it } from "bun:test";
+import { cleanup, render } from "@testing-library/react";
+import type { Manifest } from "../../bridge.ts";
+import {
+  RestorePreviewBody,
+  splitErrorsForReport,
+} from "./restore-modal-bodies.tsx";
+
+afterEach(() => cleanup());
 
 describe("REVIEW_9 follow-up F4 — splitErrorsForReport", () => {
   it("空 errors 返双空数组", () => {
@@ -73,5 +79,43 @@ describe("REVIEW_9 follow-up F4 — splitErrorsForReport", () => {
     const r = splitErrorsForReport(errs);
     expect(r.plainTextFillFiles).toEqual([]);
     expect(r.otherErrors).toEqual(errs);
+  });
+
+  it("自定义 keep-original 包即使不是 --no-placeholder 也显示明文警告", () => {
+    const manifest = {
+      format_version: 1,
+      created_at: "2026-07-26T00:00:00.000Z",
+      source_host: "test",
+      source_user: "test",
+      dch_version: "1.0.0",
+      options: {
+        include_scripts: false,
+        no_placeholder: false,
+        profile_ids: [],
+      },
+      profiles: [],
+      shared: { dch_scripts: [] },
+      placeholders: [],
+      security_warnings: [],
+      backup_audit: { contains_raw_secrets: true },
+    } as unknown as Manifest;
+    const { container } = render(
+      <RestorePreviewBody
+        manifest={manifest}
+        plan={{
+          appliedProfiles: [],
+          sharedActions: [],
+          placeholders: [],
+          errors: [],
+          ignoredLegacyAgents: 0,
+        }}
+        renameMap={{}}
+        renameError={() => null}
+        onUpdate={() => {}}
+        busy={false}
+        secretEntries={null}
+      />,
+    );
+    expect(container.textContent).toContain("这个备份包含未脱敏的密钥");
   });
 });

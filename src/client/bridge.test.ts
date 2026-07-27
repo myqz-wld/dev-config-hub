@@ -24,7 +24,7 @@ describe("buildProfileData — pure shape composer (替代 dch list+current)", (
     const r = buildProfileData(null, EMPTY_LINKS, ROOTS);
     expect(r.store.profiles).toEqual([]);
     expect(r.store.active).toEqual({ claude: null, codex: null, grok: null, cursor: null });
-    expect(r.store.preferences.hookTimeoutMs).toBe(30_000);
+    expect(r.store.backup).toEqual({ toolPolicies: {} });
     expect(r.active.claude).toEqual({ id: null, rootPath: ROOTS.claude, symlinkTarget: null });
     expect(r.active.codex).toEqual({ id: null, rootPath: ROOTS.codex, symlinkTarget: null });
   });
@@ -45,7 +45,8 @@ describe("buildProfileData — pure shape composer (替代 dch list+current)", (
       cursor: null,
     }, ROOTS);
     expect(r.store.profiles).toHaveLength(2);
-    expect(r.store.preferences.hookTimeoutMs).toBe(45_000);
+    expect(r.store.profiles.every((profile) => profile.hookTimeoutMs === 30_000)).toBeTrue();
+    expect("preferences" in r.store).toBeFalse();
     expect(r.active).toEqual({
       claude: { id: "claude-prod", rootPath: ROOTS.claude, symlinkTarget: "/Users/test/.claude-prod" },
       codex: { id: "codex-dev", rootPath: ROOTS.codex, symlinkTarget: "/Users/test/.codex-dev" },

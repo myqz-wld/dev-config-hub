@@ -13,6 +13,7 @@ import {
 } from "./bridge-core.ts";
 import type {
   Manifest, AppliedProfile, SharedAction, PlaceholderEntry, ApplyBackupResult,
+  PrepareBackupResult, CommitPreparedBackupResult,
 } from "../profiles/backup.ts";
 import type {
   BackupSummary, BackupManifestSummary, PinBackupResult,
@@ -49,7 +50,7 @@ export class PartialRestoreError<R extends ApplyBackupResult | ApplyBackupWithSe
   ) {
     super(
       `部分还原: ${result.errors.length} 错误,已应用 ${result.appliedProfiles.length} profile / ` +
-      `${result.sharedActions.length} shared`,
+      `${result.sharedActions.length} 个切换脚本`,
     );
     this.name = "PartialRestoreError";
   }
@@ -147,6 +148,7 @@ export interface BackupOpts {
   outFile?: string;
   profileIds?: string[];
   noShared?: boolean;
+  noScripts?: boolean;
   noPlaceholder?: boolean;
   yes?: boolean;
   /** keep=true → 写带时间戳的历史副本；false（默认）→ 覆盖 ~/.dch/backups/latest.dchpack */
@@ -205,23 +207,47 @@ const restorePreview = (packFile: string) =>
 
 export const dchBackup = {
   /**
-   * 备份 profile + 共享资源到 .dchpack。
+   * 备份 profile + 可选的 DCH 切换脚本到 .dchpack。
    * - keep=false（默认）：覆盖默认位 ~/.dch/backups/latest.dchpack
    * - keep=true：写带时间戳的历史副本 ~/.dch/backups/dch-backup-<TS>.dchpack
    * - outFile 显式指定：以 outFile 为准（最高优先级）
-   * - noShared: 不打 ~/.dch/scripts/ + ~/.agents/（默认带）
-   * - noPlaceholder: 保留原始 token / API key（强制 yes，避免脚本误用泄露）
+   * - noScripts: 本次不打 ~/.dch/scripts/；noShared 是兼容别名
+   * - noPlaceholder: 只把 placeholder 动作临时改成 keep-original
    */
   backup: (opts: BackupOpts = {}) => {
     const args: string[] = ["backup"];
     if (opts.outFile) args.push("--out", opts.outFile);
     if (opts.profileIds && opts.profileIds.length > 0) args.push("--profiles", opts.profileIds.join(","));
-    if (opts.noShared) args.push("--no-shared");
+    if (opts.noScripts) args.push("--no-scripts");
+    else if (opts.noShared) args.push("--no-shared");
     if (opts.noPlaceholder) args.push("--no-placeholder");
     if (opts.keep) args.push("--keep");
-    if (opts.yes || opts.noPlaceholder) args.push("--yes");
+    if (opts.yes) args.push("--yes");
     return runDch<{ ok: true; outFile: string; bytes: number; manifest: Manifest }>(args, TIMEOUT_BACKUP_MS);
   },
+
+  backupPrepare: (opts: BackupOpts = {}) => {
+    const args: string[] = ["backup-prepare"];
+    if (opts.outFile) args.push("--out", opts.outFile);
+    if (opts.profileIds?.length) args.push("--profiles", opts.profileIds.join(","));
+    if (opts.noScripts) args.push("--no-scripts");
+    else if (opts.noShared) args.push("--no-shared");
+    if (opts.noPlaceholder) args.push("--no-placeholder");
+    if (opts.keep) args.push("--keep");
+    return runDch<{ ok: true } & PrepareBackupResult>(args, TIMEOUT_BACKUP_MS);
+  },
+
+  backupCommit: (token: string, confirmRawSecrets = false) =>
+    runDch<{ ok: true } & CommitPreparedBackupResult>(
+      ["backup-commit", token, ...(confirmRawSecrets ? ["--yes"] : [])],
+      TIMEOUT_BACKUP_MS,
+    ),
+
+  backupCancel: (token: string) =>
+    runDch<{ ok: true; cancelled: string }>(
+      ["backup-cancel", token],
+      TIMEOUT_FAST_MS,
+    ),
 
   /**
    * dry-run 还原：只解析 .dchpack 拿 manifest + 算冲突 plan，不动 fs。
@@ -231,7 +257,7 @@ export const dchBackup = {
   restorePreview,
 
   /**
-   * 真还原：写 configDir + addProfile + 处理共享资源。
+   * 真还原：写 configDir + addProfile + 处理包内声明的 DCH 切换脚本。
    * UI 在用户点「确认还原」后调，传 renameMap 把改过名的传回。
    * **不填 secrets** → 占位符原样保留，用户事后按 readme 清单手改。
    *

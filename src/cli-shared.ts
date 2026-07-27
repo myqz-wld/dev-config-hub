@@ -76,7 +76,7 @@ export function info(msg: string): void {
 // 已知带值的 flag。next arg 一律当 value 收下，不再用 startsWith("--") 误判，
 // 否则用户传 --pre-hook '--foo' 这类 hook 字面值会被吞。
 export const VALUE_FLAGS = new Set([
-  "dir", "desc", "from", "pre-hook", "post-hook",
+  "dir", "desc", "pre-hook", "post-hook", "timeout", "payload",
   "out", "profiles", "prefix", "rename",
   "secrets-json",
 ]);

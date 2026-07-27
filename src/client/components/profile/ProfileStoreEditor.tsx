@@ -3,6 +3,7 @@ import { CMEditor } from "../editor/CMEditor.tsx";
 import { languageByName } from "../editor/languages.ts";
 import { buildSchemaExtensions } from "../editor/schema-lint.ts";
 import { DCH_STORE } from "../../../schemas/dch-store.ts";
+import { applyStoreDefaults } from "../../../profiles/store-shape.ts";
 import {
   readFileWithMtime, saveFileIfMtime, getHomeDir,
   isMtimeMismatch, isMtimeMissing,
@@ -71,12 +72,20 @@ export function ProfileStoreEditor({
     try {
       // 简单 save：全文写盘。dch-store 没有「未知 key 保留」需求（profile 系统 SSOT 完整定义）
       // 但仍走 JSON.parse 验证一下避免写坏
-      try { JSON.parse(content); } catch (e) {
+      let parsed: unknown;
+      try { parsed = JSON.parse(content); } catch (e) {
         onToast(`JSON 语法错误：${(e as Error).message}`, false);
         setSaving(false);
         return;
       }
-      const newMtime = await saveFileIfMtime(filePath, content, enterEditMtimeRef.current ?? null);
+      // 与 CLI manager/saveStore 使用同一正规化入口：写 v2、补方案默认超时与 backup，
+      // 并有意丢弃旧 preferences.hookTimeoutMs（绝不迁移到方案）。
+      const normalizedContent = JSON.stringify(applyStoreDefaults(parsed), null, 2) + "\n";
+      const newMtime = await saveFileIfMtime(
+        filePath,
+        normalizedContent,
+        enterEditMtimeRef.current ?? null,
+      );
       enterEditMtimeRef.current = newMtime;
       onToast("配置方案状态文件已保存", true);
       onSaved();

@@ -15,4 +15,3 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
-| 2026-06-24 | [PLAN_1_commit-build-metadata.md](PLAN_1_commit-build-metadata.md) | completed | Package commit metadata and expose installed freshness checks. | [CHANGELOG_34](../../changelogs/recent-month/CHANGELOG_34_commit-build-metadata.md) |

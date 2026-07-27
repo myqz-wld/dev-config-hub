@@ -1,19 +1,20 @@
 import { useState, memo } from "react";
 import {
   dchProfile, type ProfileStore, type ToolKind,
-  type HookResult,
-  writeProfileConfigFile, normalizeProfileDir, getHomeDir,
+  type HookResult, type Profile,
 } from "../bridge.ts";
-import { defaultProfileDir } from "../../profiles/defaults.ts";
-import { TOOLS, MAIN_CONFIG } from "./profile/helpers.ts";
+import { hookFromEditedText, TOOLS } from "./profile/helpers.ts";
 import { ProfileCard } from "./profile/ProfileCard.tsx";
-import { AddProfileModal } from "./profile/AddProfileModal.tsx";
+import { ProfileFormModal } from "./profile/AddProfileModal.tsx";
 import { HookOutputModal } from "./profile/HookOutputModal.tsx";
-import { PreferencesEditor } from "./profile/PreferencesEditor.tsx";
 import { ProfileStoreEditor } from "./profile/ProfileStoreEditor.tsx";
 import { ExportBackupModal } from "./profile/ExportBackupModal.tsx";
 import { RestoreBackupModal } from "./profile/RestoreBackupModal.tsx";
 import { BackupHistoryModal } from "./profile/BackupHistoryModal.tsx";
+import {
+  BackupPolicyModal,
+  type PolicyTarget,
+} from "./profile/BackupPolicyModal.tsx";
 import { DoodleIcon } from "./DoodleIcon.tsx";
 
 const hookActionLabel = (which: "pre" | "post") => which === "pre" ? "切换前脚本" : "切换后脚本";
@@ -47,10 +48,12 @@ export const ProfilePanel = memo(function ProfilePanel({
   const [tool, setTool] = useState<ToolKind>("claude");
   const [busy, setBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [showStoreEditor, setShowStoreEditor] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showRestore, setShowRestore] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [policyTarget, setPolicyTarget] = useState<PolicyTarget | null>(null);
   const [exportPresetIds, setExportPresetIds] = useState<string[] | undefined>(undefined);
   const [restorePresetPath, setRestorePresetPath] = useState<string | undefined>(undefined);
   const [hookOutput, setHookOutput] = useState<{ id: string; which: string; result: HookResult | null } | null>(null);
@@ -84,11 +87,11 @@ export const ProfilePanel = memo(function ProfilePanel({
 
   const onUse = async (id: string) => {
     if (!store) return;
+    const profile = store.profiles.find((item) => item.id === id);
+    const hookTimeoutMs = profile?.hookTimeoutMs ?? 30_000;
     setBusy(true);
     try {
-      // REVIEW_7 H2：传 store.preferences.hookTimeoutMs 让 bridge 算 Rust 端 timeout
-      // = 2 × hookTimeoutMs + 5s grace（pre + post hook）
-      const r = await dchProfile.use(id, store.preferences.hookTimeoutMs);
+      const r = await dchProfile.use(id, hookTimeoutMs);
       if (!r.ok) {
         onToast(r.message ?? `切换失败`, false);
         // PR-4 (#M11 / #R3-M2)：失败时弹 HookOutputModal 显示失败 hook 的完整 stdout/stderr。
@@ -116,8 +119,8 @@ export const ProfilePanel = memo(function ProfilePanel({
   const onTestHook = async (id: string, which: "pre" | "post") => {
     if (!store) return;
     try {
-      // REVIEW_7 H2：单 hook = hookTimeoutMs + 5s grace
-      const r = await dchProfile.testHook(id, which, store.preferences.hookTimeoutMs);
+      const profile = store.profiles.find((item) => item.id === id);
+      const r = await dchProfile.testHook(id, which, profile?.hookTimeoutMs ?? 30_000);
       setHookOutput({ id, which: hookActionLabel(which), result: r });
       if (!r) onToast(`${id} 未配置${hookActionLabel(which)}`, true);
     } catch (e) {
@@ -135,7 +138,7 @@ export const ProfilePanel = memo(function ProfilePanel({
       <div className="panel-head">
         <h1>配置方案<span className="ver">{store.profiles.length} 个</span></h1>
         <p className="panel-desc">
-          保存位置 <code>~/.dch/profiles.json</code> · 切换脚本超时 <code>{store.preferences.hookTimeoutMs}ms</code>
+          保存位置 <code>~/.dch/profiles.json</code> · 切换脚本超时由各方案单独设置
         </p>
       </div>
 
@@ -150,8 +153,23 @@ export const ProfilePanel = memo(function ProfilePanel({
             <span className="profile-tab-count">{store.profiles.filter((p) => p.tool === t).length}</span>
           </button>
         ))}
-        <div className="profile-tabs-spacer" />
-        <button className="btn-sm" onClick={() => { setExportPresetIds(undefined); setShowExport(true); }} title="备份所有配置方案和共享资源">
+      </div>
+
+      <div className="profile-toolbar">
+        <button className="btn primary" onClick={() => setShowAdd(true)} disabled={busy}>
+          + 新建配置方案
+        </button>
+        <span className="profile-toolbar-separator" />
+        <button className="btn-sm" onClick={() => setPolicyTarget({ scope: "tool", tool })}>
+          {tool} 备份规则
+        </button>
+        <button className="btn-sm" onClick={() => setPolicyTarget({
+          scope: "scripts",
+          enabled: store.backup.scriptsEnabled !== false,
+        })}>
+          切换脚本备份规则
+        </button>
+        <button className="btn-sm" onClick={() => { setExportPresetIds(undefined); setShowExport(true); }} title="备份配置方案和切换脚本">
           <DoodleIcon kind="export" />导出备份
         </button>
         <button className="btn-sm" onClick={() => setShowHistory(true)} title="查看、置顶、还原或删除备份">
@@ -160,11 +178,10 @@ export const ProfilePanel = memo(function ProfilePanel({
         <button className="btn-sm" onClick={() => { setRestorePresetPath(undefined); setShowRestore(true); }} title="从 .dchpack 导入为新的配置方案">
           <DoodleIcon kind="import" />导入备份
         </button>
-        {/* PR-I 新入口：编辑 profiles.json */}
+        <span className="profile-toolbar-spacer" />
         <button className="btn-sm" onClick={() => setShowStoreEditor(true)} title="直接编辑 ~/.dch/profiles.json">
           高级编辑
         </button>
-        <PreferencesEditor store={store} onChange={() => onReloadProfile()} onToast={onToast} />
       </div>
 
       <div className="profile-status">
@@ -201,68 +218,69 @@ export const ProfilePanel = memo(function ProfilePanel({
               onDelete={(id) => handle(() => dchProfile.remove(id), `已删除 ${id}`)}
               onTestHook={onTestHook}
               onExport={(id) => { setExportPresetIds([id]); setShowExport(true); }}
+              onEdit={(profile) => setEditingProfile(profile)}
+              onBackupRules={(profile) => setPolicyTarget({ scope: "profile", profile })}
             />
           ))
         )}
       </div>
 
-      <div className="profile-actions">
-        <button className="btn primary" onClick={() => setShowAdd(true)} disabled={busy}>
-          + 新建配置方案
-        </button>
-      </div>
-
       {showAdd && (
-        <AddProfileModal
+        <ProfileFormModal
           tool={tool}
           busy={busy}
-          existing={store.profiles}
           onClose={() => setShowAdd(false)}
           onSubmit={async (form) => {
-            // 注意：不传 from。applyClone 已把 src.{desc,env,hooks,configContent} 灌进 form，
-            // 此处全部走 form 显式值。否则 CLI 端 cmdAdd 会再用 --from 的 base 给空字段兜底，
-            // 把用户「清空 hook」的意图吞掉。
-            const dir = form.dir || defaultProfileDir(form.tool, form.id);
-            const main = MAIN_CONFIG[form.tool];
-            // 直接用 textarea 内容；空则不创建配置文件（用户可在 ConfigPanel 补）
-            const content = form.configContent.trim();
-            // dir 撞车校验：拿 home 后 normalize 比较，避免 raw 字符串绕过（末尾 /、~/ vs 绝对路径、//）。
-            // 不依赖 content 是否为空 — content 空也校验，避免 dch 系统里两条 profile 指向同一 configDir
-            // 导致切换状态错乱。
-            const home = await getHomeDir();
-            const dirNorm = normalizeProfileDir(dir, home);
-            const collision = store.profiles.find((p) => normalizeProfileDir(p.configDir, home) === dirNorm);
-            if (collision) {
-              onToast(
-                `不能创建：${dir} 已被 ${collision.id} 使用。请换一个配置目录。`,
-                false,
-              );
-              return;
-            }
             const ok = await handle(
-              async () => {
-                await dchProfile.add(form.tool, form.id, {
-                  dir: form.dir || undefined,
-                  env: form.env,
-                  description: form.description || undefined,
-                  preHook: form.preHook.trim() || undefined,
-                  postHook: form.postHook.trim() || undefined,
-                });
-                if (content) {
-                  try {
-                    await writeProfileConfigFile(dir, main.filename, content.endsWith("\n") ? content : content + "\n");
-                  } catch (e) {
-                    // profile 已落盘但配置文件没写成 — 给清晰指引而不是默默丢错
-                    throw new Error(
-                      `${form.id} 已创建，但写入 ${dir}/${main.filename} 失败：${e instanceof Error ? e.message : String(e)}。请到配置文件页手动补上，或删除后重新创建。`,
-                    );
-                  }
-                }
-              },
-              `已新建 ${form.id}${content ? `，并写入 ${main.filename}` : ""}`,
+              () => dchProfile.add(form.tool, form.id, {
+                dir: form.dir,
+                existing: form.directoryMode === "manage-existing",
+                env: form.env,
+                description: form.description || undefined,
+                preHook: form.preHook.trim() || undefined,
+                postHook: form.postHook.trim() || undefined,
+                hookTimeoutMs: form.hookTimeoutMs,
+              }),
+              form.directoryMode === "manage-existing"
+                ? `已将 ${form.id} 纳入管理`
+                : `已创建 ${form.id} 的空目录`,
             );
-            // 失败保留 modal，让用户改完再提交；成功才关
             if (ok) setShowAdd(false);
+          }}
+        />
+      )}
+
+      {editingProfile && (
+        <ProfileFormModal
+          tool={editingProfile.tool}
+          profile={editingProfile}
+          busy={busy}
+          onClose={() => setEditingProfile(null)}
+          onSubmit={async (form) => {
+            const preSwitch = hookFromEditedText(
+              editingProfile.hooks?.preSwitch,
+              form.preHook,
+            );
+            const postSwitch = hookFromEditedText(
+              editingProfile.hooks?.postSwitch,
+              form.postHook,
+            );
+            const ok = await handle(
+              () => dchProfile.update(editingProfile.id, {
+                configDir: form.dir,
+                description: form.description || null,
+                env: Object.keys(form.env).length ? form.env : null,
+                hooks: preSwitch || postSwitch
+                  ? {
+                    ...(preSwitch ? { preSwitch } : {}),
+                    ...(postSwitch ? { postSwitch } : {}),
+                  }
+                  : null,
+                hookTimeoutMs: form.hookTimeoutMs,
+              }),
+              `已更新 ${editingProfile.id}`,
+            );
+            if (ok) setEditingProfile(null);
           }}
         />
       )}
@@ -285,6 +303,7 @@ export const ProfilePanel = memo(function ProfilePanel({
       {showExport && (
         <ExportBackupModal
           profiles={store.profiles}
+          scriptsEnabled={store.backup.scriptsEnabled !== false}
           presetProfileIds={exportPresetIds}
           onClose={() => { setShowExport(false); setExportPresetIds(undefined); }}
           onToast={onToast}
@@ -310,6 +329,15 @@ export const ProfilePanel = memo(function ProfilePanel({
             setRestorePresetPath(path);
             setShowRestore(true);
           }}
+        />
+      )}
+
+      {policyTarget && (
+        <BackupPolicyModal
+          target={policyTarget}
+          onClose={() => setPolicyTarget(null)}
+          onSaved={() => onReloadProfile()}
+          onToast={onToast}
         />
       )}
     </div>

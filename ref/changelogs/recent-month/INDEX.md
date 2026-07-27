@@ -15,6 +15,3 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
-| 2026-06-24 | [CHANGELOG_34_commit-build-metadata.md](CHANGELOG_34_commit-build-metadata.md) | Packaged builds expose commit metadata and installed freshness checks. |
-| 2026-06-19 | [CHANGELOG_33.md](CHANGELOG_33.md) | Unified the font stack and fixed the dark first-paint flash. |
-| 2026-06-19 | [CHANGELOG_32.md](CHANGELOG_32.md) | Reworked the application shell into a handwritten paper style. |

@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-06-19 | [REVIEW_11.md](REVIEW_11.md) | Paper UI render-path performance | 2 MED / 1 LOW (+ 1 rejected / 1 uncertain) |
 | 2026-06-09 | [REVIEW_10.md](REVIEW_10.md) | Bun Subprocess.kill typecheck fix | 1 MED |
 | 2026-05-15 | [REVIEW_9.md](REVIEW_9.md) | Deep review R1/R2 and G1-G12 closure | 24 HIGH / 28 MED / multiple LOW/INFO |
 | 2026-05-14 | [REVIEW_8.md](REVIEW_8.md) | Two deep-review rounds and fix closure | 14 HIGH / 24 MED / 7 LOW |
