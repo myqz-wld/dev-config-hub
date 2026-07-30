@@ -308,6 +308,7 @@ fn known_config_files_for(env: &ConfigEnvironment) -> Vec<PathBuf> {
         codex.join("AGENTS.override.md"),
         codex.join("AGENTS.md"),
         grok.join("config.toml"),
+        grok.join("AGENTS.md"),
         grok.join("managed_config.toml"),
         grok.join("requirements.toml"),
         cursor.join("mcp.json"),
@@ -417,6 +418,7 @@ mod tests {
     fn known_files_follow_custom_roots_without_project_paths() {
         let files = known_config_files_for(&mac_env());
         assert!(files.contains(&PathBuf::from("/Users/test/tool-roots/codex/config.toml")));
+        assert!(files.contains(&PathBuf::from("/Volumes/config/grok/AGENTS.md")));
         assert!(files.contains(&PathBuf::from("/Volumes/config/grok/requirements.toml")));
         assert!(files.contains(&PathBuf::from("/Users/test/.config/zsh/.zshrc")));
         assert!(!files

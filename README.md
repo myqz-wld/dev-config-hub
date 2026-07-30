@@ -23,7 +23,7 @@ platform; Windows 10+ and Linux are supported as beta platforms.
 | Shell | Zsh, Bash, Fish, and discovered PowerShell profiles |
 | Claude Code | `~/.claude/settings.json`, `~/.claude/CLAUDE.md` |
 | Codex CLI | `$CODEX_HOME/config.toml`, `AGENTS.override.md` or `AGENTS.md` |
-| Grok Build | `$GROK_HOME/config.toml` and existing optional TOML files |
+| Grok Build | `$GROK_HOME/config.toml`, `$GROK_HOME/AGENTS.md`, and existing optional TOML files |
 | Cursor | `~/.cursor/cli-config.json` |
 
 Project/workspace-local files are intentionally outside the catalog.
