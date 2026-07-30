@@ -193,11 +193,12 @@ export function buildConfigToolDefinitions(env: ConfigEnvironment): ConfigToolDe
     },
     {
       id: "grok",
-      name: "Grok",
+      name: "Grok Build",
       icon: "grok",
       description: "Grok Build 编码助手",
       files: [
         { level: "user", label: `${grokLabel}/config.toml`, filePath: joinConfigPath(env.platform, grokRoot, "config.toml"), format: "toml" },
+        { level: "user", label: `${grokLabel}/AGENTS.md`, filePath: joinConfigPath(env.platform, grokRoot, "AGENTS.md"), format: "markdown" },
         { level: "user", label: `${grokLabel}/managed_config.toml`, filePath: joinConfigPath(env.platform, grokRoot, "managed_config.toml"), format: "toml", optional: true },
         { level: "user", label: `${grokLabel}/requirements.toml`, filePath: joinConfigPath(env.platform, grokRoot, "requirements.toml"), format: "toml", optional: true },
       ],

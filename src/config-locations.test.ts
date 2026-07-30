@@ -39,10 +39,12 @@ describe("user-level config catalog", () => {
     ]);
   });
 
-  it("Grok exposes only documented user-level TOML layers", () => {
+  it("Grok Build exposes global instructions and documented user-level TOML layers", () => {
     const grok = buildConfigToolDefinitions(MAC_ENV).find((tool) => tool.id === "grok")!;
+    expect(grok.name).toBe("Grok Build");
     expect(grok.files.map((file) => file.label)).toEqual([
       "~/.grok/config.toml",
+      "~/.grok/AGENTS.md",
       "~/.grok/managed_config.toml",
       "~/.grok/requirements.toml",
     ]);
@@ -64,6 +66,8 @@ describe("user-level config catalog", () => {
     };
     expect(profileToolRoot(env, "codex")).toBe("/Users/test/configs/codex");
     expect(profileToolRoot(env, "grok")).toBe("/Users/test/configs/grok");
+    const grok = buildConfigToolDefinitions(env).find((tool) => tool.id === "grok")!;
+    expect(grok.files[1]?.filePath).toBe("/Users/test/configs/grok/AGENTS.md");
     const shell = buildConfigToolDefinitions(env).find((tool) => tool.id === "shell")!;
     expect(shell.files[0]?.filePath).toBe("/Users/test/.config/zsh/.zshenv");
   });
@@ -107,7 +111,8 @@ describe("compact display selection", () => {
       "~/.codex/config.toml",
       "~/.codex/AGENTS.override.md",
     ]);
-    const grok = tools.find((tool) => tool.name === "Grok")!;
+    const grok = tools.find((tool) => tool.name === "Grok Build")!;
+    expect(grok.scopes.map((scope) => scope.label)).toContain("~/.grok/AGENTS.md");
     expect(grok.scopes.map((scope) => scope.label)).toContain("~/.grok/managed_config.toml");
     expect(grok.scopes.map((scope) => scope.label)).not.toContain("~/.grok/requirements.toml");
     const cursor = tools.find((tool) => tool.name === "Cursor")!;

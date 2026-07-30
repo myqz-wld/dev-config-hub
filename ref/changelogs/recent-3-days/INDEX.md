@@ -15,5 +15,6 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-29 | [CHANGELOG_39_grok-build-global-rules.md](CHANGELOG_39_grok-build-global-rules.md) | Added Grok Build global instruction-file management. |
 | 2026-07-27 | [CHANGELOG_38_profile-backup-workspaces.md](CHANGELOG_38_profile-backup-workspaces.md) | Separated tool profiles, cross-tool backups, and advanced settings. |
 | 2026-07-27 | [CHANGELOG_37_profile-backup-policies.md](CHANGELOG_37_profile-backup-policies.md) | Added empty profiles, editable backup rules, and exact prepared exports. |
