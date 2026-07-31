@@ -9,14 +9,14 @@ platform; Windows 10+ and Linux are supported as beta platforms.
 
 ## What It Provides
 
-- **Config viewer and editor** — syntax highlighting, Markdown rendering, and external-change protection.
+- **Config viewer and editor** — per-tool file scopes, syntax highlighting, Markdown rendering, and external-change protection.
 - **Atomic profile switching** — symlinks on macOS/Linux and NTFS junctions on Windows.
 - **Per-profile automation** — environment variables, hooks, and hook timeouts.
 - **Editable backup policies** — ordered file and secret rules at tool and profile scope.
 - **Safe `.dchpack` migration** — exact preview and placeholder redaction by default.
 - **Desktop and CLI workflows** — the same profile operations in both interfaces.
 
-## Supported Scope
+## Default Managed Scope
 
 | Tool | User-level files |
 |---|---|
@@ -26,7 +26,13 @@ platform; Windows 10+ and Linux are supported as beta platforms.
 | Grok Build | `$GROK_HOME/config.toml`, `$GROK_HOME/AGENTS.md`, and existing optional TOML files |
 | Cursor | `~/.cursor/cli-config.json` |
 
-Project/workspace-local files are intentionally outside the catalog.
+These rows are factory defaults. In the desktop app, every tool page can add
+an existing regular file under the user home directory, remove any listed file
+from management without deleting it from disk, and restore that tool's default
+range. Per-tool additions and removals are stored in
+`~/.dch/config-files.json`; the desktop app and CLI read the same effective
+range. Project/workspace-local files remain outside the defaults but can be
+included explicitly when they are under the user home directory.
 
 ## Quick Start
 

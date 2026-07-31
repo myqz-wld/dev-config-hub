@@ -6,6 +6,11 @@ import {
   type ConfigToolDefinition,
   type ConfigToolId,
 } from "./config-locations.ts";
+import {
+  applyConfigFileOverrides,
+  emptyConfigFileOverrides,
+  type ConfigFileOverridesV1,
+} from "./config-file-overrides.ts";
 
 export interface ConfigFileReadResult {
   exists: boolean;
@@ -72,6 +77,7 @@ export async function loadConfigTool(
   }));
 
   return {
+    id: definition.id,
     name: definition.name,
     version,
     icon: definition.icon,
@@ -84,9 +90,15 @@ export async function loadConfigTools(
   env: ConfigEnvironment,
   versions: ToolVersionMap,
   readFile: ConfigFileReader,
+  overrides: ConfigFileOverridesV1 = emptyConfigFileOverrides(),
 ): Promise<ToolConfig[]> {
+  const definitions = applyConfigFileOverrides(
+    buildConfigToolDefinitions(env),
+    overrides,
+    env,
+  );
   return Promise.all(
-    buildConfigToolDefinitions(env).map((definition) =>
+    definitions.map((definition) =>
       loadConfigTool(definition, versions[definition.id], readFile)
     ),
   );

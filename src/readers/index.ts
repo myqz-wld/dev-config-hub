@@ -4,6 +4,11 @@ import { CONFIG_TOOL_IDS, type ConfigToolId } from "../config-locations.ts";
 import { getNodeConfigEnvironment } from "../config-environment.ts";
 import { loadConfigTools, type ToolVersionMap } from "../config-loader.ts";
 import { getToolVersion, readFileIfExists } from "../utils.ts";
+import {
+  configFileOverridesPath,
+  emptyConfigFileOverrides,
+  parseConfigFileOverrides,
+} from "../config-file-overrides.ts";
 
 async function shellVersion(platform: NodeJS.Platform): Promise<string> {
   if (platform === "win32") {
@@ -62,7 +67,11 @@ export async function readAllToolConfigs() {
     getNodeConfigEnvironment(),
     loadVersions(),
   ]);
-  return loadConfigTools(env, versions, readFileIfExists);
+  const overridesFile = await readFileIfExists(configFileOverridesPath(env));
+  const overrides = overridesFile.exists
+    ? parseConfigFileOverrides(overridesFile.content, env.platform)
+    : emptyConfigFileOverrides();
+  return loadConfigTools(env, versions, readFileIfExists, overrides);
 }
 
 export function toolIndex(tool: ConfigToolId): number {

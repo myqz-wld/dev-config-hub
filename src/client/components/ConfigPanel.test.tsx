@@ -45,6 +45,7 @@ import type { ToolConfig } from "../../types.ts";
  */
 function makeTool(content: string, loadedMtimeUs?: number | null): ToolConfig {
   return {
+    id: "claude",
     name: "Test Tool",
     version: "1.0.0",
     icon: "claude",
@@ -350,5 +351,50 @@ describe("ConfigPanel TOCTOU banner (CHANGELOG_10 R_2·H1-followup)", () => {
       "{}\n",
       null,
     );
+  });
+
+  it("T10: customized scope can remove an entry and restore factory defaults", async () => {
+    const onRemoveFile = mock(() => Promise.resolve());
+    const onRestoreDefaults = mock(() => Promise.resolve());
+    const { container } = render(
+      <ConfigPanel
+        tool={makeTool('{"theme":"dark"}')}
+        onSave={() => Promise.resolve()}
+        onToast={() => {}}
+        customized
+        onRemoveFile={onRemoveFile}
+        onRestoreDefaults={onRestoreDefaults}
+      />,
+    );
+
+    const removeButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "移出管理");
+    const restoreButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "恢复默认范围");
+    expect(container.textContent).toContain("自定义范围");
+    expect(container.textContent).toContain("添加文件");
+    expect(removeButton).toBeTruthy();
+    expect(restoreButton).toBeTruthy();
+
+    await act(async () => { fireEvent.click(removeButton!); });
+    await act(async () => { fireEvent.click(restoreButton!); });
+    expect(onRemoveFile).toHaveBeenCalledWith("claude", "/Users/test/.test/settings.json");
+    expect(onRestoreDefaults).toHaveBeenCalledWith("claude");
+  });
+
+  it("T11: an empty effective scope explains how to add files or restore defaults", () => {
+    const emptyTool = { ...makeTool(""), scopes: [] };
+    const { container } = render(
+      <ConfigPanel
+        tool={emptyTool}
+        onSave={() => Promise.resolve()}
+        onToast={() => {}}
+        customized
+      />,
+    );
+    expect(container.querySelector(".config-scope-empty")?.textContent).toContain("没有纳入管理的文件");
+    const restoreButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "恢复默认范围");
+    expect(restoreButton?.disabled).toBeFalse();
   });
 });

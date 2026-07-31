@@ -3,6 +3,13 @@ import type { ToolConfig } from "../types.ts";
 import { profileToolRoot, type ConfigEnvironment, type ConfigToolId } from "../config-locations.ts";
 import { loadConfigTools, type ToolVersionMap } from "../config-loader.ts";
 import { applyStoreDefaults, EMPTY_STORE } from "../profiles/store-shape.ts";
+import {
+  configFileOverridesPath,
+  emptyConfigFileOverrides,
+  parseConfigFileOverrides,
+  serializeConfigFileOverrides,
+  type ConfigFileOverridesV1,
+} from "../config-file-overrides.ts";
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   return invoke<T>(cmd, args);
@@ -119,11 +126,48 @@ export async function loadAllVersions(): Promise<ToolVersions> {
 export async function loadAllFiles(
   env: ConfigEnvironment,
   versions: ToolVersions,
+  overrides?: ConfigFileOverridesV1,
 ): Promise<ToolConfig[]> {
+  const effectiveOverrides = overrides ?? (await loadConfigFileOverrides(env)).overrides;
   return loadConfigTools(env, versions, async (path) => {
     const { exists, content, mtimeUs } = await readFileWithMtime(path);
     return { exists, content, loadedMtimeUs: mtimeUs };
-  });
+  }, effectiveOverrides);
+}
+
+export interface LoadedConfigFileOverrides {
+  overrides: ConfigFileOverridesV1;
+  loadedMtimeUs: number | null;
+}
+
+export async function loadConfigFileOverrides(
+  env: ConfigEnvironment,
+): Promise<LoadedConfigFileOverrides> {
+  const result = await readFileWithMtime(configFileOverridesPath(env));
+  return {
+    overrides: result.exists
+      ? parseConfigFileOverrides(result.content, env.platform)
+      : emptyConfigFileOverrides(),
+    loadedMtimeUs: result.mtimeUs,
+  };
+}
+
+export interface ConfigWorkspace {
+  tools: ToolConfig[];
+  overrides: ConfigFileOverridesV1;
+  overridesMtimeUs: number | null;
+}
+
+export async function loadConfigWorkspace(
+  env: ConfigEnvironment,
+  versions: ToolVersions,
+): Promise<ConfigWorkspace> {
+  const loaded = await loadConfigFileOverrides(env);
+  return {
+    tools: await loadAllFiles(env, versions, loaded.overrides),
+    overrides: loaded.overrides,
+    overridesMtimeUs: loaded.loadedMtimeUs,
+  };
 }
 
 /**
@@ -131,7 +175,7 @@ export async function loadAllFiles(
  */
 export async function loadAllConfigs(): Promise<ToolConfig[]> {
   const [env, versions] = await Promise.all([getConfigEnvironment(), loadAllVersions()]);
-  return loadAllFiles(env, versions);
+  return (await loadConfigWorkspace(env, versions)).tools;
 }
 
 export async function saveFile(filePath: string, content: string): Promise<void> {
@@ -180,6 +224,18 @@ export async function saveFileIfMtime(
   } catch (e) {
     throw classifySaveError(e);
   }
+}
+
+export async function saveConfigFileOverrides(
+  env: ConfigEnvironment,
+  overrides: ConfigFileOverridesV1,
+  expectedMtimeUs: number | null,
+): Promise<number> {
+  return saveFileIfMtime(
+    configFileOverridesPath(env),
+    serializeConfigFileOverrides(overrides),
+    expectedMtimeUs,
+  );
 }
 
 // ── Profile bridge: 通过 Tauri 调 dch CLI（--json 模式），结果统一 JSON ─────

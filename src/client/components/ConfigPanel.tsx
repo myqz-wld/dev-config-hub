@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useRef, memo } from "react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { ToolConfig, ConfigScope } from "../../types.ts";
+import type { ConfigToolId } from "../../config-locations.ts";
 import { CMEditor } from "./editor/CMEditor.tsx";
 import { languageExtensionFor } from "./editor/languages.ts";
 import { MarkdownView } from "./markdown/MarkdownView.tsx";
@@ -36,11 +38,17 @@ function defaultModeFor(format: ConfigScope["format"]): Mode {
 function Scope({
   scope,
   onSave,
-  onToast: _onToast,
+  onToast,
+  toolId,
+  managementBusy,
+  onRemoveFile,
 }: {
   scope: ConfigScope;
   onSave: (p: string, c: string, expectedMtimeUs?: number | null) => Promise<void>;
   onToast: (msg: string, ok: boolean) => void;
+  toolId: ConfigToolId;
+  managementBusy: boolean;
+  onRemoveFile: (toolId: ConfigToolId, path: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(true);
   const [mode, setMode] = useState<Mode>(defaultModeFor(scope.format));
@@ -138,6 +146,21 @@ function Scope({
                 setOpen(true);
               }}
             >创建</button>
+          )}
+          {mode !== "edit" && (
+            <button
+              className="btn-sm danger"
+              disabled={managementBusy}
+              title="只移出管理范围，不会删除磁盘文件"
+              onClick={async (event) => {
+                event.stopPropagation();
+                try {
+                  await onRemoveFile(toolId, scope.filePath);
+                } catch (error) {
+                  onToast(error instanceof Error ? error.message : String(error), false);
+                }
+              }}
+            >移出管理</button>
           )}
           <span className="fmt">{SCOPE_FORMAT_LABEL[scope.format]}</span>
         </div>
@@ -251,23 +274,83 @@ export const ConfigPanel = memo(function ConfigPanel({
   tool,
   onSave,
   onToast,
+  managementBusy = false,
+  customized = false,
+  onAddFile = async () => {},
+  onRemoveFile = async () => {},
+  onRestoreDefaults = async () => {},
 }: {
   tool: ToolConfig;
   onSave: (p: string, c: string, expectedMtimeUs?: number | null) => Promise<void>;
   onToast: (msg: string, ok: boolean) => void;
+  managementBusy?: boolean;
+  customized?: boolean;
+  onAddFile?: (toolId: ConfigToolId, path: string) => Promise<void>;
+  onRemoveFile?: (toolId: ConfigToolId, path: string) => Promise<void>;
+  onRestoreDefaults?: (toolId: ConfigToolId) => Promise<void>;
 }) {
+  const [picking, setPicking] = useState(false);
+
+  const pickFile = async () => {
+    setPicking(true);
+    try {
+      const selected = await openDialog({
+        directory: false,
+        multiple: false,
+        title: `选择要纳入 ${tool.name} 管理的文件`,
+      });
+      if (typeof selected === "string") await onAddFile(tool.id, selected);
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error), false);
+    } finally {
+      setPicking(false);
+    }
+  };
+
   return (
     <div className="panel">
-      <div className="panel-head">
-        <h1>{tool.name}<span className="ver">v{tool.version}</span></h1>
-        <p className="panel-desc">{tool.description}</p>
+      <div className="panel-head config-panel-head">
+        <div>
+          <h1>
+            {tool.name}<span className="ver">v{tool.version}</span>
+            {customized && <span className="badge config-customized">自定义范围</span>}
+          </h1>
+          <p className="panel-desc">{tool.description}</p>
+        </div>
+        <div className="config-file-actions">
+          <button
+            className="btn-sm"
+            disabled={managementBusy || picking}
+            onClick={pickFile}
+          >{picking ? "选择中…" : "添加文件"}</button>
+          <button
+            className="btn-sm"
+            disabled={managementBusy || picking || !customized}
+            title="清除手动增删记录，不会修改或删除磁盘文件"
+            onClick={async () => {
+              try {
+                await onRestoreDefaults(tool.id);
+              } catch (error) {
+                onToast(error instanceof Error ? error.message : String(error), false);
+              }
+            }}
+          >恢复默认范围</button>
+        </div>
       </div>
+      {tool.scopes.length === 0 && (
+        <div className="config-scope-empty">
+          当前没有纳入管理的文件。可添加文件，或恢复此工具的默认范围。
+        </div>
+      )}
       {tool.scopes.map((s) => (
         <Scope
           key={s.filePath}
           scope={s}
           onSave={onSave}
           onToast={onToast}
+          toolId={tool.id}
+          managementBusy={managementBusy}
+          onRemoveFile={onRemoveFile}
         />
       ))}
     </div>
