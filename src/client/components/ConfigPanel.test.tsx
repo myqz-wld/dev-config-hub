@@ -17,8 +17,15 @@ class MockMtimeMissingError extends Error {
   }
 }
 
+let pickedConfigFile: string | null = null;
+let pickConfigFileCalls: string[] = [];
+const pickConfigFileMock = (title: string) => {
+  pickConfigFileCalls.push(title);
+  return Promise.resolve(pickedConfigFile);
+};
+
 // Mock bridge IPC（避免 happy-dom 下 invoke Tauri command）
-mock.module("../../bridge.ts", () => ({
+mock.module("../bridge.ts", () => ({
   getHomeDir: () => Promise.resolve("/Users/test"),
   readFileWithMtime: () => Promise.resolve({ exists: true, content: '{"theme":"dark"}', mtimeUs: 1_000 }),
   saveFile: () => Promise.resolve(),
@@ -28,6 +35,7 @@ mock.module("../../bridge.ts", () => ({
   // isMtimeMismatch / isMtimeMissing 用 e.name 判断，与 bridge.ts 真实实现一致
   isMtimeMismatch: (e: unknown) => e instanceof Error && e.name === "MtimeMismatchError",
   isMtimeMissing: (e: unknown) => e instanceof Error && e.name === "MtimeMissingError",
+  pickConfigFile: pickConfigFileMock,
 }));
 
 // stub CMEditor 的语言扩展
@@ -69,7 +77,10 @@ function makeMissingTool(): ToolConfig {
 }
 
 describe("ConfigPanel TOCTOU banner (CHANGELOG_10 R_2·H1-followup)", () => {
-  beforeEach(() => {});
+  beforeEach(() => {
+    pickedConfigFile = null;
+    pickConfigFileCalls = [];
+  });
   afterEach(() => cleanup());
 
   it("T1: edit 模式下外部 reload 推 scope.content 变 → banner 出现 + 保存按钮 disabled", async () => {
@@ -396,5 +407,28 @@ describe("ConfigPanel TOCTOU banner (CHANGELOG_10 R_2·H1-followup)", () => {
     const restoreButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
       .find((button) => button.textContent === "恢复默认范围");
     expect(restoreButton?.disabled).toBeFalse();
+  });
+
+  it("T12: add file accepts a file selected from a dot-prefixed directory", async () => {
+    pickedConfigFile = "/Users/test/.config/example/tool.toml";
+    const onAddFile = mock(() => Promise.resolve());
+    const { container } = render(
+      <ConfigPanel
+        tool={makeTool("")}
+        onSave={() => Promise.resolve()}
+        onToast={() => {}}
+        onAddFile={onAddFile}
+      />,
+    );
+    const addButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "添加文件");
+
+    await act(async () => { fireEvent.click(addButton!); });
+
+    expect(pickConfigFileCalls).toEqual(["选择要纳入 Test Tool 管理的文件"]);
+    expect(onAddFile).toHaveBeenCalledWith(
+      "claude",
+      "/Users/test/.config/example/tool.toml",
+    );
   });
 });

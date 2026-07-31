@@ -26,3 +26,24 @@ regex-lite = "0.1"
 # bun 孙子 + hook 曾孙仍持 stdio pipe FD 让 reader 永不 EOF）。仅 Unix 用。
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# `tauri-plugin-dialog` does not expose macOS NSSavePanel.showsHiddenFiles.
+# Use the already-transitive AppKit bindings directly for the config picker so
+# dot-prefixed configuration directories are visible by default.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSApplication",
+  "NSOpenPanel",
+  "NSPanel",
+  "NSResponder",
+  "NSSavePanel",
+  "NSWindow",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSArray",
+  "NSString",
+  "NSURL",
+] }

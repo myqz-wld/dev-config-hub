@@ -32,7 +32,9 @@ from management without deleting it from disk, and restore that tool's default
 range. Per-tool additions and removals are stored in
 `~/.dch/config-files.json`; the desktop app and CLI read the same effective
 range. Project/workspace-local files remain outside the defaults but can be
-included explicitly when they are under the user home directory.
+included explicitly when they are under the user home directory. The desktop
+file picker starts at the home directory and, on macOS, shows dot-prefixed
+configuration directories such as `~/.config` by default.
 
 ## Quick Start
 

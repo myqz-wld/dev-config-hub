@@ -61,6 +61,15 @@ export async function getHomeDir(): Promise<string> {
 }
 
 /**
+ * Open the native picker used by configuration-page "Add file" actions.
+ * On macOS the backend enables NSOpenPanel.showsHiddenFiles so dot-prefixed
+ * configuration directories are visible without a keyboard shortcut.
+ */
+export async function pickConfigFile(title: string): Promise<string | null> {
+  return call<string | null>("pick_config_file", { title });
+}
+
+/**
  * 读目录下文件列表（name + isFile）。
  *
  * Rust 端 `read_dir` 拒绝非 HOME 路径（webview 不能列任意目录）。
