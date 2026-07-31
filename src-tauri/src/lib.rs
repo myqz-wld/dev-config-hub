@@ -10,6 +10,7 @@ mod atomic;
 mod commands;
 
 use commands::dch::{run_dch_command, run_dch_with_secrets_temp};
+use commands::dialog::pick_config_file;
 use commands::environment::get_config_environment;
 use commands::fs::{
     file_exists, get_home_dir, read_dir, read_file, read_file_with_mtime, read_link, save_file,
@@ -33,6 +34,7 @@ pub fn run() {
             get_tool_version,
             get_home_dir,
             get_config_environment,
+            pick_config_file,
             run_dch_command,
             run_dch_with_secrets_temp,
         ])

@@ -1,11 +1,10 @@
 import { useState, useEffect, useMemo, useRef, memo } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { ToolConfig, ConfigScope } from "../../types.ts";
 import type { ConfigToolId } from "../../config-locations.ts";
 import { CMEditor } from "./editor/CMEditor.tsx";
 import { languageExtensionFor } from "./editor/languages.ts";
 import { MarkdownView } from "./markdown/MarkdownView.tsx";
-import { isMtimeMismatch, isMtimeMissing } from "../bridge.ts";
+import { isMtimeMismatch, isMtimeMissing, pickConfigFile } from "../bridge.ts";
 
 const Chev = ({ open }: { open: boolean }) => (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className={`chev${open ? " open" : ""}`}>
@@ -294,11 +293,7 @@ export const ConfigPanel = memo(function ConfigPanel({
   const pickFile = async () => {
     setPicking(true);
     try {
-      const selected = await openDialog({
-        directory: false,
-        multiple: false,
-        title: `选择要纳入 ${tool.name} 管理的文件`,
-      });
+      const selected = await pickConfigFile(`选择要纳入 ${tool.name} 管理的文件`);
       if (typeof selected === "string") await onAddFile(tool.id, selected);
     } catch (error) {
       onToast(error instanceof Error ? error.message : String(error), false);
