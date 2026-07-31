@@ -1,11 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ToolConfig } from "../types.ts";
-import type { ConfigEnvironment } from "../config-locations.ts";
+import type { ConfigEnvironment, ConfigToolId } from "../config-locations.ts";
 import {
-  loadAllVersions, loadAllFiles, saveFile, saveFileIfMtime, isMtimeMismatch, getConfigEnvironment,
-  loadProfileDataDirect,
-  type ToolVersions, type ProfileStore, type ProfileActive,
+  loadAllVersions, loadConfigWorkspace, saveFile, saveFileIfMtime,
+  saveConfigFileOverrides, readFileWithMtime, isMtimeMismatch, isMtimeMissing,
+  getConfigEnvironment, loadProfileDataDirect,
+  type ConfigWorkspace, type ToolVersions, type ProfileStore, type ProfileActive,
 } from "./bridge.ts";
+import {
+  addConfigFileOverride,
+  configPathKey,
+  emptyConfigFileOverrides,
+  hasConfigFileOverrides,
+  removeConfigFileOverride,
+  resetConfigFileOverrides,
+  type ConfigFileOverridesV1,
+} from "../config-file-overrides.ts";
 import { ConfigPanel } from "./components/ConfigPanel.tsx";
 import { ProfilePanel } from "./components/ProfilePanel.tsx";
 import { PanelVisibilityProvider } from "./components/panel-visibility.tsx";
@@ -27,6 +37,10 @@ type View = { kind: "tool"; name: string | null } | { kind: "profile" };
 
 export function App() {
   const [tools, setTools] = useState<ToolConfig[]>([]);
+  const [configFileOverrides, setConfigFileOverrides] = useState<ConfigFileOverridesV1>(
+    () => emptyConfigFileOverrides(),
+  );
+  const [configManagementBusy, setConfigManagementBusy] = useState<ConfigToolId | null>(null);
   const [profileStore, setProfileStore] = useState<ProfileStore | null>(null);
   const [profileActive, setProfileActive] = useState<ProfileActive | null>(null);
   const [view, setView] = useState<View>({ kind: "tool", name: null });
@@ -43,6 +57,18 @@ export function App() {
   // 用户外部 brew upgrade 是罕见事件，需要刷新版本只能重启 app（trade-off 已记 plan）。
   const versionsRef = useRef<ToolVersions | null>(null);
   const environmentRef = useRef<ConfigEnvironment | null>(null);
+  const toolsRef = useRef<ToolConfig[]>([]);
+  const configFileOverridesRef = useRef<ConfigFileOverridesV1>(emptyConfigFileOverrides());
+  const configFileOverridesMtimeRef = useRef<number | null>(null);
+  const configManagementBusyRef = useRef(false);
+
+  const acceptConfigWorkspace = useCallback((workspace: ConfigWorkspace) => {
+    toolsRef.current = workspace.tools;
+    configFileOverridesRef.current = workspace.overrides;
+    setTools(workspace.tools);
+    setConfigFileOverrides(workspace.overrides);
+    configFileOverridesMtimeRef.current = workspace.overridesMtimeUs;
+  }, []);
 
   // CHANGELOG_15：profile 数据走 fs 直读 (loadProfileDataDirect)，替代旧的 dchProfile.list +
   // current 双 bun spawn (~500ms × 2)。CRUD 写仍走 dch CLI（涉及锁 + hook 不能复刻），
@@ -72,14 +98,13 @@ export function App() {
       ]);
       environmentRef.current = environment;
       versionsRef.current = versions;
-      const configs = await loadAllFiles(environment, versions);
-      setTools(configs);
+      acceptConfigWorkspace(await loadConfigWorkspace(environment, versions));
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [acceptConfigWorkspace]);
 
   // CHANGELOG_15：focus reload 快路径——只刷文件内容，跳过版本探测进程。
   // versionsRef 没缓存（首屏失败的极端情况）→ fallback 到完整 load。
@@ -91,13 +116,14 @@ export function App() {
     }
     try {
       setError(null);
-      const configs = await loadAllFiles(environmentRef.current, versionsRef.current);
-      setTools(configs);
+      acceptConfigWorkspace(
+        await loadConfigWorkspace(environmentRef.current, versionsRef.current),
+      );
     } catch (e) {
       console.warn("loadFilesOnly silent fail:", e);
       // 不 setError —— focus reload 失败不应该把已渲染的 UI 推到 error 屏；下次 focus 再试
     }
-  }, [load]);
+  }, [acceptConfigWorkspace, load]);
 
   // CHANGELOG_15：focus listener 与首屏 load 共享 reloadingRef 防 race（Plan agent Q5）：
   // 首屏 load 还在跑时用户切走 + 切回 → onAppActive 触发 → versionsRef 还是 null →
@@ -205,6 +231,82 @@ export function App() {
     }
   }, [flash, loadFilesOnly]);
 
+  const persistConfigFileOverrides = useCallback(async (
+    toolId: ConfigToolId,
+    update: (current: ConfigFileOverridesV1) => ConfigFileOverridesV1,
+    successMessage: string,
+  ) => {
+    const environment = environmentRef.current;
+    const versions = versionsRef.current;
+    if (!environment || !versions) throw new Error("配置目录尚未加载完成，请稍后重试");
+    if (configManagementBusyRef.current) throw new Error("另一个管理范围操作正在进行，请稍后重试");
+
+    configManagementBusyRef.current = true;
+    setConfigManagementBusy(toolId);
+    try {
+      const next = update(configFileOverridesRef.current);
+      const savedMtimeUs = await saveConfigFileOverrides(
+        environment,
+        next,
+        configFileOverridesMtimeRef.current,
+      );
+      configFileOverridesRef.current = next;
+      configFileOverridesMtimeRef.current = savedMtimeUs;
+      setConfigFileOverrides(next);
+      acceptConfigWorkspace(await loadConfigWorkspace(environment, versions));
+      flash(successMessage, true);
+    } catch (error) {
+      if (isMtimeMismatch(error) || isMtimeMissing(error)) {
+        await loadFilesOnly();
+        throw new Error("管理范围已被其他程序修改，已重新加载，请再试一次");
+      }
+      throw error;
+    } finally {
+      configManagementBusyRef.current = false;
+      setConfigManagementBusy(null);
+    }
+  }, [acceptConfigWorkspace, flash, loadFilesOnly]);
+
+  const addManagedConfigFile = useCallback(async (toolId: ConfigToolId, filePath: string) => {
+    const environment = environmentRef.current;
+    if (!environment) throw new Error("配置目录尚未加载完成，请稍后重试");
+    const currentTool = toolsRef.current.find((tool) => tool.id === toolId);
+    const selectedKey = configPathKey(filePath, environment.platform);
+    if (currentTool?.scopes.some(
+      (scope) => configPathKey(scope.filePath, environment.platform) === selectedKey,
+    )) {
+      throw new Error("这个文件已经在当前管理范围内");
+    }
+
+    const probe = await readFileWithMtime(filePath);
+    if (!probe.exists) {
+      throw new Error("只能添加主目录内的真实普通文件，且不能通过符号链接指向主目录外");
+    }
+    await persistConfigFileOverrides(
+      toolId,
+      (current) => addConfigFileOverride(current, environment, toolId, filePath),
+      "已将文件纳入管理",
+    );
+  }, [persistConfigFileOverrides]);
+
+  const removeManagedConfigFile = useCallback(async (toolId: ConfigToolId, filePath: string) => {
+    const environment = environmentRef.current;
+    if (!environment) throw new Error("配置目录尚未加载完成，请稍后重试");
+    await persistConfigFileOverrides(
+      toolId,
+      (current) => removeConfigFileOverride(current, environment, toolId, filePath),
+      "已移出管理范围，磁盘文件未删除",
+    );
+  }, [persistConfigFileOverrides]);
+
+  const restoreDefaultConfigFiles = useCallback(async (toolId: ConfigToolId) => {
+    await persistConfigFileOverrides(
+      toolId,
+      (current) => resetConfigFileOverrides(current, toolId),
+      "已恢复此工具的默认管理范围",
+    );
+  }, [persistConfigFileOverrides]);
+
   if (loading) return <div className="center"><div className="spinner" /><span>正在读取配置...</span></div>;
   if (error) return <div className="center error-text">加载失败: {error}</div>;
 
@@ -281,7 +383,16 @@ export function App() {
           return (
             <PanelVisibilityProvider key={t.name} visible={isVisible}>
               <div className={isVisible ? "panel-host" : "panel-host panel-hidden"}>
-                <ConfigPanel tool={t} onSave={onSave} onToast={flash} />
+                <ConfigPanel
+                  tool={t}
+                  onSave={onSave}
+                  onToast={flash}
+                  managementBusy={configManagementBusy !== null}
+                  customized={hasConfigFileOverrides(configFileOverrides, t.id)}
+                  onAddFile={addManagedConfigFile}
+                  onRemoveFile={removeManagedConfigFile}
+                  onRestoreDefaults={restoreDefaultConfigFiles}
+                />
               </div>
             </PanelVisibilityProvider>
           );

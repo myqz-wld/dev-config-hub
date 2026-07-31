@@ -1,3 +1,5 @@
+import type { ConfigToolId } from "./config-locations.ts";
+
 export interface ConfigScope {
   level: "global" | "user" | "project" | "local";
   label: string;
@@ -20,6 +22,7 @@ export interface ConfigScope {
 }
 
 export interface ToolConfig {
+  id: ConfigToolId;
   name: string;
   version: string;
   icon: string;

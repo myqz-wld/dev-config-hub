@@ -10,6 +10,7 @@ const MOCK_VERSIONS: MockVersions = {
 let versionsImpl: () => Promise<MockVersions> = () => Promise.resolve(MOCK_VERSIONS);
 let filesCallCount = 0;
 const mockTool = (name: string, icon: string) => ({
+  id: icon,
   name,
   version: "1.0.0",
   icon,
@@ -32,9 +33,13 @@ mock.module("./bridge.ts", () => ({
     versionsCallCount += 1;
     return versionsImpl();
   },
-  loadAllFiles: () => {
+  loadConfigWorkspace: async () => {
     filesCallCount += 1;
-    return filesImpl();
+    return {
+      tools: await filesImpl(),
+      overrides: { version: 1, tools: {} },
+      overridesMtimeUs: null,
+    };
   },
   saveFile: () => Promise.resolve(),
   loadProfileDataDirect: () => Promise.resolve({
