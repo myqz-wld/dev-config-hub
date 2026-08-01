@@ -189,8 +189,18 @@ Build and install the macOS app locally with:
 
 ```bash
 bunx tauri build --bundles app
-cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
+bun run install:macos
 ```
+
+Never update the installed bundle with an in-place `cp -R`. The macOS
+installer must stage and verify the new bundle on the destination volume,
+add an ad-hoc signature to a local Tauri bundle when its linker signature does
+not seal the complete app resources, replace the app with a fresh executable
+inode, preserve the previous bundle for rollback, and refuse replacement
+while the target app is running. An in-place overwrite can pass a later
+`codesign --verify` on disk but still be killed at launch with `CODESIGNING /
+Invalid Page` because the kernel has cached code pages for the old executable
+inode.
 
 Dev Config Hub ships as an installable Tauri desktop app with a `dch` CLI entry:
 
