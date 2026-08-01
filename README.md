@@ -91,8 +91,17 @@ bunx tsc --noEmit
 bun run build:fe
 bun test
 bunx tauri build --bundles app
-cp -R "src-tauri/target/release/bundle/macos/Dev Config Hub.app" /Applications/
+bun run install:macos
 ```
+
+The macOS installer refuses to replace a running app, stages the bundle on the
+destination volume, adds an ad-hoc signature when a local Tauri build only has
+its linker signature, verifies the complete bundle with `codesign`, and
+installs it with a fresh executable inode. The previous app is kept under
+`~/Library/Application Support/Dev Config Hub/Install Backups/`. Do not
+overwrite the installed bundle in place with `cp -R`: macOS can terminate the
+next launch with `CODESIGNING / Invalid Page` even when a later on-disk
+signature check succeeds.
 
 ## Documentation
 
