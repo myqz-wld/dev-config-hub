@@ -1,7 +1,7 @@
 ---
 plan_id: "build-dir-migration-20260526"
 created_at: "2026-05-26"
-worktree_path: "/Users/apple/Repository/personal/dev-config-hub/.claude/worktrees/build-dir-migration-20260526"
+worktree_path: ".claude/worktrees/build-dir-migration-20260526"
 status: "completed"
 base_commit: "ae8268e"
 base_branch: "main"
@@ -203,7 +203,7 @@ spike 结论 inline 到 §设计决策 + §已知踩坑;残留风险列表入 §
 
 ### Phase I: Post-archive fs 真验证
 
-- [ ] I.1 archive 文件真存在(`ls -la /Users/apple/Repository/personal/dev-config-hub/plans/build-dir-migration-20260526.md`)
+- [ ] I.1 archive 文件真存在(`ls -la plans/build-dir-migration-20260526.md`)
 - [ ] I.2 git commit 含 archive
 - [ ] I.3 INDEX append
 - [ ] I.3.5 frontmatter status=completed + final_commit + completed_at
@@ -268,9 +268,9 @@ R1 整体:11 finding(claude 7 + codex 4 — 2 双方独立 overlap)+ 1 followup,
 
 ### Cold-start 5 步(标准接力流程)
 
-1. `Bash: cat /Users/apple/Repository/personal/dev-config-hub/.claude/plans/build-dir-migration-20260526.md`(全文)
+1. `Bash: cat ./.claude/plans/build-dir-migration-20260526.md`(全文)
 2. 读 §当前进度,找最近一个 ⏳ entry — 就是接力起点
-3. EnterWorktree(builtin) `path: /Users/apple/Repository/personal/dev-config-hub/.claude/worktrees/build-dir-migration-20260526`(避 v2.1.112 stale base bug,worktree 已存在不要再 git worktree add)
+3. EnterWorktree(builtin) `path: .claude/worktrees/build-dir-migration-20260526`(避 v2.1.112 stale base bug,worktree 已存在不要再 git worktree add)
 4. `git log --oneline -3` 自检 HEAD 含本 plan 的 commit 历史 + base_commit `ae8268e`
 5. 按 §当前进度 ⏳ 起点对应 §Phase 章节实施,每完成一 Phase / Step 在本 plan 文件 `- [ ]` 打勾 + commit 进度
 
@@ -301,6 +301,6 @@ R1 整体:11 finding(claude 7 + codex 4 — 2 双方独立 overlap)+ 1 followup,
 ## 关联
 
 - **触发**:user 指令「agent-deck 项目 build-dir-migration 已收口,你来对 dev-config-hub 项目做适配同款改造」(2026-05-26)
-- **学样 plan**:`/Users/apple/Repository/personal/agent-deck/ref/plans/build-dir-migration-20260526.md`(已 completed,final_commit `6a6903e9`)
-- **学样 changelog**:`/Users/apple/Repository/personal/agent-deck/ref/changelogs/CHANGELOG_154.md`
+- **学样 plan**:`../agent-deck/ref/plans/build-dir-migration-20260526.md`(已 completed,final_commit `6a6903e9`)
+- **学样 changelog**:`../agent-deck/ref/changelogs/CHANGELOG_154.md`
 - **changelog 关联**:本 plan 完成后写 `changelog/CHANGELOG_<X>.md`(X 待定,本 plan §Phase H.2.0 步骤算)

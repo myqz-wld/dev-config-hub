@@ -3,10 +3,10 @@ plan_id: "dch-secrets-dedup-20260514"
 topic: "dch-secrets-dedup"
 created_at: "2026-05-14"
 status: "completed"
-worktree_path: "/Users/apple/Repository/personal/dev-config-hub/.claude/worktrees/dch-secrets-dedup-20260514"
+worktree_path: ".claude/worktrees/dch-secrets-dedup-20260514"
 base_commit: "0a136b6100a59338fe767d2d4d0348f7a0f269e9"
 base_branch: "main"
-target_repo: "/Users/apple/Repository/personal/dev-config-hub"
+target_repo: "."
 final_commit: "72256272a9a9119ae7deeec33cbe0fc13842eefb"
 completed_at: "2026-05-14"
 ---
@@ -352,7 +352,7 @@ bun run dev                                                                  # �
 ## 步骤 checklist 与进度
 
 - [x] **Setup** — done by session#1 on 2026-05-14
-  - worktree 创建：`/Users/apple/Repository/personal/dev-config-hub/.claude/worktrees/dch-secrets-dedup-20260514` (branch `worktree-dch-secrets-dedup-20260514`, base commit `0a136b6`)
+  - worktree 创建：`.claude/worktrees/dch-secrets-dedup-20260514` (branch `worktree-dch-secrets-dedup-20260514`, base commit `0a136b6`)
   - plan 文件 mv 到 `<dch-repo>/.claude/plans/dch-secrets-dedup-20260514.md`
   - `.gitignore` 加 `.claude/plans/` + `.claude/worktrees/`
   - 未读关键文件行数核实（见顶部说明）
@@ -488,8 +488,8 @@ bun run dev                                                                  # �
 
 > **用户决策（session#5 末）**：Step 8 单测 + Step 9 CHANGELOG/README **同一会话完成 + 整 plan 收口归档**，避免再多起一个会话。手工 UI 冒烟由用户在 session#6 内并行做 + 反馈给 agent。
 
-1. `Bash: cat /Users/apple/Repository/personal/dev-config-hub/.claude/plans/dch-secrets-dedup-20260514.md` 全文复习 plan
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/dev-config-hub/.claude/worktrees/dch-secrets-dedup-20260514")` 进 worktree
+1. `Bash: cat ./.claude/plans/dch-secrets-dedup-20260514.md` 全文复习 plan
+2. `EnterWorktree(path: ".claude/worktrees/dch-secrets-dedup-20260514")` 进 worktree
 3. 自检：`Bash: git log --oneline -8` 应看到 HEAD = `832f734`「feat(ui): RestoreBackupModal 4-step flow with secrets fill」（base_commit `0a136b6` 之后七条：`939fd82` Step 1 → `2cd1310` Step 2 → `2acdb13` Step 3 → `afdb4fb` Step 4 → `522348c` Step 5 → `1dc18b0` Step 6 → `832f734` Step 7）
 4. （可选自检）`zsh -i -l -c "bun test 2>&1 | tail -5"` 仍 195/195 pass
 5. 进 **Step 8 — 单测 + E2E + 手工 UI 冒烟**：
@@ -550,7 +550,7 @@ bun run dev                                                                  # �
 
 ## 已知踩坑（session#1+#2+#3+#4 累积 + Step 6 新增）
 
-- **EnterWorktree 工具要求 process cwd 在 git repo 内** —— session#1 cwd 是 `/Users/apple/Repository/personal`（非 git repo），导致 `EnterWorktree(path:)` 直接 reject。session#2/#3/#4 通过 hand_off_session plan-driven mode default cwd = mainRepo (`/Users/apple/Repository/personal/dev-config-hub`)，**就是 git repo 根**，EnterWorktree 立刻可用
+- **EnterWorktree 工具要求 process cwd 在 git repo 内** —— session#1 cwd 是 `..`（非 git repo），导致 `EnterWorktree(path:)` 直接 reject。session#2/#3/#4 通过 hand_off_session plan-driven mode default cwd = mainRepo (`.`)，**就是 git repo 根**，EnterWorktree 立刻可用
 - **`zsh -i -l` GVM 错只在某些 cwd 下出现**（session#1 在非 git repo 时撞 `ERROR: GVM_ROOT not set` exit 1 → bun 没 spawn；session#2/#3/#4 在 worktree cwd 内跑 `zsh -i -l -c "bun test ..."` 完全正常）。结论：worktree cwd 下放心用 `zsh -i -l`，仅当 cwd 在异常位置时才需绕道 `~/.bun/bin/bun`
 - **plan 文件位置**：写在主 repo 的 `.claude/plans/<plan-id>.md`（已 gitignore 不入项目 git），不写到 worktree working tree（worktree 是独立 branch，main 看不到）
 - **临时 ad-hoc 冒烟脚本**：放 worktree 根 `.tmp-*.ts` 跑完即删；如果用 `bun run /dev/stdin <<EOF` 走 stdin import 路径解析会出错（cwd 不识别），落实文件再跑可避坑
@@ -559,4 +559,3 @@ bun run dev                                                                  # �
 - **【Step 6 新踩】Tauri 2 camelCase ↔ snake_case 自动转换是默认行为**：JS 传 `{secretsJson, timeoutMs}` Rust fn 参数名直接写 `secrets_json: String, timeout_ms: Option<u64>`，serde 自动 deserialize。无需在 fn 上加 `#[tauri::command(rename_all = "...")]`。对照已有 `runDch(timeoutMs)` ↔ `run_dch_command(timeout_ms)` 例证
 - **【Step 6 新踩】bridge.ts 用 spread 合 dchBackup 对象**：`export const dchProfile = { ...dchProfileMethods, ...dchBackup }` 让 caller `dchProfile.backup(...)` 不变；`export *` 自动透传 backup 类型 re-export 让 caller import 路径不变。比改 caller 省事，且不留破坏性 API surface
 - **【Step 6 新踩】Edit 工具 old_string 全角 vs 半角微差异致 match fail**：bridge.ts 注释里有 `（强制 yes，避免脚本误用泄露）` 全角括号，第一次 Edit 写成半角 `)` → "String to replace not found"。**经验**：大块 Edit 失败时先 Read 出实际 bytes 对比再重试，或直接拆小 chunk 走多次小 Edit
-

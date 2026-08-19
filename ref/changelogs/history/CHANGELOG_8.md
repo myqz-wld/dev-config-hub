@@ -9,7 +9,7 @@ changed_at: 2026-05-06
 
 把当前裸 textarea + typeof-only 描述的配置展示，重做为 schema-driven 表单（行内点选 / 校验 / 注释保留写回）+ CodeMirror 6（语法高亮 / lint / 折叠）+ Markdown 渲染（react-markdown + shiki，CLAUDE.md 也能像 GitHub 一样看）。Profile 系统的 hooks（多平台 posix / powershell / cmd）/ env / 原文 profiles.json 走相同精细化栈。
 
-10 个 PR 渐进，每个 PR 自洽。设计与依赖图见外部 plan：`/Users/apple/.claude/plans/markdown-json-polished-crystal.md`（不入版控）。
+10 个 PR 渐进，每个 PR 自洽。设计与依赖图见外部 plan：`$HOME/.claude/plans/markdown-json-polished-crystal.md`（不入版控）。
 
 ## PR-A — Schema 类型骨架（无用户感知，内部底座）
 

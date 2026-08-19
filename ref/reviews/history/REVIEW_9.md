@@ -210,4 +210,4 @@ R1+R2 所有 finding 反驳后均 ✅ 或部分 ❓ 后 lead 现场验证;暂无
 
 - A-codex 报告其 review 时只读沙箱让 `mkdtemp` 失败 → 7 个写盘测试 EPERM。**reviewer 沙箱限制,不是项目代码 bug**;但 secrets-index.test.ts:360 的 afterEach 缺 guard 让测试失败链雪崩(L1)是真问题(已 G1 fix)
 - 主仓库根目录有个 1.6GB `-C` 大文件(untracked,前一会话 reviewer 误把 `tar -czOf` 与 `-C <dir>` 混淆产生)。不影响 fix / 测试 / commit。**收口时建议问 user 是否要 `rm -- '-C'` 释放磁盘**(谨慎 — 任何工具用 `-C` 当 path 还需 `rm --` 防 flag 解析)
-- bun test 必须走 `zsh -i -l -c "bun test"`(登录式 zsh 才能注入 PATH 让子进程 `Bun.spawn` 找到 bun);直接 `/Users/apple/.bun/bin/bun test` 会让 backup-safety.test.ts 的 `Bun.spawn(["bun", ...])` 报 ENOENT 假阳 fail(已踩坑,2026-05-15 G12 验证测试时复现)
+- bun test 必须走 `zsh -i -l -c "bun test"`(登录式 zsh 才能注入 PATH 让子进程 `Bun.spawn` 找到 bun);直接 `$HOME/.bun/bin/bun test` 会让 backup-safety.test.ts 的 `Bun.spawn(["bun", ...])` 报 ENOENT 假阳 fail(已踩坑,2026-05-15 G12 验证测试时复现)

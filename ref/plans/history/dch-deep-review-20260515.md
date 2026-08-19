@@ -6,7 +6,7 @@ base_commit: 8ad2fa0
 base_branch: main
 final_commit: 7d0bb75
 completed_at: 2026-05-15
-worktree_path: /Users/apple/Repository/personal/dev-config-hub
+worktree_path: .
 note: 项目 deep review 历史惯例不进 worktree,直接在主仓库 fix + commit(REVIEW_2/4/6/7/8 同款)。worktree_path 填 mainRepo 是兼容 hand_off_session schema,实际无 worktree 隔离。
 ---
 
@@ -34,7 +34,7 @@ note: 项目 deep review 历史惯例不进 worktree,直接在主仓库 fix + co
 
 ## 不变量
 
-- 项目主仓库 `/Users/apple/Repository/personal/dev-config-hub` HEAD = base_commit 推进,fix 直接在主仓库 commit
+- 项目主仓库 `.` HEAD = base_commit 推进,fix 直接在主仓库 commit
 - 收口前 README + changelog 不写,等 R1+R2(+RN)全收口后写 CHANGELOG_21 + REVIEW_9
 - 不引新依赖(除非反驳轮共识必需)
 - bun test + cargo test 必须 0 回归
@@ -483,9 +483,9 @@ fan-out: 4/5 (B-claude / B-codex / C-claude / C-codex)
 
 新 session 接力第一步:
 
-1. **`Bash: cat /Users/apple/Repository/personal/dev-config-hub/.claude/plans/dch-deep-review-20260515.md`** 读全本 plan(强制走 cat 不走 Read,详 user CLAUDE.md §选项 A 末 callout)
+1. **`Bash: cat ./.claude/plans/dch-deep-review-20260515.md`** 读全本 plan(强制走 cat 不走 Read,详 user CLAUDE.md §选项 A 末 callout)
 2. **不**进 worktree(本 plan 项目历史惯例不用 worktree,直接主仓库 fix + commit)
-3. `git -C /Users/apple/Repository/personal/dev-config-hub log --oneline -15` 确认 HEAD = `7d0bb75`(G12 commit)
+3. `git -C . log --oneline -15` 确认 HEAD = `7d0bb75`(G12 commit)
 4. **决策 R3 vs 直接收口**(lead 自主判断):
    - **倾向直接收口**:R1 + R2 共 12 个 fix commit 已落地 24 HIGH + 28 MED + 多 LOW/INFO,真问题面已大幅收敛;backup-restore.ts 唯一超护栏 follow-up 已记录;bun 412 / cargo 40 全过零回归。再开 R3 边际收益低 + 撞 fan-out + spawn 开销大
    - **触发 R3 例外**:用户显式要求"再 review 一轮"/ Step 11 写 REVIEW_9 时发现关键 fix 引入新 regression 苗头 / 反驳轮裁决遗留 ❓ 项需 R3 单点核实
@@ -520,7 +520,7 @@ fan-out: 4/5 (B-claude / B-codex / C-claude / C-codex)
 - A-codex 报告其 review 时只读沙箱让 `mkdtemp` 失败,导致 7 个写盘测试 EPERM。**这是 reviewer 沙箱限制,不是项目代码 bug**;但 secrets-index.test.ts:360 的 afterEach 缺 guard 让测试失败链雪崩(L1)是真问题(已 G1 fix)
 - 主仓库根目录有个 1.6GB `-C` 大文件(untracked,前一会话 reviewer 误把 `tar -czOf` 与 `-C <dir>` 混淆产生)。不影响 fix / 测试 / commit。**收口时建议问 user 是否要 `rm -- '-C'` 释放磁盘**(谨慎 — 任何工具用 `-C` 当 path 还需 `rm --` 防 flag 解析)
 - cargo test multi-thread 偶发 `path_policy::tests::accepts_home_root_and_subpath` fail (env race 已知,见测试 with_home 注释);跑 `cargo test -- --test-threads=1` 32+5+3=40 全 pass。考虑给 with_home 加 mutex 让 env 互斥串行(follow-up)
-- bun test 必须走 `zsh -i -l -c "bun test"`(登录式 zsh 才能注入 PATH 让子进程 Bun.spawn 找到 bun);直接 `/Users/apple/.bun/bin/bun test` 会让 backup-safety.test.ts 的 `Bun.spawn(["bun", ...])` 报 ENOENT 假阳性 fail(已踩坑,2026-05-15 G12 验证测试时复现)
+- bun test 必须走 `zsh -i -l -c "bun test"`(登录式 zsh 才能注入 PATH 让子进程 Bun.spawn 找到 bun);直接 `$HOME/.bun/bin/bun test` 会让 backup-safety.test.ts 的 `Bun.spawn(["bun", ...])` 报 ENOENT 假阳性 fail(已踩坑,2026-05-15 G12 验证测试时复现)
 
 ## B-claude R1 finding(已收,B 批 2 reply 全到 → 反驳轮已发)
 
@@ -554,9 +554,9 @@ fan-out: 4/5 (B-claude / B-codex / C-claude / C-codex)
 1. **H1 proc_timeout.rs:88-122** — `try_wait Ok(Some(status))` 父进程**自然退出**分支只 sleep 50ms 后 break,**不 killpg**。如果父 fork 了 detach grandchild 持有继承 stdio pipe FD(典型 `(curl ... &)` / `(nvm preload &)` / shell prompt async refresh),2 个 reader thread 永久 blocked 在 `r.read()`。**实测**:跑 `(sleep 999 &); echo immediate; exit 0`,主线程 try_wait Some 后 50ms break,3s 后 reader thread `done flag = false` — 仍 blocked 直到 sleep 死。Tauri long-lived process 每次 hook detach 累计 leak 2 thread + 各 8MB stack。**REVIEW_7 H3 修了"主线程不卡"但 reader 仍 leak**,现有测试 `detach_child_does_not_block_after_parent_exits` 只验主线程 elapsed < 1.5s。修复:try_wait Some 分支也 killpg 兜底(pid 即 pgid,setsid 已设)。
 
 ### MED (3 条)
-1. **M1 commands/fs.rs:240-263** — `read_link_inner` 用 `Path::starts_with(home_p)` 检 HOME 边界,但 starts_with 是组件级前缀比对,**不 canonicalize `..`**。`/Users/test/foo/../../etc/some-link` components 前 3 个 = home 通过 starts_with,然后 `fs::read_link` 按 OS canonicalize 真去读 /etc/some-link。`path_policy::check_path` 显式拒 `..` 段(注释明说"avoid `~/foo/../../etc/passwd` 绕过 starts_with"),read_link_inner 漏了这个保护。**实测**:`Path::new("/Users/test/foo/../../etc/passwd").starts_with("/Users/test")` → true。bridge.ts 当前 caller 全是固定 HOME 路径不可达,但 webview XSS / 受损依赖触发面在
+1. **M1 commands/fs.rs:240-263** — `read_link_inner` 用 `Path::starts_with(home_p)` 检 HOME 边界,但 starts_with 是组件级前缀比对,**不 canonicalize `..`**。`$HOME/test/foo/../../etc/some-link` components 前 3 个 = home 通过 starts_with,然后 `fs::read_link` 按 OS canonicalize 真去读 /etc/some-link。`path_policy::check_path` 显式拒 `..` 段(注释明说"avoid `~/foo/../../etc/passwd` 绕过 starts_with"),read_link_inner 漏了这个保护。**实测**:`Path::new("$HOME/test/foo/../../etc/passwd").starts_with("$HOME/test")` → true。bridge.ts 当前 caller 全是固定 HOME 路径不可达,但 webview XSS / 受损依赖触发面在
 2. **M2 commands/dch.rs:165-213** — `run_dch_with_secrets_temp_blocking` 写 mode-0600 tmp 存 secrets_json → 调 `run_dch_command_blocking` → cleanup `remove_file`。但 cleanup 不在 RAII guard,`run_dch_command_blocking` 内部 panic(unwrap on None / poisoned mutex)→ tmp 落盘 /tmp 直到 reboot。mode 0600 防同机用户但 TimeMachine snapshot / sleep mode swap 仍带走。**实测**复刻 panic 模式,tmp 文件残留 /tmp。修:`struct TmpFileGuard(PathBuf); impl Drop` 替手工 remove_file
-3. **M3 commands/fs.rs:40-49** — `file_exists` 注释说"无内容泄漏"不走 PathPolicy,但**存在性本身是信息泄漏**:webview-XSS / 受损 npm 依赖能 enumerate `/etc/sudoers.d/...` / `/Users/<other-user>/.ssh/id_rsa` / `/Library/LaunchAgents/com.malware.plist`。其他 IPC 全 HomeOnly,**file_exists 是仅剩缺口**。修:加 `check_path(&path, PathPolicy::HomeOnly)`,失败返 false(与现 `unwrap_or(false)` 语义对齐)
+3. **M3 commands/fs.rs:40-49** — `file_exists` 注释说"无内容泄漏"不走 PathPolicy,但**存在性本身是信息泄漏**:webview-XSS / 受损 npm 依赖能 enumerate `/etc/sudoers.d/...` / `<other-user-home>/.ssh/id_rsa` / `/Library/LaunchAgents/com.malware.plist`。其他 IPC 全 HomeOnly,**file_exists 是仅剩缺口**。修:加 `check_path(&path, PathPolicy::HomeOnly)`,失败返 false(与现 `unwrap_or(false)` 语义对齐)
 
 ### INFO (4 条)
 1. commands/dch.rs:170-176 vs atomic.rs:55-62 — tmp 文件名生成两份独立实现(atomic 有 pid+nanos+counter,dch.rs 少 counter),抽 `tmp_name(prefix, ext)` 公共 helper

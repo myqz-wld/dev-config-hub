@@ -1,7 +1,7 @@
 ---
 plan_id: "deep-review-fix-20260514"
 created_at: "2026-05-14T00:00:00Z"
-worktree_path: "/Users/apple/Repository/personal/dev-config-hub/.claude/worktrees/deep-review-fix-20260514"
+worktree_path: ".claude/worktrees/deep-review-fix-20260514"
 status: "completed"
 base_commit: "0a136b6"
 final_commit: "0d18f4c8495dacd04edc543446f1a15fdab78b36"
@@ -150,8 +150,8 @@ H8 拆两层：
 
 session 3 收尾后 hand off 接力：
 
-1. `Bash: cat /Users/apple/Repository/personal/dev-config-hub/.claude/plans/deep-review-fix-20260514.md` 全文
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/dev-config-hub/.claude/worktrees/deep-review-fix-20260514")` 进同 worktree
+1. `Bash: cat ./.claude/plans/deep-review-fix-20260514.md` 全文
+2. `EnterWorktree(path: ".claude/worktrees/deep-review-fix-20260514")` 进同 worktree
 3. 自检 `git -C <worktree> log --oneline -7` 确认 HEAD = c95f1e8（Group E commit；F1 build 不入 git）
 4. **直接动手 F2**：用 `deep-code-review` SKILL 起 Round 2 review pair（异构对抗）—— **不**复用原 4 个 closed reviewer（按 user CLAUDE「shared-team 前置约束」选项 1 重 spawn）。
 
@@ -196,7 +196,7 @@ session 3 收尾后 hand off 接力：
    - 修复条目（Group A-E commit hash + step 一一对应）
    - 同步更新 `reviews/INDEX.md` 加 REVIEW_8 一行
 8. **F5** 写 `changelog/CHANGELOG_18.md`（在 main repo）总览引用 plan 归档 + REVIEW_8 + 5 个 commit；同步更新 `changelog/INDEX.md`
-9. **F6** 走 `mcp__agent-deck__archive_plan({plan_id: "deep-review-fix-20260514", worktree_path: "/Users/apple/Repository/personal/dev-config-hub/.claude/worktrees/deep-review-fix-20260514", base_branch: "main", keep_teammates: false})`：
+9. **F6** 走 `mcp__agent-deck__archive_plan({plan_id: "deep-review-fix-20260514", worktree_path: ".claude/worktrees/deep-review-fix-20260514", base_branch: "main", keep_teammates: false})`：
    - 自动 ff-merge worktree → main + mv plan → main-repo/plans/ + INDEX.md + commit + worktree remove + branch -D + shutdown 4 reviewer + archive caller session
    - 调用前必须先 `ExitWorktree(action: "keep")` 退出 worktree（mcp tool 不能调 ExitWorktree CLI 内部 tool）
 10. F6 完成后会话使命结束，archive_plan 自动归档 caller。
@@ -228,4 +228,3 @@ team_id：
 `hand_off_session` 起新 session 必须显式传 `team_name` 让新 session 落入对应 team（否则 send_message 报 no-shared-team），但单次只能加入一个 team —— Round 2 多 team 联动需要新 session **手动**通过两次 send_message（lead 不在两个 team 内时通过 list_sessions 获取 reviewer sid 后跨 team 触发，按 CLAUDE.md「shared-team 前置约束」节走选项 1 重 spawn 即可，丢的 mental model 通过本 plan 文件 + Round 1 finding 摘要补回）。
 
 实操建议：F2 时 lead session 主动新建一个 review-coordinator 会话或 spawn 新 review pair（携 R1 finding + fix commit hash 作为 spawn prompt 的 skip 字段），同样异构对抗 Round 2，避免跨 team 协调复杂度。
-

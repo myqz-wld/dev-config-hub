@@ -139,7 +139,7 @@ UI 上点删除 profile 没反馈：根因是 ProfilePanel 用 `window.confirm()
 
 1. **dir 撞车校验可绕过**（Codex 独家）
    - 旧：`store.profiles.some((p) => p.configDir === dir)` raw 字符串比较
-   - 反例：`~/.claude-pro/`（末尾斜杠）/ `/Users/apple/.claude-pro`（绝对）/ `~/.x//foo`（双斜杠）跟已有 `~/.claude-pro` 不等但展开后是同一目录 → 绕过后仍 writeProfileConfigFile 覆盖源
+   - 反例：`~/.claude-pro/`（末尾斜杠）/ `$HOME/.claude-pro`（绝对）/ `~/.x//foo`（双斜杠）跟已有 `~/.claude-pro` 不等但展开后是同一目录 → 绕过后仍 writeProfileConfigFile 覆盖源
    - Fix：bridge.ts 新增 `normalizeProfileDir(p, home)`：展开 `~/`、折叠 `//`、去尾 `/`；`getHomeDir()` 同步 export。onSubmit 用 `normalizeProfileDir(...) === normalizeProfileDir(...)` 比较
 
 2. **dir 撞车只在 content 非空时跑 → 僵尸 profile**（双方一致）

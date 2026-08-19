@@ -6,7 +6,7 @@ final_commit: ba10574
 completed_at: 2026-05-15T11:35:00+08:00
 base_commit: 2c5b34e
 base_branch: main
-worktree_path: /Users/apple/Repository/personal/dev-config-hub
+worktree_path: .
 note: 项目惯例不进 worktree(REVIEW_2/4/6/7/8/9 同款),直接在主仓库 fix + commit。worktree_path 填 mainRepo 兼容 hand_off_session schema。
 ---
 
@@ -108,9 +108,9 @@ backup-restore.ts 留主流程 applyBackup / parseBackup / cleanupParsed 类型 
 
 新 session 接力第一步:
 
-1. **`Bash: cat /Users/apple/Repository/personal/dev-config-hub/.claude/plans/dch-deep-review-followup-20260515.md`** 读全本 plan(强制走 cat 不走 Read,详 user CLAUDE.md §选项 A 末 callout)
+1. **`Bash: cat ./.claude/plans/dch-deep-review-followup-20260515.md`** 读全本 plan(强制走 cat 不走 Read,详 user CLAUDE.md §选项 A 末 callout)
 2. **不**进 worktree(本 plan 项目历史惯例不用 worktree,直接主仓库 fix + commit)
-3. `git -C /Users/apple/Repository/personal/dev-config-hub log --oneline -10` 确认 HEAD = `2c5b34e`(R2 + 收口末态)
+3. `git -C . log --oneline -10` 确认 HEAD = `2c5b34e`(R2 + 收口末态)
 4. (可选自检)`zsh -i -l -c "bun test" | tail -5` + `zsh -i -l -c "cd src-tauri && cargo test -- --test-threads=1" | grep "test result"` 确认 412 / 40 全过
 5. **按 §设计决策 2 顺序**(F1 → F4)依次落地,每项独立 commit
 6. **Step 6 收口**:写 `changelog/CHANGELOG_22.md` + 同步 `changelog/INDEX.md` 加一行 + plan 归档(本 plan mv 到 `<main>/plans/dch-deep-review-followup-20260515.md` + 同步 `<main>/plans/INDEX.md` + frontmatter status=completed + final_commit + completed_at + git commit)
@@ -123,7 +123,7 @@ backup-restore.ts 留主流程 applyBackup / parseBackup / cleanupParsed 类型 
 - 每个 follow-up 必须配回归测试(无测试不算 done)
 - 不退已有约定(REVIEW_9 12 commit 修法不能回退)
 - 改动遵循项目 CLAUDE.md(Bun first / 单文件 ≤ 500 / Tauri 不弹 window.confirm 等)
-- bun test 必须走 `zsh -i -l -c "bun test"`(登录式 zsh 才能注入 PATH 让子进程 Bun.spawn 找到 bun)— 直接 `/Users/apple/.bun/bin/bun test` 会让 backup-safety.test.ts 报 ENOENT 假阳 fail(REVIEW_9 已记录)
+- bun test 必须走 `zsh -i -l -c "bun test"`(登录式 zsh 才能注入 PATH 让子进程 Bun.spawn 找到 bun)— 直接 `$HOME/.bun/bin/bun test` 会让 backup-safety.test.ts 报 ENOENT 假阳 fail(REVIEW_9 已记录)
 - cargo test 默认走 `--test-threads=1`(F1 修完 with_home env race 后可以默认多线程跑;在 F1 之前**必须**单线程跑避免 env race 干扰)
 
 **已知踩坑**(继承 REVIEW_9):

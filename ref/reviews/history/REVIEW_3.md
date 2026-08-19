@@ -76,7 +76,7 @@ src/types.ts
 
 | # | 严重度 | 文件:行号 | 问题 | A (claude) | B (codex) | 验证手段 |
 |---|---|---|---|---|---|---|
-| C5/codex#1 | HIGH | `src/schemas/registry.ts:54` `stripHome` | home 前缀子串误判：`startsWith(home)` 在相邻路径 `/Users/test_other/.zshrc` + home `/Users/test` / `/foo.claude/...` + home `/foo` 也命中 → stripHome 后 baseName 误归 shell-rc / claude-settings | C5 HIGH | #1 MED | claude bun repro `/Users/test_other/.zshrc` → shell-rc 错；codex repro `/foo.claude/settings.json` → 错 |
+| C5/codex#1 | HIGH | `src/schemas/registry.ts:54` `stripHome` | home 前缀子串误判：`startsWith(home)` 在相邻路径 `$HOME/test_other/.zshrc` + home `$HOME/test` / `/foo.claude/...` + home `/foo` 也命中 → stripHome 后 baseName 误归 shell-rc / claude-settings | C5 HIGH | #1 MED | claude bun repro `$HOME/test_other/.zshrc` → shell-rc 错；codex repro `/foo.claude/settings.json` → 错 |
 | C1 | HIGH | `claude-settings.ts:39-43` `effortLevel` enum | 漏 `xhigh` / `max` 两档（上游真实 5 档：low/medium/high/xhigh/max） | HIGH | — | WebFetch `https://www.schemastore.org/claude-code-settings.json` 拿到上游真实 enum |
 | C2 | HIGH | `claude-settings.ts:50` `autoMemoryEnabled` | `default: false` 与上游 `default: true` **反转**，UI 写回会静默关闭用户自动记忆 | HIGH | — | 同上 web fetch |
 | C3 | HIGH | `claude-settings.ts:55-56` `cleanupPeriodDays` | `min: 0 / max: 3650` 与上游 `min: 1 / 无 max` 不符（违反 CLAUDE.md「严禁揣测字段语义」） | HIGH | — | 同上 web fetch |
@@ -88,7 +88,7 @@ src/types.ts
 | C10 | MED | `json-patcher.ts:81` `detectFormat` regex | 正则不跳过 jsonc 顶部行注释 + 紧凑怪缩进嗅成 tabSize=3 | MED | #3 LOW | claude bun repro `{\n   "a":...}` 嗅成 3-space；codex repro `{\n// comment\n    "a"...}` 嗅成 fallback 2-space |
 | C11 | MED | `json-patcher.test.ts` 全文件 | 测试盲区：多 patch 顺序串扰 / 嵌套 unknown sibling / key 含 dot / 删后剩空 object / 顶层非 object throw guard | MED | 测试盲区表 | 静态阅读 |
 | C12 | MED | `lib.rs:31-51` ↔ `bridge.ts:32-37` | `ReadFileWithMtimeResult` Rust ↔ TS 双契约手维护，无 codegen / 共享 IDL | MED | — | 静态检查 |
-| C13 | MED | `registry.ts:54-58` `stripHome` | 不处理 Win 反斜杠，`C:\Users\test\.claude\settings.json` 全部分流 miss | MED | 测试盲区 LOW | claude bun repro Win 路径返 null |
+| C13 | MED | `registry.ts:54-58` `stripHome` | 不处理 Win 反斜杠，`%USERPROFILE%\test\.claude\settings.json` 全部分流 miss | MED | 测试盲区 LOW | claude bun repro Win 路径返 null |
 | C14 | LOW | `types.ts:32-41` `EnumValue` | 短 / 长形式混写时 caller TS narrow 易漏分支 | LOW | — | 静态推演 |
 | C15 | LOW | `types.ts:127` ↔ `helpers.ts:64-67` | `Diagnostic.path` `string` vs path arg `(string\|number)[]` 类型不一致 | LOW | — | 静态推演 |
 | C16 | LOW | `lib.rs:30-51` `read_file_with_mtime` | read 失败 vs metadata 失败合并 missing 语义，caller 无法区分 race | LOW | — | 阅读源码 match 分支 |
