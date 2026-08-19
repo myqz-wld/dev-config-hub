@@ -15,6 +15,4 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
-| 2026-07-31 | [CHANGELOG_41_hidden-config-file-picker.md](CHANGELOG_41_hidden-config-file-picker.md) | Showed dot-prefixed directories in the macOS config file picker. |
-| 2026-07-31 | [CHANGELOG_40_config-file-scope-controls.md](CHANGELOG_40_config-file-scope-controls.md) | Added per-tool file scope controls with persistent overrides. |
-| 2026-07-29 | [CHANGELOG_39_grok-build-global-rules.md](CHANGELOG_39_grok-build-global-rules.md) | Added Grok Build global instruction-file management. |
+| 2026-08-19 | [CHANGELOG_42_macos-install-canonicalization.md](CHANGELOG_42_macos-install-canonicalization.md) | Kept one discoverable app while preserving rollback artifacts. |
