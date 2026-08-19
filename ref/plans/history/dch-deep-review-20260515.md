@@ -483,7 +483,7 @@ fan-out: 4/5 (B-claude / B-codex / C-claude / C-codex)
 
 新 session 接力第一步:
 
-1. **`Bash: cat .claude/plans/dch-deep-review-20260515.md`** 读全本 plan(强制走 cat 不走 Read,详 user CLAUDE.md §选项 A 末 callout)
+1. **`Bash: cat ./.claude/plans/dch-deep-review-20260515.md`** 读全本 plan(强制走 cat 不走 Read,详 user CLAUDE.md §选项 A 末 callout)
 2. **不**进 worktree(本 plan 项目历史惯例不用 worktree,直接主仓库 fix + commit)
 3. `git -C . log --oneline -15` 确认 HEAD = `7d0bb75`(G12 commit)
 4. **决策 R3 vs 直接收口**(lead 自主判断):
@@ -554,9 +554,9 @@ fan-out: 4/5 (B-claude / B-codex / C-claude / C-codex)
 1. **H1 proc_timeout.rs:88-122** — `try_wait Ok(Some(status))` 父进程**自然退出**分支只 sleep 50ms 后 break,**不 killpg**。如果父 fork 了 detach grandchild 持有继承 stdio pipe FD(典型 `(curl ... &)` / `(nvm preload &)` / shell prompt async refresh),2 个 reader thread 永久 blocked 在 `r.read()`。**实测**:跑 `(sleep 999 &); echo immediate; exit 0`,主线程 try_wait Some 后 50ms break,3s 后 reader thread `done flag = false` — 仍 blocked 直到 sleep 死。Tauri long-lived process 每次 hook detach 累计 leak 2 thread + 各 8MB stack。**REVIEW_7 H3 修了"主线程不卡"但 reader 仍 leak**,现有测试 `detach_child_does_not_block_after_parent_exits` 只验主线程 elapsed < 1.5s。修复:try_wait Some 分支也 killpg 兜底(pid 即 pgid,setsid 已设)。
 
 ### MED (3 条)
-1. **M1 commands/fs.rs:240-263** — `read_link_inner` 用 `Path::starts_with(home_p)` 检 HOME 边界,但 starts_with 是组件级前缀比对,**不 canonicalize `..`**。`/Users/test/foo/../../etc/some-link` components 前 3 个 = home 通过 starts_with,然后 `fs::read_link` 按 OS canonicalize 真去读 /etc/some-link。`path_policy::check_path` 显式拒 `..` 段(注释明说"avoid `~/foo/../../etc/passwd` 绕过 starts_with"),read_link_inner 漏了这个保护。**实测**:`Path::new("/Users/test/foo/../../etc/passwd").starts_with("/Users/test")` → true。bridge.ts 当前 caller 全是固定 HOME 路径不可达,但 webview XSS / 受损依赖触发面在
+1. **M1 commands/fs.rs:240-263** — `read_link_inner` 用 `Path::starts_with(home_p)` 检 HOME 边界,但 starts_with 是组件级前缀比对,**不 canonicalize `..`**。`$HOME/test/foo/../../etc/some-link` components 前 3 个 = home 通过 starts_with,然后 `fs::read_link` 按 OS canonicalize 真去读 /etc/some-link。`path_policy::check_path` 显式拒 `..` 段(注释明说"avoid `~/foo/../../etc/passwd` 绕过 starts_with"),read_link_inner 漏了这个保护。**实测**:`Path::new("$HOME/test/foo/../../etc/passwd").starts_with("$HOME/test")` → true。bridge.ts 当前 caller 全是固定 HOME 路径不可达,但 webview XSS / 受损依赖触发面在
 2. **M2 commands/dch.rs:165-213** — `run_dch_with_secrets_temp_blocking` 写 mode-0600 tmp 存 secrets_json → 调 `run_dch_command_blocking` → cleanup `remove_file`。但 cleanup 不在 RAII guard,`run_dch_command_blocking` 内部 panic(unwrap on None / poisoned mutex)→ tmp 落盘 /tmp 直到 reboot。mode 0600 防同机用户但 TimeMachine snapshot / sleep mode swap 仍带走。**实测**复刻 panic 模式,tmp 文件残留 /tmp。修:`struct TmpFileGuard(PathBuf); impl Drop` 替手工 remove_file
-3. **M3 commands/fs.rs:40-49** — `file_exists` 注释说"无内容泄漏"不走 PathPolicy,但**存在性本身是信息泄漏**:webview-XSS / 受损 npm 依赖能 enumerate `/etc/sudoers.d/...` / `/Users/<other-user>/.ssh/id_rsa` / `/Library/LaunchAgents/com.malware.plist`。其他 IPC 全 HomeOnly,**file_exists 是仅剩缺口**。修:加 `check_path(&path, PathPolicy::HomeOnly)`,失败返 false(与现 `unwrap_or(false)` 语义对齐)
+3. **M3 commands/fs.rs:40-49** — `file_exists` 注释说"无内容泄漏"不走 PathPolicy,但**存在性本身是信息泄漏**:webview-XSS / 受损 npm 依赖能 enumerate `/etc/sudoers.d/...` / `<other-user-home>/.ssh/id_rsa` / `/Library/LaunchAgents/com.malware.plist`。其他 IPC 全 HomeOnly,**file_exists 是仅剩缺口**。修:加 `check_path(&path, PathPolicy::HomeOnly)`,失败返 false(与现 `unwrap_or(false)` 语义对齐)
 
 ### INFO (4 条)
 1. commands/dch.rs:170-176 vs atomic.rs:55-62 — tmp 文件名生成两份独立实现(atomic 有 pid+nanos+counter,dch.rs 少 counter),抽 `tmp_name(prefix, ext)` 公共 helper

@@ -49,7 +49,7 @@ dev-config-hub 的 macOS 假设嵌在**核心抽象层**：symlink-as-switch / b
 | B5 | MED | `src/readers/shell.ts:6-11` | 读 `~/.zprofile` / `~/.zshrc`；Win 不存在这两个文件 → UI 全空。Win 应识别 PowerShell `$PROFILE` | Read |
 | B6 | MED | `src/cli.ts:171`, `src/cli-profile.ts:157` | 编辑器 fallback `vi`，Win 上 EDITOR/VISUAL 通常未设 + vi 不在 PATH → ENOENT。Win 应 fallback `notepad` | Read |
 | B7 | MED | `src/cli.ts:151` | `Bun.spawn(["bunx","tauri","dev"], { cwd: import.meta.dir + "/.." })`：Win 上拼成 `C:\foo\src/..` 混合分隔符（Bun 实测能容忍但不规范） | Read |
-| B8 | MED | `src/profiles/store.ts:29` | `collapseHome` 用 `HOME + "/"` 字面量；Win HOME `C:\Users\x` 拼 `"/"` 后 `C:\Users\x/`，永不 startsWith Win 反斜杠路径 → UI 显示绝对路径不缩写 | Read |
+| B8 | MED | `src/profiles/store.ts:29` | `collapseHome` 用 `HOME + "/"` 字面量；Win HOME `%USERPROFILE%` 拼 `"/"` 后混合分隔符，永不 startsWith Win 反斜杠路径 → UI 显示绝对路径不缩写 | Read |
 | B9 | LOW | `src/utils.ts:22` | `Bun.spawn(command.split(" "))`；当前调用方都是短命令名，Win Bun 自动 PATHEXT 探 `.exe`/`.cmd` 能跑；含空格路径误切但不触发 | Read + Bun docs |
 | B10 | LOW | `src/readers/opencode.ts:13` | XDG `~/.config/opencode/opencode.json`；Win opencode 配置可能在 `%APPDATA%\opencode\` | Read |
 | B11 | LOW | `src/profiles/symlink.ts:107` | `rename(tmp, target)` 在跨盘符（EXDEV）会失败；要求用户把 configDir 与 `~/.claude` 同盘 | Read |

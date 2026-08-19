@@ -108,7 +108,7 @@ backup-restore.ts 留主流程 applyBackup / parseBackup / cleanupParsed 类型 
 
 新 session 接力第一步:
 
-1. **`Bash: cat .claude/plans/dch-deep-review-followup-20260515.md`** 读全本 plan(强制走 cat 不走 Read,详 user CLAUDE.md §选项 A 末 callout)
+1. **`Bash: cat ./.claude/plans/dch-deep-review-followup-20260515.md`** 读全本 plan(强制走 cat 不走 Read,详 user CLAUDE.md §选项 A 末 callout)
 2. **不**进 worktree(本 plan 项目历史惯例不用 worktree,直接主仓库 fix + commit)
 3. `git -C . log --oneline -10` 确认 HEAD = `2c5b34e`(R2 + 收口末态)
 4. (可选自检)`zsh -i -l -c "bun test" | tail -5` + `zsh -i -l -c "cd src-tauri && cargo test -- --test-threads=1" | grep "test result"` 确认 412 / 40 全过
