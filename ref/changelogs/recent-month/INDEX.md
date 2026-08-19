@@ -15,5 +15,9 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-31 | [CHANGELOG_41_hidden-config-file-picker.md](CHANGELOG_41_hidden-config-file-picker.md) | Showed dot-prefixed directories in the macOS config file picker. |
+| 2026-07-31 | [CHANGELOG_40_config-file-scope-controls.md](CHANGELOG_40_config-file-scope-controls.md) | Added per-tool file scope controls with persistent overrides. |
+| 2026-07-29 | [CHANGELOG_39_grok-build-global-rules.md](CHANGELOG_39_grok-build-global-rules.md) | Added Grok Build global instruction-file management. |
+| 2026-07-27 | [CHANGELOG_38_profile-backup-workspaces.md](CHANGELOG_38_profile-backup-workspaces.md) | Separated tool profiles, cross-tool backups, and advanced settings. |
+| 2026-07-27 | [CHANGELOG_37_profile-backup-policies.md](CHANGELOG_37_profile-backup-policies.md) | Added empty profiles, editable backup rules, and exact prepared exports. |
 | 2026-07-20 | [CHANGELOG_36_user-config-catalog.md](CHANGELOG_36_user-config-catalog.md) | Added a five-tool user config catalog and four-tool profile support. |
-| 2026-07-19 | [CHANGELOG_35_foundation-time-buckets.md](CHANGELOG_35_foundation-time-buckets.md) | Aligned foundation docs, removed conventions, and bucketed final records. |

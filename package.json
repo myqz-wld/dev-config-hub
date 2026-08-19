@@ -15,6 +15,7 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "install:macos": "bash scripts/install-macos-app.sh",
+    "test:install:macos": "bash scripts/install-macos-app.test.sh",
     "cli": "bun src/cli.ts"
   },
   "devDependencies": {

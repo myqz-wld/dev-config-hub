@@ -69,7 +69,8 @@ scripts/install-macos-app.sh
 - Replaced the unsafe command in `README.md` and `CLAUDE.md`.
 - Repaired the current machine without deleting the old application. The
   incident copy remains recoverable at
-  `~/Library/Application Support/Dev Config Hub/Install Backups/Dev Config Hub-20260731-191806.app`.
+  `~/Library/Application Support/Dev Config Hub/Install Backups/Dev Config Hub-20260731-191806.app-backup`
+  after the duplicate-registration cleanup recorded in REVIEW_18.
 
 ## Validation
 

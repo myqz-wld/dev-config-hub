@@ -90,6 +90,7 @@ backup rules for fast reopening.
 bunx tsc --noEmit
 bun run build:fe
 bun test
+bun run test:install:macos
 bunx tauri build --bundles app
 bun run install:macos
 ```
@@ -98,10 +99,15 @@ The macOS installer refuses to replace a running app, stages the bundle on the
 destination volume, adds an ad-hoc signature when a local Tauri build only has
 its linker signature, verifies the complete bundle with `codesign`, and
 installs it with a fresh executable inode. The previous app is kept under
-`~/Library/Application Support/Dev Config Hub/Install Backups/`. Do not
-overwrite the installed bundle in place with `cp -R`: macOS can terminate the
-next launch with `CODESIGNING / Invalid Page` even when a later on-disk
-signature check succeeds.
+`~/Library/Application Support/Dev Config Hub/Install Backups/` with an
+`.app-backup` suffix, so macOS does not expose it as another application.
+Legacy `.app` backups are migrated automatically, the generated build bundle is
+retained beside the build output with an `.app-build` suffix, and the installed
+`/Applications` bundle is refreshed as the canonical Launch Services
+registration. The installer can reuse that non-application build archive until
+the next build. Do not overwrite the installed bundle in place with `cp -R`:
+macOS can terminate the next launch with `CODESIGNING / Invalid Page` even when
+a later on-disk signature check succeeds.
 
 ## Documentation
 

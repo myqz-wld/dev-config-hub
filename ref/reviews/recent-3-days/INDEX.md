@@ -15,4 +15,4 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-07-31 | [REVIEW_17_macos-install-signature.md](REVIEW_17_macos-install-signature.md) | macOS local installation and bundle signature integrity | 2 HIGH / 1 MED fixed; 2 hypotheses rejected |
+| 2026-08-19 | [REVIEW_18_macos-duplicate-app-registration.md](REVIEW_18_macos-duplicate-app-registration.md) | macOS duplicate application registration | 2 MED / 1 LOW fixed; 3 alternatives rejected |

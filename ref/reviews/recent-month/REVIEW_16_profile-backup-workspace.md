@@ -96,4 +96,4 @@ but final subjective visual acceptance still belongs in the packaged app.
 None required in application code.
 
 Related changelog:
-[CHANGELOG_38_profile-backup-workspaces](../../changelogs/recent-3-days/CHANGELOG_38_profile-backup-workspaces.md).
+[CHANGELOG_38_profile-backup-workspaces](../../changelogs/recent-month/CHANGELOG_38_profile-backup-workspaces.md).

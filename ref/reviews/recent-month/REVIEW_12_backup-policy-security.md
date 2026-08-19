@@ -155,6 +155,6 @@ actual Tauri WebView needs a repeated tab-switch visual smoke once the in-app
 browser runtime issue is fixed. No source file requires a file-size exception.
 
 Related records:
-[CHANGELOG_37_profile-backup-policies](../../changelogs/recent-3-days/CHANGELOG_37_profile-backup-policies.md)
+[CHANGELOG_37_profile-backup-policies](../../changelogs/recent-month/CHANGELOG_37_profile-backup-policies.md)
 and
 [PLAN_2_profile-backup-policies](../../plans/recent-3-days/PLAN_2_profile-backup-policies.md).

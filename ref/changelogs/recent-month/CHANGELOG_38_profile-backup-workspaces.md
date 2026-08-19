@@ -82,4 +82,4 @@ with rendered component interactions, structural CSS assertions, a production
 frontend bundle, and a rebuilt Tauri application.
 
 Related review:
-[REVIEW_16_profile-backup-workspace](../../reviews/recent-3-days/REVIEW_16_profile-backup-workspace.md).
+[REVIEW_16_profile-backup-workspace](../../reviews/recent-month/REVIEW_16_profile-backup-workspace.md).

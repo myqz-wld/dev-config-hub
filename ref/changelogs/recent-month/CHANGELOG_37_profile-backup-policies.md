@@ -143,4 +143,4 @@ structural paint tests passed.
 Related records:
 [PLAN_2_profile-backup-policies](../../plans/recent-3-days/PLAN_2_profile-backup-policies.md)
 and
-[REVIEW_12_backup-policy-security](../../reviews/recent-3-days/REVIEW_12_backup-policy-security.md).
+[REVIEW_12_backup-policy-security](../../reviews/recent-month/REVIEW_12_backup-policy-security.md).
