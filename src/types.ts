@@ -13,12 +13,10 @@ export interface ConfigScope {
    * 加载时 mtime（Unix epoch microseconds）。
    * 用于 ConfigPanel edit 模式 TOCTOU 校验：save 前 stat 比对，不一致 → 弹「文件已外部变更」。
    *
-   * 三态语义：
-   *   - undefined：旧 reader 路径（仍走 readFile，未填充） → 跳过 TOCTOU 检查
-   *   - null：新路径（readFileWithMtime）返回，但文件不存在 / 拿不到 mtime
+   *   - null：文件不存在 / 拿不到 mtime
    *   - number：正常 mtime（us 精度）
    */
-  loadedMtimeUs?: number | null;
+  loadedMtimeUs: number | null;
 }
 
 export interface ToolConfig {

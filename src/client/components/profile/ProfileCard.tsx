@@ -4,8 +4,7 @@ import { hookToString, maskValue } from "./helpers.ts";
 import { DoodleIcon } from "../DoodleIcon.tsx";
 
 export function ProfileCard({
-  profile, isActive, busy, onUse, onDelete, onTestHook, onExport, onEdit,
-  onBackupRules,
+  profile, isActive, busy, onUse, onDelete, onTestHook, onEdit,
 }: {
   profile: Profile;
   isActive: boolean;
@@ -13,9 +12,7 @@ export function ProfileCard({
   onUse: (id: string) => void;
   onDelete: (id: string) => void;
   onTestHook: (id: string, which: "pre" | "post") => void;
-  onExport?: (id: string) => void;
   onEdit?: (profile: Profile) => void;
-  onBackupRules?: (profile: Profile) => void;
 }) {
   const envCount = Object.keys(profile.env ?? {}).length;
   const hasPreHook = !!profile.hooks?.preSwitch;
@@ -96,19 +93,9 @@ export function ProfileCard({
             测试切换后
           </button>
         )}
-        {onExport && (
-          <button className="btn-sm" disabled={busy} onClick={() => onExport(profile.id)} title="只备份此方案和切换脚本">
-            <DoodleIcon kind="export" />导出
-          </button>
-        )}
         {onEdit && (
           <button className="btn-sm" disabled={busy} onClick={() => onEdit(profile)}>
             编辑
-          </button>
-        )}
-        {onBackupRules && (
-          <button className="btn-sm" disabled={busy} onClick={() => onBackupRules(profile)}>
-            备份规则
           </button>
         )}
         <div className="profile-card-actions-spacer" />

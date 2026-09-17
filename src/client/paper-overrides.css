@@ -212,9 +212,6 @@ body .btn-sm .doodle-icon { margin-right: .32em; }
 body .badge .doodle-icon { width: 1em; height: 1em; margin-right: .24em; }
 
 body .doodle-warning { color: var(--red); }
-body .doodle-key { color: #a76f1f; }
-body .doodle-pin { color: #33567f; }
-body .doodle-refresh { color: #287276; }
 
 body .profile-panel,
 body .profile-panel button,
@@ -225,10 +222,7 @@ body .modal,
 body .modal button,
 body .modal input,
 body .modal textarea,
-body .modal select,
-body .select-button,
-body .select-popover,
-body .prefs-popover {
+body .modal select {
   font-family: var(--paper-hand-font) !important;
 }
 
@@ -241,7 +235,6 @@ body .profile-status code,
 body .profile-row code,
 body .form-row code,
 body .form-hint code,
-body .backup-rules code,
 body .profile-hook-script {
   font-family: var(--paper-hand-font) !important;
   font-weight: 800;
@@ -304,8 +297,7 @@ body .form-row input[type="text"],
 body .form-row input[type="number"],
 body .form-row select,
 body .form-hook-input,
-body .form-env-add input,
-body .select-button {
+body .form-env-add input {
   background: rgba(255, 255, 255, .26);
   border-color: rgba(83,58,24,.28);
   border-radius: 6px 10px 7px 8px;
@@ -317,8 +309,7 @@ body .form-row input[type="text"]:focus,
 body .form-row input[type="number"]:focus,
 body .form-row select:focus,
 body .form-hook-input:focus,
-body .form-env-add input:focus,
-body .select-root.open > .select-button {
+body .form-env-add input:focus {
   border-color: rgba(51,86,127,.46);
   background: rgba(255, 255, 255, .34);
 }
@@ -343,9 +334,7 @@ body .profile-panel input[type="number"]::-webkit-inner-spin-button {
   margin: 0;
 }
 
-body .form-env-item,
-body .backup-rules,
-body .prefs-popover {
+body .form-env-item {
   border-color: rgba(83,58,24,.22);
   color: #2a2116;
   box-shadow: none;
@@ -353,61 +342,6 @@ body .prefs-popover {
 
 body .form-env-item {
   background: rgba(255,255,255,.18);
-}
-
-body .prefs-popover {
-  position: absolute;
-  isolation: isolate;
-  z-index: 1300;
-  background:
-    radial-gradient(circle at 12% 8%, rgba(116,78,29,.035), transparent 34%),
-    linear-gradient(180deg, #fffdf7, #fff8eb);
-  border: 0;
-  border-radius: 8px 12px 7px 10px;
-  box-shadow: 0 13px 24px rgba(58,43,26,.20);
-}
-
-body .prefs-popover > * {
-  position: relative;
-  z-index: 1;
-}
-
-body .prefs-popover::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 520 170' preserveAspectRatio='none'%3E%3Cpath d='M18 14 C102 8 190 15 270 11 S414 8 501 16 C510 57 505 118 499 153 C382 163 278 155 164 160 S48 163 19 150 C11 105 13 54 18 14Z' fill='none' stroke='%23836a45' stroke-opacity='.34' stroke-width='1' vector-effect='non-scaling-stroke' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M25 22 C113 18 199 23 272 19 S417 17 492 23 C498 62 494 113 491 144 C376 151 280 146 167 151 S57 153 27 142 C21 101 21 58 25 22Z' fill='none' stroke='%23836a45' stroke-opacity='.13' stroke-width='.6' vector-effect='non-scaling-stroke' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
-}
-
-body .backup-rules {
-  background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 120' preserveAspectRatio='none'%3E%3Cpath d='M14 18 C180 9 340 18 510 14 S796 10 985 18 C993 45 990 86 983 105 C780 114 590 107 394 111 S74 115 18 104 C10 76 10 46 14 18Z' fill='none' stroke='%23836a45' stroke-opacity='.26' stroke-width='.9' vector-effect='non-scaling-stroke' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% 100% no-repeat,
-    rgba(255,255,255,.12);
-  border: 0;
-}
-
-body .select-popover {
-  z-index: 1200;
-  background: #fff8eb;
-  border-color: rgba(83,58,24,.24);
-  box-shadow: 0 12px 30px rgba(58,43,26,.18);
-}
-
-body .select-item {
-  color: #2a2116;
-}
-
-body .select-item:hover,
-body .select-item.hover {
-  background: rgba(51,86,127,.08);
-  color: #33567f;
-}
-
-body .select-item.on {
-  color: #33567f;
 }
 
 body .modal input[type="checkbox"],
@@ -444,8 +378,7 @@ body .profile-panel input[type="checkbox"]::before {
 }
 
 body .modal input[type="checkbox"]:checked,
-body .profile-panel input[type="checkbox"]:checked,
-body .backup-profile-choice input[type="checkbox"]:checked {
+body .profile-panel input[type="checkbox"]:checked {
   background: rgba(255,255,255,.18);
   border-color: rgba(205,55,42,.58);
 }
@@ -456,25 +389,21 @@ body .profile-panel input[type="checkbox"]:checked::before {
   transform: translate(1px, -1px) rotate(-7deg) scale(1);
 }
 
-body .backup-profile-choice input[type="checkbox"]:checked::after {
-  content: none;
-}
-
 body .modal input[type="checkbox"]:focus-visible,
 body .profile-panel input[type="checkbox"]:focus-visible {
   outline: 2px solid rgba(232,68,57,.26);
   outline-offset: 2px;
 }
 
-body :is(.main, .nav-list, .markdown-scope-body, .md-code-block, .modal-body, .select-popover, .cm-host .cm-scroller, .raw, .json) {
+body :is(.main, .nav-list, .markdown-scope-body, .md-code-block, .modal-body, .cm-host .cm-scroller, .raw, .json) {
   overflow-x: hidden;
   scrollbar-width: none;
   scrollbar-color: transparent transparent;
 }
 
-body :is(.main, .nav-list, .markdown-scope-body, .md-code-block, .modal-body, .select-popover, .cm-host .cm-scroller, .raw, .json)::-webkit-scrollbar { width: 0; height: 0; }
-body :is(.main, .nav-list, .markdown-scope-body, .md-code-block, .modal-body, .select-popover, .cm-host .cm-scroller, .raw, .json)::-webkit-scrollbar-track { background: transparent; }
-body :is(.main, .nav-list, .markdown-scope-body, .md-code-block, .modal-body, .select-popover, .cm-host .cm-scroller, .raw, .json)::-webkit-scrollbar-thumb {
+body :is(.main, .nav-list, .markdown-scope-body, .md-code-block, .modal-body, .cm-host .cm-scroller, .raw, .json)::-webkit-scrollbar { width: 0; height: 0; }
+body :is(.main, .nav-list, .markdown-scope-body, .md-code-block, .modal-body, .cm-host .cm-scroller, .raw, .json)::-webkit-scrollbar-track { background: transparent; }
+body :is(.main, .nav-list, .markdown-scope-body, .md-code-block, .modal-body, .cm-host .cm-scroller, .raw, .json)::-webkit-scrollbar-thumb {
   border: 0;
   border-radius: 0;
   background: transparent;

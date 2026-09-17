@@ -16,7 +16,7 @@ const ctx: HookContext = {
   toId: "test-profile",
 };
 
-describe("runHook (string 形式 — 向后兼容)", () => {
+describe("runHook (string 形式 — 当前平台 shell)", () => {
   test("returns null when script is undefined", async () => {
     const r = await runHook("preSwitch", undefined, ctx, 5000);
     expect(r).toBeNull();

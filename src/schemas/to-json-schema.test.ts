@@ -133,14 +133,11 @@ describe("toolSchemaToJsonSchema (DCH_STORE round-trip)", () => {
     expect(t?.maximum).toBe(600000);
   });
 
-  it("backup 暴露四种工具规则与切换脚本规则", () => {
-    const r = toolSchemaToJsonSchema(DCH_STORE);
-    const props = r.properties as Record<string, Record<string, unknown>>;
-    const backup = props.backup as Record<string, unknown>;
-    const backupProps = backup.properties as Record<string, Record<string, unknown>>;
-    const tools = backupProps.toolPolicies?.properties as Record<string, unknown>;
-    expect(Object.keys(tools)).toEqual(["claude", "codex", "grok", "cursor"]);
-    expect(backupProps.scriptsPolicy?.type).toBe("object");
-    expect(backupProps.scriptsEnabled?.type).toBe("boolean");
+  it("only current store fields are exposed", () => {
+    const schema = toolSchemaToJsonSchema(DCH_STORE);
+    const props = schema.properties as Record<string, Record<string, unknown>>;
+    expect(Object.keys(props)).toEqual(["version", "profiles", "active"]);
+    const profileProps = (props.profiles?.items as Record<string, unknown>).properties;
+    expect(profileProps).not.toHaveProperty("backupPolicy");
   });
 });

@@ -4,13 +4,10 @@
 //! 写任意文件（含 /etc/hosts / ~/.ssh/authorized_keys 等系统资产）。把策略集中
 //! 到一个 enum，新加 fs command 时漏校验会立刻看出来。
 //!
-//! - HomeOnly：必须在 $HOME 下（含 $HOME 本身）—— 覆盖 profile configDir / dch backups
+//! - HomeOnly：必须在 $HOME 下（含 $HOME 本身）—— 覆盖方案目录
 //! - KnownConfigFile：HOME 下，或环境变量解析出的精确用户级配置文件路径
-//! - DchStoreOnly：仅 ~/.dch 下 —— atomic save_file_if_mtime 给 profiles.json 用
 //!
-//! `..` 段一律拒（avoid `~/foo/../../etc/passwd` 绕过 starts_with）。symlink walk
-//! 不在本层处理（backup.ts H2 walkFiles 单独处理 dir symlink）—— 这里只做
-//! 字符串/组件级校验，不解析 symlink。
+//! `..` 段一律拒。读取和写入分别通过 canonical / parent canonical 校验符号链接边界。
 
 use std::path::{Component, Path};
 
@@ -20,9 +17,6 @@ pub enum PathPolicy {
     HomeOnly,
     /// HOME 下，或当前环境解析出的精确用户级配置文件路径。
     KnownConfigFile,
-    /// 必须在 $HOME/.dch 下（atomic store write）。
-    #[allow(dead_code)] // 预留给 atomic save_file_if_mtime 后续 lock down 时启用
-    DchStoreOnly,
 }
 
 /// 跨平台 home dir 解析（与原 lib.rs::get_home_dir 同源，单一 SSOT）。
@@ -86,14 +80,6 @@ pub fn check_path(path: &str, policy: PathPolicy) -> Result<(), String> {
                 Err(format!("拒绝非 HOME/已知配置文件路径: {}", path))
             }
         }
-        PathPolicy::DchStoreOnly => {
-            let dch = home_p.join(".dch");
-            if p.starts_with(&dch) {
-                Ok(())
-            } else {
-                Err(format!("拒绝非 ~/.dch 路径: {}", path))
-            }
-        }
     }
 }
 
@@ -128,7 +114,7 @@ pub fn check_path_canonical(path: &str, policy: PathPolicy) -> Result<(), String
 /// **REVIEW_9 C-HIGH-2 写场景**: 给写新文件用(target 不存在,canonicalize 不到):
 /// canonicalize parent + basename 拼接再做 HOME 边界校验。
 ///
-/// 适用 caller: `save_file` 等。parent 不存在时 fall back 到 lexical check(因为不存在
+/// 适用 caller: `save_file_if_mtime` 等。parent 不存在时 fall back 到 lexical check(因为不存在
 /// 的 dir 无法被 symlink 攻击 — caller 之后 mkdir 会按 lexical 路径创建)。
 pub fn check_path_for_write(path: &str, policy: PathPolicy) -> Result<(), String> {
     check_path(path, policy)?;
@@ -183,14 +169,6 @@ fn boundary_check_canonical(canonical: &std::path::Path, policy: PathPolicy) -> 
                     "拒绝非 HOME/已知配置文件路径(canonical): {}",
                     canonical.display()
                 ))
-            }
-        }
-        PathPolicy::DchStoreOnly => {
-            let dch_canonical = home_canonical.join(".dch");
-            if canonical.starts_with(&dch_canonical) {
-                Ok(())
-            } else {
-                Err(format!("拒绝非 ~/.dch 路径(canonical): {}", canonical.display()))
             }
         }
     }
@@ -254,15 +232,6 @@ mod tests {
             assert!(check_path("/Users/test", PathPolicy::HomeOnly).is_ok());
             assert!(check_path("/Users/test/.zshrc", PathPolicy::HomeOnly).is_ok());
             assert!(check_path("/Users/test/.claude/settings.json", PathPolicy::HomeOnly).is_ok());
-        });
-    }
-
-    #[test]
-    fn dch_store_only_blocks_outside_dch() {
-        with_home("/Users/test", || {
-            assert!(check_path("/Users/test/.zshrc", PathPolicy::DchStoreOnly).is_err());
-            assert!(check_path("/Users/test/.dch/profiles.json", PathPolicy::DchStoreOnly).is_ok());
-            assert!(check_path("/Users/test/.dch/backups/x.dchpack", PathPolicy::DchStoreOnly).is_ok());
         });
     }
 

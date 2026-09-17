@@ -15,7 +15,7 @@ import {
 export interface ConfigFileReadResult {
   exists: boolean;
   content: string;
-  loadedMtimeUs?: number | null;
+  loadedMtimeUs: number | null;
 }
 
 export type ConfigFileReader = (path: string) => Promise<ConfigFileReadResult>;

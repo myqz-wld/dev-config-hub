@@ -9,11 +9,11 @@ mod path_policy;
 mod atomic;
 mod commands;
 
-use commands::dch::{run_dch_command, run_dch_with_secrets_temp};
+use commands::dch::run_dch_command;
 use commands::dialog::pick_config_file;
 use commands::environment::get_config_environment;
 use commands::fs::{
-    file_exists, get_home_dir, read_dir, read_file, read_file_with_mtime, read_link, save_file,
+    file_exists, get_home_dir, read_dir, read_file, read_file_with_mtime, read_link,
 };
 use commands::version::get_tool_version;
 use atomic::save_file_if_mtime;
@@ -29,14 +29,12 @@ pub fn run() {
             read_dir,
             read_link,
             file_exists,
-            save_file,
             save_file_if_mtime,
             get_tool_version,
             get_home_dir,
             get_config_environment,
             pick_config_file,
             run_dch_command,
-            run_dch_with_secrets_temp,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

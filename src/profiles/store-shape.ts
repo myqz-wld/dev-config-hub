@@ -1,76 +1,44 @@
-import type {
-  BackupPolicyStore,
-  Profile,
-  ProfileStore,
-} from "./types.ts";
-
-const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
-const MIN_HOOK_TIMEOUT_MS = 1_000;
-const MAX_HOOK_TIMEOUT_MS = 600_000;
+import { PROFILE_TOOL_IDS, type Profile, type ProfileStore } from "./types.ts";
+import { normalizeHookTimeout } from "./hook-timeout.ts";
 
 export const EMPTY_STORE: ProfileStore = {
   version: 2,
   profiles: [],
   active: { claude: null, codex: null, grok: null, cursor: null },
-  backup: { toolPolicies: {} },
 };
 
-interface LegacyStoreInput {
-  version?: unknown;
-  profiles?: unknown;
-  active?: unknown;
-  backup?: unknown;
-}
-
-function normalizeHookTimeout(value: unknown): number {
-  return Number.isInteger(value) &&
-      (value as number) >= MIN_HOOK_TIMEOUT_MS &&
-      (value as number) <= MAX_HOOK_TIMEOUT_MS
-    ? value as number
-    : DEFAULT_HOOK_TIMEOUT_MS;
-}
-
-function normalizeProfiles(value: unknown): Profile[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((entry) => {
-    const profile = entry as Profile;
-    return {
-      ...profile,
-      hookTimeoutMs: normalizeHookTimeout(profile?.hookTimeoutMs),
-    };
-  });
-}
-
-function normalizeBackup(value: unknown): BackupPolicyStore {
-  const backup = value && typeof value === "object"
-    ? value as Partial<BackupPolicyStore>
-    : {};
-  const toolPolicies = backup.toolPolicies && typeof backup.toolPolicies === "object"
-    ? backup.toolPolicies
-    : {};
+function normalizeProfile(entry: unknown): Profile {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    throw new Error("配置方案必须是 JSON 对象");
+  }
+  const profile = entry as Profile;
+  // Persist only the current public shape, including both supported hook forms.
   return {
-    toolPolicies,
-    ...(typeof backup.scriptsEnabled === "boolean"
-      ? { scriptsEnabled: backup.scriptsEnabled }
-      : {}),
-    ...(backup.scriptsPolicy ? { scriptsPolicy: backup.scriptsPolicy } : {}),
+    id: profile.id,
+    tool: profile.tool,
+    configDir: profile.configDir,
+    ...(profile.env === undefined ? {} : { env: profile.env }),
+    ...(profile.description === undefined ? {} : { description: profile.description }),
+    ...(profile.hooks === undefined ? {} : { hooks: profile.hooks }),
+    ...(profile.isDefault === undefined ? {} : { isDefault: profile.isDefault }),
+    hookTimeoutMs: normalizeHookTimeout(profile.hookTimeoutMs),
   };
 }
 
-// 把任意 raw（含 v1 / 残缺输入）正规化成完整 ProfileStore。前端 / CLI 共用。
-// 注意：旧 preferences.hookTimeoutMs 不迁移、不继承；每个方案缺少自身超时时
-// 直接回落 30000ms。返回值没有 preferences，因此下次保存会清理旧结构。
-//
-// 纯函数：零 fs / 零 Bun 依赖 → 前端 bundler 也能 import。
+/** Shared by CLI and frontend; unsupported store versions never auto-convert. */
 export function applyStoreDefaults(raw: unknown): ProfileStore {
-  const data = (raw ?? {}) as LegacyStoreInput;
-  const active = data.active && typeof data.active === "object"
-    ? data.active as ProfileStore["active"]
-    : {};
+  const data = raw as Partial<ProfileStore> | null;
+  if (!data || typeof data !== "object" || Array.isArray(data) || data.version !== 2) {
+    throw new Error("不支持的配置方案版本：仅支持 version: 2");
+  }
+  if (data.profiles !== undefined && !Array.isArray(data.profiles)) {
+    throw new Error("配置方案 profiles 必须是数组");
+  }
+  const active = { ...EMPTY_STORE.active };
+  for (const tool of PROFILE_TOOL_IDS) active[tool] = data.active?.[tool] ?? null;
   return {
     version: 2,
-    profiles: normalizeProfiles(data.profiles),
-    active: { claude: null, codex: null, grok: null, cursor: null, ...active },
-    backup: normalizeBackup(data.backup),
+    profiles: (data.profiles ?? []).map(normalizeProfile),
+    active,
   };
 }

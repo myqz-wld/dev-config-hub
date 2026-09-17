@@ -155,24 +155,6 @@ impl ReadFileWithMtimeResult {
     }
 }
 
-/// **DEPRECATED**：新代码用 `save_file_if_mtime`（atomic write + mtime CAS，REVIEW_8 H7）。
-/// 本接口保留给前端过渡期 caller（暂未切换到 mtime CAS 的路径）—— 但仍走 atomic write
-/// + PathPolicy，杜绝半文件 + 任意路径写。
-#[tauri::command]
-pub async fn save_file(path: String, content: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        // **REVIEW_9 C-HIGH-2**: write 场景用 check_path_for_write(canonicalize parent +
-        // basename)杜绝 HOME 内 symlink 指向 HOME 外 dir 时被写穿(实测 save_file
-        // ($HOME/symlink-to-tmp/x) 旧 lexical 通过 → 写到 /tmp/outside-victim/)。
-        check_path_for_write(&path, PathPolicy::KnownConfigFile)?;
-        let p = std::path::Path::new(&path);
-        // 走原子 write 而非 fs::write 防 crash 留半文件；不传 expected_mtime → 跳过 CAS。
-        crate::atomic::write_atomic_check_mtime(p, &content, None).map(|_| ())
-    })
-    .await
-    .map_err(|e| format!("save_file worker failed: {}", e))?
-}
-
 #[tauri::command]
 pub async fn get_home_dir() -> String {
     home_dir()

@@ -13,17 +13,7 @@ import {
   setJsonMode, isJsonMode, flushStdout, jsonOut, writeOut, err, ok, info,
   parseFlags, readStdinLine, VALUE_FLAGS,
 } from "./cli-shared.ts";
-import {
-  cmdBackup, cmdBackupPrepare, cmdBackupCommit, cmdBackupCancel,
-  cmdRestore, cmdBackups, cmdBackupRm, cmdBackupPin,
-} from "./cli-backup.ts";
-import {
-  cmdBackupPolicy,
-  cmdUpdateProfile,
-} from "./cli-profile-policy.ts";
-
-// 兼容旧 import 路径（src/profiles/manager.test.ts 等导入 parseFlags / VALUE_FLAGS / readStdinLine）
-export { parseFlags, VALUE_FLAGS } from "./cli-shared.ts";
+import { cmdUpdateProfile } from "./cli-profile-update.ts";
 
 /**
  * REVIEW_8 M10 / B5：从 args 中剥离 `--json` 全局 flag，但**不能**误吃其它 flag 的值。
@@ -165,7 +155,7 @@ async function cmdRemove(args: string[]) {
   if (!id) err("用法: dch profile remove <id> [--yes]");
   const p = await getProfile(id);
   // REVIEW_8 H6 / B2：json 模式（Tauri UI / 脚本调用）不允许走 stdin prompt —
-  // 进程没绑 TTY 会 hang 等 EOF；强制要求 --yes 与 cmdBackup --no-placeholder 同款约束。
+  // 进程没绑 TTY 会 hang 等 EOF，必须显式传 --yes。
   if (!flags.yes) {
     if (isJsonMode()) {
       err("--json 模式必须配 --yes（无法 stdin prompt）");
@@ -312,18 +302,6 @@ ${c.bold}子命令:${c.reset}
   ${c.cyan}init${c.reset}    <${TOOL_USAGE}>        接管工具用户配置根目录并建立 default profile
   ${c.cyan}hook test${c.reset} <id> <pre|post>     单独运行 hook 测试
 
-${c.bold}备份 / 还原:${c.reset}
-  ${c.cyan}backup${c.reset}                        备份配置方案 + 可选切换脚本到 .dchpack
-                                  默认覆盖 ~/.dch/backups/latest.dchpack（默认位）
-                                  [--keep] 保留为 dch-backup-<TS>.dchpack 历史副本
-                                  [--out <file>] [--profiles <id1,id2>] [--no-scripts] [--no-placeholder] [--yes]
-                                  --no-shared 是 --no-scripts 的兼容别名
-  ${c.cyan}restore${c.reset} <pack>                还原 .dchpack（自动加 -restored-<TS> 后缀避免撞名）
-                                  [--prefix <p>] [--rename OLD=NEW,...] [--dry-run] [--yes]
-  ${c.cyan}backups${c.reset}                       列出所有 .dchpack（默认位 / 置顶 / 历史 三组）
-  ${c.cyan}backup-rm${c.reset} <file>              删除指定备份（basename 或绝对路径）[--yes]
-  ${c.cyan}backup-pin${c.reset} <file>             置顶备份不被覆盖（默认位 → 复制副本 + 置顶；其他 → 原地置顶）[--unpin]
-
 ${c.bold}env 变量 (hook 内可用):${c.reset}
   DCH_PROFILE_ID, DCH_PROFILE_TOOL, DCH_PROFILE_CONFIG_DIR
   DCH_SWITCH_TO, DCH_SWITCH_FROM (首次 init 后可能为空)
@@ -364,15 +342,6 @@ export async function runProfileCommand(args: string[]): Promise<void> {
   else if (sub === "env") await cmdEnv(rest);
   else if (sub === "init") await cmdInit(rest);
   else if (sub === "hook") await cmdHook(rest);
-  else if (sub === "backup") await cmdBackup(rest);
-  else if (sub === "backup-policy") await cmdBackupPolicy(rest);
-  else if (sub === "backup-prepare") await cmdBackupPrepare(rest);
-  else if (sub === "backup-commit") await cmdBackupCommit(rest);
-  else if (sub === "backup-cancel") await cmdBackupCancel(rest);
-  else if (sub === "restore") await cmdRestore(rest);
-  else if (sub === "backups") await cmdBackups(rest);
-  else if (sub === "backup-rm") await cmdBackupRm(rest);
-  else if (sub === "backup-pin") await cmdBackupPin(rest);
   else if (sub === "--help" || sub === "-h" || sub === "help") help();
   else err(`未知子命令: ${sub}\n跑 dch profile --help 查看用法`);
 

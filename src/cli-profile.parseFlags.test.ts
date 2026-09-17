@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parseFlags, VALUE_FLAGS } from "./cli-profile.ts";
+import { parseFlags, VALUE_FLAGS } from "./cli-shared.ts";
 
 // REVIEW_2 PR-1：CHANGELOG_5 反复修过 parseFlags / VALUE_FLAGS（--pre-hook '--foo' 字面值
 // 被吞过，等等），但一直无 spec。本文件 lock 当前正确行为防回退。
@@ -88,7 +88,7 @@ describe("parseFlags (REVIEW_2 PR-1 回归保护)", () => {
   });
 
   it("VALUE_FLAGS 集合内容固定（新建不再支持 --from）", () => {
-    expect(VALUE_FLAGS.size).toBe(11);
+    expect(VALUE_FLAGS.size).toBe(6);
     // profile add 系列
     expect(VALUE_FLAGS.has("dir")).toBe(true);
     expect(VALUE_FLAGS.has("desc")).toBe(true);
@@ -97,17 +97,10 @@ describe("parseFlags (REVIEW_2 PR-1 回归保护)", () => {
     expect(VALUE_FLAGS.has("post-hook")).toBe(true);
     expect(VALUE_FLAGS.has("timeout")).toBe(true);
     expect(VALUE_FLAGS.has("payload")).toBe(true);
-    // backup / restore 系列（CHANGELOG_16 + CHANGELOG_17 + CHANGELOG_18 加入）
-    expect(VALUE_FLAGS.has("out")).toBe(true);
-    expect(VALUE_FLAGS.has("profiles")).toBe(true);
-    expect(VALUE_FLAGS.has("prefix")).toBe(true);
-    expect(VALUE_FLAGS.has("rename")).toBe(true);
-    expect(VALUE_FLAGS.has("secrets-json")).toBe(true);
   });
 
   it("VALUE_FLAGS 末尾缺 value → throw（REVIEW_8 M11/B6 升级 LOW→ERR）", () => {
-    // REVIEW_8 升级：旧实现静默变 boolean true 让 backup --out 写到 undefined / cmdAdd --pre-hook
-    // 缺 hook 内容这种沉默错误难定位。现在直接 throw，外层 main().catch 在 json 模式 jsonOut 错。
+    // 缺少必需值必须抛错，外层 CLI 负责 JSON 错误输出。
     expect(() => parseFlags(["--pre-hook"])).toThrow(/--pre-hook 需要 value/);
     expect(() => parseFlags(["claude", "id", "--dir"])).toThrow(/--dir 需要 value/);
   });
@@ -122,13 +115,10 @@ describe("parseFlags (REVIEW_2 PR-1 回归保护)", () => {
 
   it("allowedFlags 设置 → 未知 flag throw（REVIEW_8 M11/B6 防 typo）", () => {
     const allowed = new Set(["dir", "desc", "pre-hook", "post-hook", "timeout", "existing"]);
-    // 典型 typo: --no-share vs --no-shared（虽然不在 add 集合，借此演示）
     expect(() => parseFlags(["--unknown"], { allowedFlags: allowed })).toThrow(/未知 flag --unknown/);
-    expect(() => parseFlags(["--no-share"], { allowedFlags: new Set(["no-shared", "yes"]) }))
-      .toThrow(/未知 flag --no-share/);
   });
 
-  it("allowedFlags 不设 → 未知 flag 仍宽松收下（保后向兼容）", () => {
+  it("allowedFlags 不设 → 未知 flag 仍宽松收下", () => {
     const r = parseFlags(["--xyz", "value"]);
     expect(r.flags.xyz).toBe("value");
   });

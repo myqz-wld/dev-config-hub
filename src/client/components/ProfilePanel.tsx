@@ -5,18 +5,10 @@ import {
 } from "../bridge.ts";
 import { hookFromEditedText, TOOLS } from "./profile/helpers.ts";
 import { ProfileCard } from "./profile/ProfileCard.tsx";
-import { ProfileFormModal } from "./profile/AddProfileModal.tsx";
+import { ProfileFormModal } from "./profile/ProfileFormModal.tsx";
 import { HookOutputModal } from "./profile/HookOutputModal.tsx";
 import { ProfileStoreEditor } from "./profile/ProfileStoreEditor.tsx";
-import { ExportBackupModal } from "./profile/ExportBackupModal.tsx";
-import { RestoreBackupModal } from "./profile/RestoreBackupModal.tsx";
-import { BackupHistoryModal } from "./profile/BackupHistoryModal.tsx";
-import {
-  BackupPolicyModal,
-  type PolicyTarget,
-} from "./profile/BackupPolicyModal.tsx";
 import { ProfileModalPortal } from "./profile/ProfileModalPortal.tsx";
-import { DoodleIcon } from "./DoodleIcon.tsx";
 
 const hookActionLabel = (which: "pre" | "post") => which === "pre" ? "切换前脚本" : "切换后脚本";
 
@@ -41,7 +33,7 @@ interface Props {
   onReloadConfigs: () => Promise<void>;
 }
 
-type ProfilePanelTab = ToolKind | "backups" | "advanced";
+type ProfilePanelTab = ToolKind | "advanced";
 
 // memo：常驻挂载 + display 切换下，App 重渲染时隐藏的 ProfilePanel 也会跟着重渲染。
 // store/active 仅在 profile reload 时变，三个 callback 在 App 已 useCallback 稳定。
@@ -53,12 +45,6 @@ export const ProfilePanel = memo(function ProfilePanel({
   const [creatingTool, setCreatingTool] = useState<ToolKind | null>(null);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [showStoreEditor, setShowStoreEditor] = useState(false);
-  const [showExport, setShowExport] = useState(false);
-  const [showRestore, setShowRestore] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [policyTarget, setPolicyTarget] = useState<PolicyTarget | null>(null);
-  const [exportPresetIds, setExportPresetIds] = useState<string[] | undefined>(undefined);
-  const [restorePresetPath, setRestorePresetPath] = useState<string | undefined>(undefined);
   const [hookOutput, setHookOutput] = useState<{ id: string; which: string; result: HookResult | null } | null>(null);
 
   // store/active 在 App.tsx 的首屏 loadProfileData 失败时可能 null；panel 常驻必须永远 mount
@@ -163,12 +149,6 @@ export const ProfilePanel = memo(function ProfilePanel({
         ))}
         <span className="profile-tab-divider" aria-hidden="true" />
         <button
-          className={`profile-tab profile-tab-workspace ${activeTab === "backups" ? "on" : ""}`}
-          onClick={() => setActiveTab("backups")}
-        >
-          备份中心
-        </button>
-        <button
           className={`profile-tab profile-tab-workspace ${activeTab === "advanced" ? "on" : ""}`}
           onClick={() => setActiveTab("advanced")}
         >
@@ -181,10 +161,6 @@ export const ProfilePanel = memo(function ProfilePanel({
           <div className="profile-toolbar">
             <button className="btn primary" onClick={() => setCreatingTool(tool)} disabled={busy}>
               + 新建 {tool} 方案
-            </button>
-            <span className="profile-toolbar-separator" />
-            <button className="btn-sm" onClick={() => setPolicyTarget({ scope: "tool", tool })}>
-              {tool} 备份规则
             </button>
           </div>
 
@@ -221,62 +197,11 @@ export const ProfilePanel = memo(function ProfilePanel({
                   onUse={onUse}
                   onDelete={(id) => handle(() => dchProfile.remove(id), `已删除 ${id}`)}
                   onTestHook={onTestHook}
-                  onExport={(id) => { setExportPresetIds([id]); setShowExport(true); }}
                   onEdit={(profile) => setEditingProfile(profile)}
-                  onBackupRules={(profile) => setPolicyTarget({ scope: "profile", profile })}
                 />
               ))
             )}
           </div>
-        </div>
-      ) : activeTab === "backups" ? (
-        <div className="profile-workspace">
-          <div className="profile-workspace-head">
-            <span className="profile-workspace-eyebrow">跨工具</span>
-            <h2>备份中心</h2>
-            <p>这里处理 Claude、Codex、Grok 和 Cursor 的组合备份，不隶属于任何一个工具页签。</p>
-          </div>
-          <div className="profile-operation-grid">
-            <article>
-              <DoodleIcon kind="export" />
-              <div><h3>导出备份</h3><p>按工具分组选择方案，预览规则命中后再写入快照。</p></div>
-              <button className="btn-sm" onClick={() => {
-                setExportPresetIds(undefined);
-                setShowExport(true);
-              }}>开始导出</button>
-            </article>
-            <article>
-              <DoodleIcon kind="history" />
-              <div><h3>备份历史</h3><p>查看默认、置顶和历史备份，并可继续导入或清理。</p></div>
-              <button className="btn-sm" onClick={() => setShowHistory(true)}>查看历史</button>
-            </article>
-            <article>
-              <DoodleIcon kind="import" />
-              <div><h3>导入备份</h3><p>读取 .dchpack 内容，确认改名和密钥后创建新方案。</p></div>
-              <button className="btn-sm" onClick={() => {
-                setRestorePresetPath(undefined);
-                setShowRestore(true);
-              }}>选择备份</button>
-            </article>
-          </div>
-          <section className="profile-global-backup">
-            <div>
-              <span className="profile-global-label">DCH 全局</span>
-              <strong>切换脚本备份</strong>
-              <small>
-                仅处理 <code>~/.dch/scripts/**</code>；方案直接填写内联切换命令时可忽略。
-              </small>
-            </div>
-            <button
-              className="btn-sm"
-              onClick={() => setPolicyTarget({
-                scope: "scripts",
-                enabled: store.backup.scriptsEnabled !== false,
-              })}
-            >
-              管理备份规则
-            </button>
-          </section>
         </div>
       ) : (
         <div className="profile-workspace">
@@ -375,46 +300,6 @@ export const ProfilePanel = memo(function ProfilePanel({
           />
         )}
 
-        {showExport && (
-          <ExportBackupModal
-            profiles={store.profiles}
-            scriptsEnabled={store.backup.scriptsEnabled !== false}
-            presetProfileIds={exportPresetIds}
-            onClose={() => { setShowExport(false); setExportPresetIds(undefined); }}
-            onToast={onToast}
-          />
-        )}
-
-        {showRestore && (
-          <RestoreBackupModal
-            profiles={store.profiles}
-            presetPackPath={restorePresetPath}
-            onClose={() => { setShowRestore(false); setRestorePresetPath(undefined); }}
-            onToast={onToast}
-            onReloadProfile={onReloadProfile}
-          />
-        )}
-
-        {showHistory && (
-          <BackupHistoryModal
-            onClose={() => setShowHistory(false)}
-            onToast={onToast}
-            onRestoreFile={(path) => {
-              setShowHistory(false);
-              setRestorePresetPath(path);
-              setShowRestore(true);
-            }}
-          />
-        )}
-
-        {policyTarget && (
-          <BackupPolicyModal
-            target={policyTarget}
-            onClose={() => setPolicyTarget(null)}
-            onSaved={() => onReloadProfile()}
-            onToast={onToast}
-          />
-        )}
       </ProfileModalPortal>
     </div>
   );

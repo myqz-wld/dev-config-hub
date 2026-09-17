@@ -41,9 +41,9 @@ mock.module("./bridge.ts", () => ({
       overridesMtimeUs: null,
     };
   },
-  saveFile: () => Promise.resolve(),
+  saveFileIfMtime: () => Promise.resolve(2_000),
   loadProfileDataDirect: () => Promise.resolve({
-    store: { version: 2, profiles: [], active: { claude: null, codex: null, grok: null, cursor: null }, backup: { toolPolicies: {} } },
+    store: { version: 2, profiles: [], active: { claude: null, codex: null, grok: null, cursor: null } },
     active: {
       claude: { id: null, rootPath: "/Users/test/.claude", symlinkTarget: null },
       codex: { id: null, rootPath: "/Users/test/.codex", symlinkTarget: null },
@@ -199,7 +199,7 @@ describe("App.load() setError(null) (CHANGELOG_10 R_1·L1 fix)", () => {
     }
   });
 
-  it("T11: 跨工具备份与高级操作不再出现在 Claude 工具页签", async () => {
+  it("T11: four tool tabs and advanced editing remain after backup removal", async () => {
     const { container } = render(<App />);
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
 
@@ -210,19 +210,14 @@ describe("App.load() setError(null) (CHANGELOG_10 R_1·L1 fix)", () => {
 
     const toolToolbar = container.querySelector(".profile-toolbar");
     expect(toolToolbar?.textContent).toContain("新建 claude 方案");
-    expect(toolToolbar?.textContent).toContain("claude 备份规则");
+    expect(toolToolbar?.textContent).not.toContain("备份");
     expect(toolToolbar?.textContent).not.toContain("导出备份");
     expect(toolToolbar?.textContent).not.toContain("备份历史");
     expect(toolToolbar?.textContent).not.toContain("导入备份");
     expect(toolToolbar?.textContent).not.toContain("高级编辑");
 
-    const backupTab = Array.from(container.querySelectorAll<HTMLButtonElement>(".profile-tab"))
-      .find((button) => button.textContent === "备份中心");
-    await act(async () => { fireEvent.click(backupTab!); });
-    expect(container.querySelector(".profile-workspace")?.textContent).toContain("跨工具");
-    expect(container.querySelector(".profile-workspace")?.textContent).toContain("导出备份");
-    expect(container.querySelector(".profile-workspace")?.textContent).toContain("备份历史");
-    expect(container.querySelector(".profile-workspace")?.textContent).toContain("导入备份");
+    expect(container.querySelectorAll(".profile-tab")).toHaveLength(5);
+    expect(container.textContent).not.toContain("备份中心");
 
     const advancedTab = Array.from(container.querySelectorAll<HTMLButtonElement>(".profile-tab"))
       .find((button) => button.textContent === "高级设置");

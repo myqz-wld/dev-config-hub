@@ -1,18 +1,3 @@
-/**
- * 与 dch CLI 交互的核心 IPC primitive。从 bridge.ts 拆出 (REVIEW_9 D-codex LOW 1):
- * 旧实现 bridge-backup.ts 反向 import bridge.ts 的 runDch / DchCommandResult / TIMEOUT_*
- * 形成双向 import,职责边界混乱。
- *
- * 拆出 bridge-core.ts 后单向链: bridge-core ← bridge / bridge-backup,
- * 两个 facade 各自 import core 不再互相耦合。
- *
- * 5 个 export:
- * - `DchCommandResult`         Rust `run_dch_command` Tauri command 的返回 shape
- * - `runDch<T>(args, timeoutMs)` 通用 `dch profile <args> --json` 调用器,自动 parse JSON +
- *   错误处理 (含 truncated / timeout / non-zero exit / 空 stdout 各种边界)
- * - `TIMEOUT_FAST_MS` / `TIMEOUT_INIT_MS` / `TIMEOUT_BACKUP_MS` 三档常用超时常量
- */
-
 import { invoke } from "@tauri-apps/api/core";
 
 export interface DchCommandResult {
@@ -26,8 +11,7 @@ export interface DchCommandResult {
 }
 
 /**
- * `dch profile <args> --json` 通用调用器。auto-append `--json` flag。供 dchProfile / dchBackup
- * 共用。
+ * `dch profile <args> --json` 通用调用器。auto-append `--json` flag。供方案管理使用。
  *
  * **REVIEW_9 D-MED-2 / C-codex LOW 3 跨批**: parse stdout 前优先检查 `r.truncated` throw 清晰
  * 错误。旧实现忽略 truncated → 5MB 上限被截断的成功 JSON 退化成 parse error,用户看到「JSON
@@ -42,7 +26,7 @@ export async function runDch<T = unknown>(args: string[], timeoutMs?: number): P
   }
   if (r.truncated) {
     throw new Error(
-      `dch 输出超 5MB 上限被截断 (timeout=${timeoutMs ?? "default"}ms),无法完整解析 JSON。请缩减 backup scope / 拆批操作`,
+      `dch 输出超 5MB 上限被截断 (timeout=${timeoutMs ?? "default"}ms),无法完整解析 JSON。请减少命令输出后重试`,
     );
   }
   if (r.code !== 0) {
@@ -56,4 +40,3 @@ export async function runDch<T = unknown>(args: string[], timeoutMs?: number): P
 
 export const TIMEOUT_FAST_MS = 10_000;   // 纯文件读写: list / current / show / add / remove / env / config
 export const TIMEOUT_INIT_MS = 30_000;   // init: 含 mv + ln 等 fs 操作
-export const TIMEOUT_BACKUP_MS = 5 * 60_000;  // backup / restore: 含 7000+ 文件 walk + tar gzip / untar + 占位符替换

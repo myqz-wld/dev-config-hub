@@ -23,7 +23,6 @@ else
   archive_source_app="$default_archived_source_app"
 fi
 installed_app="${DCH_INSTALL_DESTINATION_APP:-/Applications/$app_bundle_name}"
-backup_root="${DCH_INSTALL_BACKUP_ROOT:-$HOME/Library/Application Support/Dev Config Hub/Install Backups}"
 launch_services_tool="${DCH_INSTALL_LAUNCH_SERVICES_TOOL:-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister}"
 
 fail() {
@@ -65,25 +64,6 @@ unregister_app() {
 
   [ -x "$launch_services_tool" ] || return 0
   "$launch_services_tool" -u "$app_path" >/dev/null 2>&1 || true
-}
-
-migrate_legacy_backups() {
-  local legacy_backup migrated_backup
-
-  [ -d "$backup_root" ] || return 0
-  for legacy_backup in "$backup_root"/*.app; do
-    [ -e "$legacy_backup" ] || continue
-    [ -d "$legacy_backup" ] || fail "旧式备份不是目录：$legacy_backup"
-    [ ! -L "$legacy_backup" ] || fail "旧式备份不能是符号链接：$legacy_backup"
-    migrated_backup="$legacy_backup-backup"
-    [ ! -e "$migrated_backup" ] || fail "旧式备份迁移目标已存在：$migrated_backup"
-    unregister_app "$legacy_backup"
-    mv "$legacy_backup" "$migrated_backup"
-    if command -v mdimport >/dev/null 2>&1; then
-      mdimport "$migrated_backup" >/dev/null 2>&1 || true
-    fi
-    printf '旧式 App 备份已转换为不可启动的回滚备份：%s\n' "$migrated_backup"
-  done
 }
 
 register_canonical_install() {
@@ -131,7 +111,6 @@ done
 
 require_absolute_path "构建产物" "$source_app"
 require_absolute_path "安装目标" "$installed_app"
-require_absolute_path "备份目录" "$backup_root"
 if [ -n "$archive_source_app" ]; then
   require_absolute_path "构建归档" "$archive_source_app"
 fi
@@ -172,19 +151,12 @@ if [ -e "$installed_app" ]; then
   [ ! -L "$installed_app" ] || fail "安装目标不能是符号链接：$installed_app"
 fi
 
-if [ -e "$backup_root" ]; then
-  [ -d "$backup_root" ] || fail "备份路径已存在但不是目录：$backup_root"
-  [ ! -L "$backup_root" ] || fail "备份目录不能是符号链接：$backup_root"
-fi
-
 target_app_is_running && fail "请先退出 $app_bundle_name，再重新运行安装命令"
-migrate_legacy_backups
 
 timestamp="$(date '+%Y%m%d-%H%M%S')"
 stage_root="$(mktemp -d "$destination_parent/.dch-install.XXXXXX")"
 stage_app="$stage_root/$app_bundle_name"
-rollback_app="$destination_parent/.dch-rollback-$timestamp-$$.app-backup"
-backup_app="$backup_root/Dev Config Hub-$timestamp-$$.app-backup"
+rollback_app="$stage_root/previous.app-rollback"
 old_app_moved=0
 new_app_installed=0
 install_verified=0
@@ -236,8 +208,6 @@ codesign --verify --deep --strict --verbose=2 "$stage_app" >/dev/null 2>&1 || \
   fail "暂存应用未通过 macOS 签名校验：$stage_app"
 
 if [ -e "$installed_app" ]; then
-  mkdir -p "$backup_root"
-  [ ! -e "$backup_app" ] || fail "备份目标已存在：$backup_app"
   [ ! -e "$rollback_app" ] || fail "回滚目标已存在：$rollback_app"
   if [ -e "$installed_app/Contents/MacOS/$app_binary_name" ]; then
     old_inode="$(stat -f '%i' "$installed_app/Contents/MacOS/$app_binary_name")"
@@ -257,21 +227,16 @@ if [ -n "$old_inode" ] && [ "$old_inode" = "$new_inode" ]; then
 fi
 install_verified=1
 
-if [ "$old_app_moved" -eq 1 ]; then
-  if ! mv "$rollback_app" "$backup_app"; then
-    old_app_moved=0
-    fail "新应用已安装，但旧版本只能保留在：$rollback_app"
-  fi
-  old_app_moved=0
-  printf '旧版本已备份：%s\n' "$backup_app"
-fi
-
 register_canonical_install
 if [ -n "$replaced_build_archive" ] && [ -e "$replaced_build_archive" ]; then
   case "$replaced_build_archive" in
     "$archive_source_app".replaced-*) rm -rf -- "$replaced_build_archive" ;;
     *) fail "拒绝清理异常构建归档路径：$replaced_build_archive" ;;
   esac
+fi
+if [ "$old_app_moved" -eq 1 ]; then
+  rm -rf -- "$rollback_app"
+  old_app_moved=0
 fi
 rmdir "$stage_root"
 trap - EXIT

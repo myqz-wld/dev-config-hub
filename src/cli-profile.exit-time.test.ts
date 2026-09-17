@@ -46,7 +46,7 @@ async function setupTmpHome(profileHooks: { preSwitch?: string; postSwitch?: str
 
   const profileId = "test-target";
   const store = {
-    version: 1,
+    version: 2,
     profiles: [
       {
         id: "test-default",
@@ -64,7 +64,6 @@ async function setupTmpHome(profileHooks: { preSwitch?: string; postSwitch?: str
       },
     ],
     active: { claude: "test-default", codex: null },
-    backup: { toolPolicies: {} },
   };
   await writeFile(join(dchDir, "profiles.json"), JSON.stringify(store, null, 2));
   return { home, profileId };

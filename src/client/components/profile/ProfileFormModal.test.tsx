@@ -2,7 +2,7 @@ import { describe, expect, it, mock, afterEach } from "bun:test";
 import { render, cleanup, act, fireEvent } from "@testing-library/react";
 
 /**
- * REVIEW_8 H7-同源 / Group E7 回归保护：AddProfileModal env KEY regex 校验。
+ * REVIEW_8 H7-同源 / Group E7 回归保护：ProfileFormModal env KEY regex 校验。
  *
  * 必须与 src/profiles/manager.ts:ENV_KEY_RE 同源 (`/^[A-Za-z_][A-Za-z0-9_]*$/`)。
  * 旧版 UI 只验 `!envKey || !envVal` → 用户能输 `MY KEY=v` / `1FOO=v` / `K-K=v` 这些
@@ -13,15 +13,15 @@ mock.module("@tauri-apps/plugin-dialog", () => ({
   open: () => Promise.resolve(null),
 }));
 
-import { AddProfileModal } from "./AddProfileModal.tsx";
+import { ProfileFormModal } from "./ProfileFormModal.tsx";
 import { hookFromEditedText } from "./helpers.ts";
 
-describe("AddProfileModal env KEY regex (REVIEW_8 / Group E7)", () => {
+describe("ProfileFormModal env KEY regex (REVIEW_8 / Group E7)", () => {
   afterEach(() => cleanup());
 
   function renderModal() {
     return render(
-      <AddProfileModal
+      <ProfileFormModal
         tool="claude"
         busy={false}
         onClose={() => {}}

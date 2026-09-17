@@ -47,7 +47,7 @@ describe("validateTool", () => {
     expect(() => validateTool(tool)).not.toThrow();
   });
 
-  it("rejects unknown tools from raw stores/backups", () => {
+  it("rejects unknown tools from raw stores", () => {
     expect(() => validateTool("project-tool")).toThrow(/非法 tool/);
   });
 });

@@ -32,7 +32,7 @@ export function collapseHome(p: string): string {
 }
 
 // loadStore / saveStore 接受可选 path 参数让单测能注入 tmpdir，不污染 ~/.dch/profiles.json。
-// 生产 caller（manager.ts 全 7 处写操作）走默认 STORE_PATH 不受影响。
+// 生产 caller（manager.ts 写操作）走默认 STORE_PATH 不受影响。
 export async function loadStore(path: string = STORE_PATH): Promise<ProfileStore> {
   const file = Bun.file(path);
   if (!(await file.exists())) {
@@ -45,15 +45,14 @@ export async function loadStore(path: string = STORE_PATH): Promise<ProfileStore
     throw new Error(`无法解析 ${path}: ${e}`);
   }
   // 默认补全走共享 store-shape.ts.applyStoreDefaults，前端 loadProfileDataDirect 也调
-  // 同一函数避免 store 版本、方案超时与备份规则默认值在两端分叉。
+  // 同一函数避免 store 版本与方案超时默认值在两端分叉。
   return applyStoreDefaults(raw);
 }
 
 export async function saveStore(store: ProfileStore, path: string = STORE_PATH): Promise<void> {
   const dir = path === STORE_PATH ? DCH_DIR : dirname(path);
   await mkdir(dir, { recursive: true });
-  // 即便调用方持有的是旧 shape，也统一以 v2 正规化结构写回；这会有意清理
-  // legacy preferences.hookTimeoutMs，且不会把旧全局值迁移到任何方案。
+  // 仅保存当前 v2 的公开字段。
   const normalized = applyStoreDefaults(store);
   await Bun.write(path, JSON.stringify(normalized, null, 2) + "\n");
 }

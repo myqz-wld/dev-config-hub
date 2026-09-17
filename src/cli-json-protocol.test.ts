@@ -40,7 +40,7 @@ async function setupTmpHome(profiles: Array<{ id: string; configDir: string; isD
   await symlink(join(home, defaultProfile.configDir.replace(/^~\//, "")), join(home, ".claude"));
 
   const store = {
-    version: 1,
+    version: 2,
     profiles: profiles.map((p) => ({
       id: p.id,
       tool: "claude",
@@ -50,7 +50,6 @@ async function setupTmpHome(profiles: Array<{ id: string; configDir: string; isD
       ...(p.preSwitch ? { hooks: { preSwitch: p.preSwitch } } : {}),
     })),
     active: { claude: defaultProfile.id, codex: null },
-    backup: { toolPolicies: {} },
   };
   await writeFile(join(dchDir, "profiles.json"), JSON.stringify(store, null, 2));
   return { home };
@@ -177,20 +176,6 @@ describe.skipIf(IS_WIN)("cli json protocol (REVIEW_8 Group B e2e)", () => {
   }, 20_000);
 
   // ─── B6：M11 未知 flag throw ────────────────────────────────────────
-  test("B6: backup --no-share (typo) → exit 1 + JSON error 含 '未知 flag'", async () => {
-    const { home } = await setupTmpHome([
-      { id: "default", configDir: "~/.claude-default", isDefault: true },
-    ]);
-    try {
-      const r = await runCli(home, ["profile", "backup", "--no-share", "--json", "--yes"]);
-      expect(r.exitCode).toBe(1);
-      const parsed = JSON.parse(r.stdout.trim());
-      expect(parsed.error).toMatch(/未知 flag --no-share/);
-    } finally {
-      await rm(home, { recursive: true, force: true });
-    }
-  }, 15_000);
-
   test("B6: add --typo (typo) → exit 1 + JSON error 含 '未知 flag'", async () => {
     const { home } = await setupTmpHome([
       { id: "default", configDir: "~/.claude-default", isDefault: true },

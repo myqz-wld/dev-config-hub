@@ -28,7 +28,6 @@ const pickConfigFileMock = (title: string) => {
 mock.module("../bridge.ts", () => ({
   getHomeDir: () => Promise.resolve("/Users/test"),
   readFileWithMtime: () => Promise.resolve({ exists: true, content: '{"theme":"dark"}', mtimeUs: 1_000 }),
-  saveFile: () => Promise.resolve(),
   saveFileIfMtime: () => Promise.resolve(2_000),
   MtimeMismatchError: MockMtimeMismatchError,
   MtimeMissingError: MockMtimeMissingError,
@@ -51,7 +50,7 @@ import type { ToolConfig } from "../../types.ts";
  * 构造一份最小化 ToolConfig，仅 1 个 JSON scope。
  * 默认 view 模式（CMEditor 只读），点「编辑」进 edit。
  */
-function makeTool(content: string, loadedMtimeUs?: number | null): ToolConfig {
+function makeTool(content: string, loadedMtimeUs: number | null = 1_000): ToolConfig {
   return {
     id: "claude",
     name: "Test Tool",
@@ -65,7 +64,7 @@ function makeTool(content: string, loadedMtimeUs?: number | null): ToolConfig {
       exists: true,
       format: "json",
       content,
-      ...(loadedMtimeUs !== undefined ? { loadedMtimeUs } : {}),
+      loadedMtimeUs,
     }],
   };
 }

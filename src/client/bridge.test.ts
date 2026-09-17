@@ -24,13 +24,12 @@ describe("buildProfileData — pure shape composer (替代 dch list+current)", (
     const r = buildProfileData(null, EMPTY_LINKS, ROOTS);
     expect(r.store.profiles).toEqual([]);
     expect(r.store.active).toEqual({ claude: null, codex: null, grok: null, cursor: null });
-    expect(r.store.backup).toEqual({ toolPolicies: {} });
     expect(r.active.claude).toEqual({ id: null, rootPath: ROOTS.claude, symlinkTarget: null });
     expect(r.active.codex).toEqual({ id: null, rootPath: ROOTS.codex, symlinkTarget: null });
   });
 
   it("有 store + 有 link target → 完整 shape 一致", () => {
-    const raw = JSON.stringify({
+    const raw = JSON.stringify({ version: 2,
       profiles: [
         { id: "claude-prod", tool: "claude", configDir: "~/.claude-prod" },
         { id: "codex-dev", tool: "codex", configDir: "~/.codex-dev" },
@@ -56,7 +55,7 @@ describe("buildProfileData — pure shape composer (替代 dch list+current)", (
   });
 
   it("link 全 null（symlink 不存在 / 非 symlink）→ active.symlinkTarget = null", () => {
-    const raw = JSON.stringify({ active: { claude: "p1" } });
+    const raw = JSON.stringify({ version: 2, active: { claude: "p1" } });
     const r = buildProfileData(raw, EMPTY_LINKS, ROOTS);
     expect(r.active.claude.id).toBe("p1");
     expect(r.active.claude.symlinkTarget).toBeNull();
@@ -70,7 +69,7 @@ describe("buildProfileData — pure shape composer (替代 dch list+current)", (
   });
 
   it("store.active 缺 codex → buildProfileData 补 null（不 fallthrough 到旧 active）", () => {
-    const raw = JSON.stringify({ active: { claude: "p1" } });
+    const raw = JSON.stringify({ version: 2, active: { claude: "p1" } });
     const r = buildProfileData(raw, {
       claude: "/Users/test/.claude-p1",
       codex: "/Users/test/.codex-stale", // link 还在但 store 没记 → id 仍然 null

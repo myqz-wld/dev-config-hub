@@ -12,8 +12,6 @@ platform; Windows 10+ and Linux are supported as beta platforms.
 - **Config viewer and editor** — per-tool file scopes, syntax highlighting, Markdown rendering, and external-change protection.
 - **Atomic profile switching** — symlinks on macOS/Linux and NTFS junctions on Windows.
 - **Per-profile automation** — environment variables, hooks, and hook timeouts.
-- **Editable backup policies** — ordered file and secret rules at tool and profile scope.
-- **Safe `.dchpack` migration** — exact preview and placeholder redaction by default.
 - **Desktop and CLI workflows** — the same profile operations in both interfaces.
 
 ## Default Managed Scope
@@ -65,24 +63,15 @@ dch profile current claude
 Profiles live in `~/.dch/profiles.json`. New profiles create only an empty
 management directory; `--existing` registers a directory without copying or
 modifying it. In the desktop app, each tool has its own profile tab; profile
-creation stays in that tool context, while cross-tool backup and raw advanced
-editing live in separate tabs. Switching replaces the tool root atomically.
+creation stays in that tool context, and raw JSON editing has its own Advanced
+Settings tab. Switching replaces the tool root atomically. Removing a profile
+leaves its directory intact.
 
-## Backup And Restore
-
-```bash
-dch profile backup
-dch profile backup --keep
-dch profile backup --no-scripts
-dch profile restore ~/.dch/backups/latest.dchpack
-```
-
-Profiles can inherit tool backup rules or keep an independent snapshot.
-Switch-script rules cover only `~/.dch/scripts/`. Secrets are placeholder
-redacted by default, `~/.agents/**` is never packaged, and restore follows the
-package manifest without reapplying current rules. The desktop backup center
-groups export choices by tool and caches both backup history and resolved
-backup rules for fast reopening.
+The profile store accepts only `version: 2`; unsupported or missing versions
+are rejected without automatic conversion. Missing profile timeouts default to
+30 seconds. Both shell-string and platform-specific object hooks are supported.
+Ordinary saves retain the current profile fields and remove obsolete settings.
+Existing archive files and configuration directories are left on disk.
 
 ## Development
 
@@ -90,6 +79,8 @@ backup rules for fast reopening.
 bunx tsc --noEmit
 bun run build:fe
 bun test
+cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
 bun run test:install:macos
 bunx tauri build --bundles app
 bun run install:macos
@@ -98,16 +89,21 @@ bun run install:macos
 The macOS installer refuses to replace a running app, stages the bundle on the
 destination volume, adds an ad-hoc signature when a local Tauri build only has
 its linker signature, verifies the complete bundle with `codesign`, and
-installs it with a fresh executable inode. The previous app is kept under
-`~/Library/Application Support/Dev Config Hub/Install Backups/` with an
-`.app-backup` suffix, so macOS does not expose it as another application.
-Legacy `.app` backups are migrated automatically, the generated build bundle is
-retained beside the build output with an `.app-build` suffix, and the installed
+installs it with a fresh executable inode. The previous app remains in a
+temporary rollback directory until verification succeeds, then that temporary
+copy is removed. If installation fails before verification, the installer
+restores the previous app. Existing historical copies are left untouched.
+The generated build bundle is retained beside the build output with an
+`.app-build` suffix, and the installed
 `/Applications` bundle is refreshed as the canonical Launch Services
 registration. The installer can reuse that non-application build archive until
 the next build. Do not overwrite the installed bundle in place with `cp -R`:
 macOS can terminate the next launch with `CODESIGNING / Invalid Page` even when
 a later on-disk signature check succeeds.
+
+The installer regression uses disposable source and destination directories;
+it never replaces the installed app. Run profile switching tests only with a
+disposable home and isolated `CODEX_HOME` / `GROK_HOME` values.
 
 ## Documentation
 

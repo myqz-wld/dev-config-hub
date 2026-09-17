@@ -80,18 +80,6 @@ The frontend uses Bun HTML imports and the built-in bundler with automatic React
 - Cursor profile switching covers `~/.cursor` only. Its platform-specific editor `settings.json` and `keybindings.json` are outside both the configuration catalog and the profile root.
 - Switching runs `preSwitch` with `profile.env`, aborts without changing active state on failure, atomically swaps the link, writes `active.<tool>` to `~/.dch/profiles.json`, then runs `postSwitch` as warning-only.
 
-### Backup And Restore (`.dchpack`)
-
-- Backups use ordered editable policies: factory rules feed optional tool rules, while profiles either inherit live or hold a complete snapshot. Switch-script rules are global only.
-- Backups are safe-share by default: sensitive values become `<<DCH_PLACEHOLDER:KEY_NAME>>`. `keep-original` and `--no-placeholder` require an explicit raw-secret confirmation and external encryption.
-- `manifest.secrets_index` is the restore fan-out source of truth. It must not contain `valueHash` or real secret values; hashes may exist only as transient in-memory grouping data during backup.
-- Restore fills each logical secret once and fans it out by `fieldPath`. Factory rules exclude whole credential files; custom whole-file placeholders cannot reconstruct OAuth document shape. `profile.env` sections may require manual `~/.dch/profiles.json` edits after restore.
-- Do not follow symlinks inside profile config directories. Keep path-boundary checks and case-insensitive excludes for runtime, cache, history, database, log, lock, backup, private-key, and maintenance files.
-- Never scan, package, or restore `~/.agents/**`. Legacy `.dchpack` files remain importable, but `shared/agents/**` must be ignored. Shared backup scope contains only `~/.dch/scripts/**`.
-- Restore copies only manifest-declared package files and must not reapply the destination machine's current backup policy.
-- UI secret fill crosses the Tauri Rust tempfile route only once with restrictive permissions and guaranteed cleanup; webview TypeScript must not receive the tempfile path.
-- Factory defaults live in `src/profiles/backup-policy-defaults.ts`; validation, matching, transformation, preview audit, and fixtures live in the adjacent `backup-policy-*` / `backup-*` modules.
-
 ### Dual Injection Path For `profile.env`
 
 By default, `profile.env` is visible only inside `preSwitch` and `postSwitch` scripts. To also inject it into the selected Claude, Codex, Grok, or Cursor process:
@@ -200,7 +188,8 @@ Never update the installed bundle with an in-place `cp -R`. The macOS
 installer must stage and verify the new bundle on the destination volume,
 add an ad-hoc signature to a local Tauri bundle when its linker signature does
 not seal the complete app resources, replace the app with a fresh executable
-inode, preserve the previous bundle for rollback, and refuse replacement
+inode, keep the previous bundle only for temporary installation-failure
+rollback, remove that temporary copy after successful verification, and refuse replacement
 while the target app is running. An in-place overwrite can pass a later
 `codesign --verify` on disk but still be killed at launch with `CODESIGNING /
 Invalid Page` because the kernel has cached code pages for the old executable

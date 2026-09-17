@@ -8,7 +8,7 @@ This file is the source of truth for user-facing UI and CLI copy language. Updat
 
 ## Scope
 
-This file applies to text shown or spoken to users: UI labels, navigation, buttons, headings, form help, errors, notifications, empty states, onboarding, marketing copy inside the product, accessibility labels, CLI output, command help, interactive prompts, confirmations, progress text, and user-facing terminal errors. In Dev Config Hub, this includes Tauri UI, validation, backup/restore, and profile-management copy.
+This file applies to text shown or spoken to users: UI labels, navigation, buttons, headings, form help, errors, notifications, empty states, onboarding, marketing copy inside the product, accessibility labels, CLI output, command help, interactive prompts, confirmations, progress text, and user-facing terminal errors. In Dev Config Hub, this includes Tauri UI, validation, and profile-management copy.
 
 This file does not govern code identifiers, protocol names, logs, developer comments, test names, or third-party strings unless those strings are rendered to users.
 

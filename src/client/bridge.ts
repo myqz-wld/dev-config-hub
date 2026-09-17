@@ -187,10 +187,6 @@ export async function loadAllConfigs(): Promise<ToolConfig[]> {
   return (await loadConfigWorkspace(env, versions)).tools;
 }
 
-export async function saveFile(filePath: string, content: string): Promise<void> {
-  await call("save_file", { path: filePath, content });
-}
-
 /**
  * REVIEW_8 H7 (Group E1) / R3 G5：原子写 + mtime CAS（compare-and-swap）。
  *
@@ -223,6 +219,7 @@ export async function saveFileIfMtime(
   content: string,
   expectedMtimeUs: number | null,
 ): Promise<number> {
+  if (expectedMtimeUs === undefined) throw new Error("缺少文件修改时间，请重新加载后再保存");
   try {
     return await call<number>("save_file_if_mtime", {
       path: filePath,
@@ -249,37 +246,26 @@ export async function saveConfigFileOverrides(
 
 // ── Profile bridge: 通过 Tauri 调 dch CLI（--json 模式），结果统一 JSON ─────
 //
-// REVIEW_9 D-codex LOW 1 / G6: DchCommandResult / runDch / TIMEOUT_* 抽到 bridge-core.ts,
-// bridge.ts ↔ bridge-backup.ts 单向依赖 bridge-core,消除旧实现两个 facade 互相 import 的
-// 反向耦合。caller 仍 `import { ... } from "./bridge.ts"` 不变 — 通过下面 re-export 透传。
 export {
   type DchCommandResult,
   runDch,
   TIMEOUT_FAST_MS,
   TIMEOUT_INIT_MS,
-  TIMEOUT_BACKUP_MS,
 } from "./bridge-core.ts";
 
 import {
   PROFILE_TOOL_IDS,
-  type BackupPolicyV1, type BackupRuleSource,
   type Profile, type ProfileStore, type SwitchResult, type ToolKind, type HookResult,
 } from "../profiles/types.ts";
-
-// 类型 surface 透传：caller 仍只 import "../bridge.ts" 拿到 backup / restore 全套类型。
-// dchBackup 方法对象 spread 到下面的 dchProfile，让 caller 调 dchProfile.backup(...) 不变。
-export * from "./bridge-backup.ts";
-import { dchBackup } from "./bridge-backup.ts";
 
 // 给本模块内 dchProfileMethods 用的 runDch / TIMEOUT_* 引用 (private import,与 above 公开 re-export 等价)
 import { runDch, TIMEOUT_FAST_MS, TIMEOUT_INIT_MS } from "./bridge-core.ts";
 
 export type {
-  BackupPolicyV1, BackupRuleSource,
   Profile, ProfileStore, SwitchResult, ToolKind, HookResult,
 };
 
-const dchProfileMethods = {
+export const dchProfile = {
   list: () => runDch<ProfileStore>(["list"], TIMEOUT_FAST_MS),
 
   add: (tool: ToolKind, id: string, opts: {
@@ -326,56 +312,6 @@ const dchProfileMethods = {
   testHook: (id: string, which: "pre" | "post", hookTimeoutMs: number) =>
     runDch<HookResult | null>(["hook", "test", id, which], hookTimeoutMs + 5_000),
 
-  resolveBackupPolicy: (
-    scope: "tool" | "profile" | "scripts",
-    target?: string,
-  ) => runDch<{ ok: true; policy: BackupPolicyV1; source: BackupRuleSource }>(
-    ["backup-policy", "resolve", scope, ...(target ? [target] : [])],
-    TIMEOUT_FAST_MS,
-  ),
-
-  setBackupPolicy: (
-    scope: "tool" | "profile" | "scripts",
-    policy: BackupPolicyV1,
-    target?: string,
-  ) => runDch<{ ok: true }>(
-    [
-      "backup-policy", "set", scope, ...(target ? [target] : []),
-      "--payload", JSON.stringify(policy),
-    ],
-    TIMEOUT_FAST_MS,
-  ),
-
-  resetBackupPolicy: (scope: "tool" | "scripts", target?: string) =>
-    runDch<{ ok: true }>(
-      ["backup-policy", "reset", scope, ...(target ? [target] : [])],
-      TIMEOUT_FAST_MS,
-    ),
-
-  snapshotProfileBackupPolicy: (id: string) =>
-    runDch<{ ok: true }>(
-      ["backup-policy", "snapshot", "profile", id],
-      TIMEOUT_FAST_MS,
-    ),
-
-  inheritProfileBackupPolicy: (id: string) =>
-    runDch<{ ok: true }>(
-      ["backup-policy", "inherit", "profile", id],
-      TIMEOUT_FAST_MS,
-    ),
-
-  setScriptsBackupEnabled: (enabled: boolean) =>
-    runDch<{ ok: true }>(
-      ["backup-policy", "scripts-enabled", "scripts", String(enabled)],
-      TIMEOUT_FAST_MS,
-    ),
-};
-
-// dchProfile：profile 管理（add/remove/use/...） + backup 子组（spread 自 dchBackup）
-// 拆出 dchBackup 让 bridge.ts 顶在 500 行护栏下；caller 只看到一个 dchProfile 入口。
-export const dchProfile = {
-  ...dchProfileMethods,
-  ...dchBackup,
 };
 
 // ── Profile 直读 fs 路径（替代 dchProfile.{list,current} 双 bun spawn） ───────

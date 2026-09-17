@@ -381,21 +381,10 @@ code, pre, textarea, .mono { font-family: 'SF Mono', 'JetBrains Mono', 'Fira Cod
 .form-env-item code { color: var(--cyan); }
 .form-env-item button { margin-left: auto; background: none; border: none; color: var(--fg3); cursor: pointer; padding: 0 4px; }
 .form-env-item button:hover { color: var(--red); }
-.backup-profile-choice { transition: border-color .15s ease, background .15s ease, box-shadow .15s ease; }
-.backup-profile-choice.selected { border-color: rgba(51,86,127,.62); background: rgba(51,86,127,.10); box-shadow: inset 0 0 0 1px rgba(51,86,127,.16); }
-.backup-profile-choice input[type="checkbox"] { appearance: none; width: 14px; height: 14px; flex: 0 0 14px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 3px; background: var(--bg1); }
-.backup-profile-choice input[type="checkbox"]:checked { border-color: var(--blue); background: var(--blue); }
-.backup-profile-choice input[type="checkbox"]:checked::after { content: ""; width: 7px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg); margin-top: -1px; }
-.backup-profile-choice input[type="checkbox"]:focus-visible { outline: 2px solid rgba(51,86,127,.38); outline-offset: 2px; }
-.backup-profile-choice input[type="checkbox"]:disabled { opacity: .55; }
 .form-env-add { display: flex; gap: 6px; }
 .form-env-add input { flex: 1; padding: 4px 8px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); color: var(--fg0); font: inherit; font-size: 12px; }
 .form-hint { color: var(--fg3); font-size: 11px; line-height: 1.4; }
 .form-hint code { color: var(--cyan); }
-.backup-rules { background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); padding: 8px 10px; font-size: 12px; }
-.backup-rules summary { cursor: pointer; color: var(--fg1); font-weight: 600; }
-.backup-rules ul { margin: 8px 0 8px 18px; color: var(--fg2); line-height: 1.5; }
-.backup-rules li + li { margin-top: 4px; }
 
 code.ok { color: var(--green); }
 code.fail { color: var(--red); }
@@ -443,25 +432,3 @@ code.fail { color: var(--red); }
 /* shiki 注入 .shiki <pre> 自带背景；用 inherit 让外层 .md-code-block 覆盖背景 */
 .md-code-block .shiki { background: transparent !important; padding: 0; margin: 0; font-family: 'SF Mono', monospace; }
 .md-code-block .shiki code { background: transparent !important; }
-
-/* MarkdownView 内 toolbar (legacy 占位，可保留供未来 markdown editor 用) */
-.markdown-toolbar { display: flex; gap: 6px; }
-
-/* ── 自定义 Select（替代原生 <select>，统一深色主题） ── */
-.select-root { position: relative; flex: 1; min-width: 0; }
-.select-button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; background: var(--bg0); border: 1px solid var(--border); border-radius: var(--rs); color: var(--fg0); font-family: inherit; font-size: 13px; cursor: pointer; transition: border-color .15s, background .15s; }
-.select-button:hover { border-color: rgba(51,86,127,.3); }
-.select-root.open > .select-button { border-color: var(--blue); background: var(--bg1); }
-.select-root.disabled > .select-button { cursor: not-allowed; opacity: .5; }
-.select-value { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.select-value.placeholder { color: var(--fg3); }
-.select-chev { color: var(--fg3); flex-shrink: 0; transition: transform .15s; }
-.select-root.open .select-chev { transform: rotate(180deg); color: var(--blue); }
-.select-popover { position: absolute; left: 0; right: 0; top: calc(100% + 4px); background: var(--bg1); border: 1px solid var(--border); border-radius: var(--rs); list-style: none; padding: 4px; margin: 0; max-height: 240px; overflow-y: auto; z-index: 200; box-shadow: 0 8px 24px rgba(58,43,26,.18); }
-.select-popover-portal { right: auto; }
-.select-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; color: var(--fg1); }
-.select-item:hover, .select-item.hover { background: var(--bg3); color: var(--fg0); }
-.select-item.on { color: var(--blue); }
-.select-item-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.select-empty { padding: 8px 10px; color: var(--fg3); font-size: 12px; text-align: center; }
-.field-markdown-toolbar { display: flex; gap: 4px; }

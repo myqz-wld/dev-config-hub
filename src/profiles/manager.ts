@@ -1,5 +1,5 @@
 import type {
-  BackupPolicyV1, Profile, ProfileStore, SwitchResult, ToolKind, HookResult,
+  Profile, ProfileStore, SwitchResult, ToolKind, HookResult,
 } from "./types.ts";
 import { PROFILE_TOOL_IDS } from "./types.ts";
 import {
@@ -11,16 +11,10 @@ import {
   DEFAULT_HOOK_TIMEOUT_MS,
   normalizeHookTimeout,
   profileHookTimeout,
-  snapshotProfileBackupPolicy,
-} from "./backup-policy.ts";
-import { validateBackupPolicy } from "./backup-policy-validation.ts";
+} from "./hook-timeout.ts";
 import { isAbsolute, resolve } from "node:path";
 import { lstat, mkdir, rmdir } from "node:fs/promises";
 
-// REVIEW_8 Round 2 R2-3 / Round 3 G1：export 给 backup-restore.ts 等 caller 早期校验
-// 恶意 manifest 携带的 `mp.id`，避免 `join(RESTORED_BASE, "../.ssh")` 逃逸 RESTORED_BASE
-// 子树。原本只在 addProfile 内部校验，但 backup-restore.ts 是先 join → mkdir → copyDirRecursive
-// → addProfile，path traversal 在 addProfile 调用之前已经发生。
 export const ID_RE = /^[a-zA-Z0-9_-]+$/;
 // PR-6 (#M5)：profile.env key 校验 — 与 cli-profile.cmdEnv 输出 wrapper 用的同一 regex。
 // 旧版只在输出处 skip 非法 key（用户在 UI/CLI 加 `MY KEY=v` / `1FOO=v` 落盘成功
@@ -141,7 +135,6 @@ export async function addProfile(
     throw new Error("profile id 只允许字母数字 _ -");
   }
   validateEnv(p.env);
-  if (p.backupPolicy) validateBackupPolicy(p.backupPolicy);
   const configDirAbs = validateConfigDirectoryPath(p.configDir);
   await withProfileLock(async () => {
     const store = await loadStore();
@@ -180,7 +173,6 @@ export async function updateProfile(id: string, patch: Partial<Profile>): Promis
   if (patch.hookTimeoutMs !== undefined) {
     patch = { ...patch, hookTimeoutMs: normalizeHookTimeout(patch.hookTimeoutMs) };
   }
-  if (patch.backupPolicy !== undefined) validateBackupPolicy(patch.backupPolicy);
   await withProfileLock(async () => {
     const store = await loadStore();
     const idx = store.profiles.findIndex((x) => x.id === id);
@@ -274,6 +266,7 @@ export async function initTool(tool: ToolKind): Promise<{
 }> {
   // initToolDir 改 fs（mv + ln -s）在锁外做，避免持锁期间 fs 操作把锁有效期撑大。
   // 真正写 store 的 load+save 走锁。
+  await loadStore(); // Reject unsupported stores before changing the tool directory.
   const result = await initToolDir(tool);
   await withProfileLock(async () => {
     const store = await loadStore();
@@ -326,59 +319,4 @@ export async function testHook(
     which === "pre" ? "preSwitch" : "postSwitch",
     hook, ctx, profileHookTimeout(profile),
   );
-}
-
-export async function setToolBackupPolicy(
-  tool: ToolKind,
-  policy: BackupPolicyV1 | null,
-): Promise<void> {
-  validateTool(tool);
-  if (policy) validateBackupPolicy(policy);
-  await withProfileLock(async () => {
-    const store = await loadStore();
-    if (policy) store.backup.toolPolicies[tool] = structuredClone(policy);
-    else delete store.backup.toolPolicies[tool];
-    await saveStore(store);
-  });
-}
-
-export async function setProfileBackupPolicy(
-  id: string,
-  policy: BackupPolicyV1 | "snapshot-effective" | null,
-): Promise<void> {
-  if (policy && policy !== "snapshot-effective") validateBackupPolicy(policy);
-  await withProfileLock(async () => {
-    const store = await loadStore();
-    const idx = store.profiles.findIndex((profile) => profile.id === id);
-    if (idx < 0) throw new Error(`未找到 profile: ${id}`);
-    const profile = store.profiles[idx]!;
-    if (policy === "snapshot-effective") {
-      profile.backupPolicy = snapshotProfileBackupPolicy(store, profile);
-    } else if (policy) {
-      profile.backupPolicy = structuredClone(policy);
-    } else {
-      delete profile.backupPolicy;
-    }
-    await saveStore(store);
-  });
-}
-
-export async function setScriptsBackupPolicy(
-  policy: BackupPolicyV1 | null,
-): Promise<void> {
-  if (policy) validateBackupPolicy(policy);
-  await withProfileLock(async () => {
-    const store = await loadStore();
-    if (policy) store.backup.scriptsPolicy = structuredClone(policy);
-    else delete store.backup.scriptsPolicy;
-    await saveStore(store);
-  });
-}
-
-export async function setScriptsBackupEnabled(enabled: boolean): Promise<void> {
-  await withProfileLock(async () => {
-    const store = await loadStore();
-    store.backup.scriptsEnabled = enabled;
-    await saveStore(store);
-  });
 }

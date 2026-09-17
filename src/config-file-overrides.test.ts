@@ -137,6 +137,7 @@ describe("config file override store", () => {
     const tools = await loadConfigTools(MAC_ENV, VERSIONS, async (path) => ({
       exists: path.endsWith("AGENTS.override.md") || path.endsWith("AGENTS.md"),
       content: "instructions",
+      loadedMtimeUs: 1000,
     }), overrides);
     const codex = tools.find((tool) => tool.id === "codex")!;
     expect(codex.scopes.map((scope) => scope.label)).toEqual([

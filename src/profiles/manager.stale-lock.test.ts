@@ -56,7 +56,6 @@ async function setupTmpHome(opts: SetupOpts): Promise<{ home: string }> {
       },
     ],
     active: { claude: "default", codex: null },
-    backup: { toolPolicies: {} },
   };
   await writeFile(join(home, ".dch/profiles.json"), JSON.stringify(store, null, 2));
   return { home };

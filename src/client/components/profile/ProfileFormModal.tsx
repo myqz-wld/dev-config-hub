@@ -322,4 +322,3 @@ export function ProfileFormModal({
 }
 
 /** Backward-compatible export name for focused component tests. */
-export const AddProfileModal = ProfileFormModal;

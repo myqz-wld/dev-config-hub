@@ -68,6 +68,7 @@ export function ProfileStoreEditor({
   const schemaExt = useMemo(() => buildSchemaExtensions(DCH_STORE), []);
 
   const onSave = async () => {
+    if (enterEditMtimeRef.current === undefined) return;
     setSaving(true);
     try {
       // 简单 save：全文写盘。dch-store 没有「未知 key 保留」需求（profile 系统 SSOT 完整定义）
@@ -78,13 +79,12 @@ export function ProfileStoreEditor({
         setSaving(false);
         return;
       }
-      // 与 CLI manager/saveStore 使用同一正规化入口：写 v2、补方案默认超时与 backup，
-      // 并有意丢弃旧 preferences.hookTimeoutMs（绝不迁移到方案）。
+      // 与 CLI 共用 v2 校验、默认值和当前公开字段。
       const normalizedContent = JSON.stringify(applyStoreDefaults(parsed), null, 2) + "\n";
       const newMtime = await saveFileIfMtime(
         filePath,
         normalizedContent,
-        enterEditMtimeRef.current ?? null,
+        enterEditMtimeRef.current,
       );
       enterEditMtimeRef.current = newMtime;
       onToast("配置方案状态文件已保存", true);
@@ -178,7 +178,7 @@ export function ProfileStoreEditor({
         </div>
         <div className="modal-foot">
           <button className="btn ghost" onClick={onClose} disabled={saving}>取消</button>
-          <button className="btn primary" onClick={onSave} disabled={loading || saving || conflict !== null}>
+          <button className="btn primary" onClick={onSave} disabled={loading || saving || conflict !== null || enterEditMtimeRef.current === undefined}>
             {saving ? "保存中…" : "保存"}
           </button>
         </div>

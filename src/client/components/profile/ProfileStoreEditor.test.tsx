@@ -28,7 +28,7 @@ class MockMtimeMissingError extends Error {
 let saveFileIfMtimeImpl: (path: string, content: string, expected: number | null) => Promise<number>
   = () => Promise.resolve(2_000);
 let readFileWithMtimeImpl: (path: string) => Promise<{ exists: boolean; content: string; mtimeUs: number | null }>
-  = () => Promise.resolve({ exists: true, content: '{"profiles":[]}', mtimeUs: 1_000 });
+  = () => Promise.resolve({ exists: true, content: '{"version":2,"profiles":[]}', mtimeUs: 1_000 });
 
 mock.module("../../bridge.ts", () => ({
   getHomeDir: () => Promise.resolve("/Users/test"),
@@ -54,7 +54,7 @@ describe("ProfileStoreEditor mtime CAS (REVIEW_8 H7 / Group E3)", () => {
   afterEach(() => {
     cleanup();
     saveFileIfMtimeImpl = () => Promise.resolve(2_000);
-    readFileWithMtimeImpl = () => Promise.resolve({ exists: true, content: '{"profiles":[]}', mtimeUs: 1_000 });
+    readFileWithMtimeImpl = () => Promise.resolve({ exists: true, content: '{"version":2,"profiles":[]}', mtimeUs: 1_000 });
   });
 
   it("T1: save 时把 readFileWithMtime 拿到的 mtimeUs 透传给 saveFileIfMtime", async () => {
@@ -87,14 +87,15 @@ describe("ProfileStoreEditor mtime CAS (REVIEW_8 H7 / Group E3)", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("保存旧结构时忽略全局超时并清理 preferences", async () => {
+  it("保存 v2 时清理废弃字段并保留当前默认值", async () => {
     readFileWithMtimeImpl = () => Promise.resolve({
       exists: true,
       content: JSON.stringify({
-        version: 1,
+        version: 2,
         profiles: [{ id: "legacy", tool: "claude", configDir: "~/.claude-legacy" }],
         active: {},
         preferences: { hookTimeoutMs: 120_000 },
+        backup: { toolPolicies: {} },
       }),
       mtimeUs: 1_000,
     });
@@ -115,7 +116,34 @@ describe("ProfileStoreEditor mtime CAS (REVIEW_8 H7 / Group E3)", () => {
     const saved = JSON.parse(captured);
     expect(saved.version).toBe(2);
     expect(saved.preferences).toBeUndefined();
+    expect(saved.backup).toBeUndefined();
     expect(saved.profiles[0].hookTimeoutMs).toBe(30_000);
+  });
+
+  it("rejects v1 without calling the save IPC", async () => {
+    readFileWithMtimeImpl = async () => ({ exists: true, content: '{"version":1,"profiles":[]}', mtimeUs: 1000 });
+    const save = mock(async () => 2000);
+    saveFileIfMtimeImpl = save;
+    const onToast = mock(() => {});
+    const onClose = mock(() => {});
+    const { container } = render(<ProfileStoreEditor onClose={onClose} onSaved={() => {}} onToast={onToast} />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    const button = Array.from(container.querySelectorAll("button")).find((b) => b.textContent === "保存")!;
+    await act(async () => { fireEvent.click(button); });
+    expect(save).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onToast).toHaveBeenCalledWith(expect.stringContaining("仅支持 version: 2"), false);
+  });
+
+  it("a failed initial read cannot turn into an unchecked save", async () => {
+    readFileWithMtimeImpl = async () => { throw new Error("read failed"); };
+    const save = mock(async () => 2000);
+    saveFileIfMtimeImpl = save;
+    const { container } = render(<ProfileStoreEditor onClose={() => {}} onSaved={() => {}} onToast={() => {}} />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    const button = Array.from(container.querySelectorAll("button")).find((b) => b.textContent === "保存")!;
+    expect(button.disabled).toBeTrue();
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("T2: saveFileIfMtime 抛 MtimeMismatchError → conflict banner 弹出", async () => {
@@ -174,8 +202,8 @@ describe("ProfileStoreEditor mtime CAS (REVIEW_8 H7 / Group E3)", () => {
     readFileWithMtimeImpl = () => {
       readCallCount += 1;
       const next = readCallCount === 1
-        ? { exists: true, content: '{"profiles":[]}', mtimeUs: 1_000 }
-        : { exists: true, content: '{"profiles":[{"id":"new"}]}', mtimeUs: 5_000 };
+        ? { exists: true, content: '{"version":2,"profiles":[]}', mtimeUs: 1_000 }
+        : { exists: true, content: '{"version":2,"profiles":[{"id":"new"}]}', mtimeUs: 5_000 };
       return Promise.resolve(next);
     };
 

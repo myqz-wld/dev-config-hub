@@ -43,7 +43,7 @@ function Scope({
   onRemoveFile,
 }: {
   scope: ConfigScope;
-  onSave: (p: string, c: string, expectedMtimeUs?: number | null) => Promise<void>;
+  onSave: (p: string, c: string, expectedMtimeUs: number | null) => Promise<void>;
   onToast: (msg: string, ok: boolean) => void;
   toolId: ConfigToolId;
   managementBusy: boolean;
@@ -64,15 +64,14 @@ function Scope({
   const [externalChanged, setExternalChanged] = useState(false);
   const enterEditRef = useRef<string | null>(null);
   // REVIEW_8 H7 / Group E2：进 edit 时 snapshot 当时的 mtime；save 时透传给后端做 CAS。
-  // - undefined：旧 reader 路径（loadedMtimeUs 字段没填） → 跳过 CAS（向后兼容）
   // - null：CAS 弃权（用户主动「保留我的改动」点击 → 后续 save 强制覆盖）
   // - number：正常 CAS，后端 stat 比对失败抛 MtimeMismatchError
-  const enterEditMtimeRef = useRef<number | null | undefined>(undefined);
+  const enterEditMtimeRef = useRef<number | null>(scope.loadedMtimeUs);
 
   useEffect(() => {
     if (mode !== "edit") {
       enterEditRef.current = null;
-      enterEditMtimeRef.current = undefined;
+      enterEditMtimeRef.current = scope.loadedMtimeUs;
       setExternalChanged(false);
       return;
     }
@@ -225,7 +224,6 @@ function Scope({
                     setSaving(true);
                     try {
                       // REVIEW_8 H7 / Group E2：透传 enter-edit 时 snapshot 的 mtime 给后端 CAS。
-                      // undefined（旧 reader 没填 loadedMtimeUs） → App.onSave 走旧 saveFile，跳过 CAS。
                       // null（用户「保留我的改动」点击后） → 走 saveFileIfMtime 但传 null 跳 CAS。
                       // number → 走 saveFileIfMtime 真做 CAS。
                       await onSave(scope.filePath, buf, enterEditMtimeRef.current);
@@ -280,7 +278,7 @@ export const ConfigPanel = memo(function ConfigPanel({
   onRestoreDefaults = async () => {},
 }: {
   tool: ToolConfig;
-  onSave: (p: string, c: string, expectedMtimeUs?: number | null) => Promise<void>;
+  onSave: (p: string, c: string, expectedMtimeUs: number | null) => Promise<void>;
   onToast: (msg: string, ok: boolean) => void;
   managementBusy?: boolean;
   customized?: boolean;

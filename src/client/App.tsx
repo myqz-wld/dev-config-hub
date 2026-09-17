@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { ToolConfig } from "../types.ts";
 import type { ConfigEnvironment, ConfigToolId } from "../config-locations.ts";
 import {
-  loadAllVersions, loadConfigWorkspace, saveFile, saveFileIfMtime,
+  loadAllVersions, loadConfigWorkspace, saveFileIfMtime,
   saveConfigFileOverrides, readFileWithMtime, isMtimeMismatch, isMtimeMissing,
   getConfigEnvironment, loadProfileDataDirect,
   type ConfigWorkspace, type ToolVersions, type ProfileStore, type ProfileActive,
@@ -191,8 +191,6 @@ export function App() {
    *   / `MtimeMissingError`（caller catch 弹 banner / flash）
    * - `expectedMtimeUs = null`   → caller 显式放弃 CAS（如「保留我的改动」按钮主动覆盖语义） →
    *   仍走 `saveFileIfMtime` 但传 null 跳过 CAS
-   * - `expectedMtimeUs = undefined`（旧 caller 没传） → 走 `saveFile` 老接口（atomic write，
-   *   但不做 mtime check，与原行为兼容）
    *
    * 所有路径仍 rethrow 让 caller 知道失败（PR-4 #H2：旧版 fire-and-forget + 同步 setMode("view")
    * 让用户编辑内容直接丢失的回归保护）。
@@ -200,13 +198,9 @@ export function App() {
   // useCallback：onSave 作为 prop 传给已 memo 化的 ConfigPanel；引用稳定才能让隐藏面板
   // 在 App 重渲染（切侧边栏 / 重画铅笔圈）时真正跳过重渲染。deps 仅 flash / loadFilesOnly，
   // 两者本身已 useCallback 稳定。
-  const onSave = useCallback(async (path: string, content: string, expectedMtimeUs?: number | null) => {
+  const onSave = useCallback(async (path: string, content: string, expectedMtimeUs: number | null) => {
     try {
-      if (expectedMtimeUs === undefined) {
-        await saveFile(path, content);
-      } else {
-        await saveFileIfMtime(path, content, expectedMtimeUs);
-      }
+      await saveFileIfMtime(path, content, expectedMtimeUs);
       flash("保存成功", true);
       void loadFilesOnly();
     } catch (e) {

@@ -5,7 +5,7 @@ import type { ToolSchema, FieldSchema } from "./types.ts";
  *
  * **字段来源**：项目自维护，SSOT 在 `src/profiles/types.ts`：
  *   - ToolKind = "claude" | "codex" | "grok" | "cursor"
- *   - Profile / ProfileHooks / HookScript / BackupPolicyV1 / ProfileStore
+ *   - Profile / ProfileHooks / HookScript / ProfileStore
  *
  * **HookScript union 简化**：HookScript 是 `string | { posix?, powershell?, cmd? }` union 类型。
  * FieldSchema 不直接表达 union；本 schema 把 hooks.preSwitch / postSwitch 标 `type: "code"`
@@ -19,91 +19,6 @@ const HOOK_SCRIPT_FIELD: FieldSchema = {
   type: "code",
   description: "Shell 脚本（POSIX bash/zsh）。Win 平台同字符串走 PowerShell。要分平台请走 raw editor 编辑成 object 形式 `{ posix?, powershell?, cmd? }`。",
   codeLanguage: "shell",
-};
-
-const MATCH_FIELD: FieldSchema = {
-  type: "object",
-  description: "规则匹配器。表格编辑器负责按规则类型限制 kind；原始编辑模式保存时还会做完整校验。",
-  additionalProperties: true,
-  properties: {
-    kind: {
-      type: "enum",
-      enum: ["glob", "regex", "exact", "contains", "suffix", "key-value"],
-    },
-    pattern: { type: "string" },
-    keyPattern: { type: "string" },
-    minValueLength: { type: "integer", min: 1 },
-    caseSensitive: { type: "boolean", default: false },
-    secretCaptureGroup: { type: "integer", min: 0 },
-  },
-};
-
-const FILE_RULE_FIELD: FieldSchema = {
-  type: "object",
-  additionalProperties: true,
-  properties: {
-    id: { type: "string", minLength: 1 },
-    label: { type: "string", minLength: 1 },
-    enabled: { type: "boolean" },
-    target: { type: "enum", enum: ["relative-path", "basename"] },
-    match: MATCH_FIELD,
-    action: { type: "enum", enum: ["include", "exclude"] },
-  },
-};
-
-const SECRET_RULE_FIELD: FieldSchema = {
-  type: "object",
-  additionalProperties: true,
-  properties: {
-    id: { type: "string", minLength: 1 },
-    label: { type: "string", minLength: 1 },
-    enabled: { type: "boolean" },
-    target: { type: "enum", enum: ["relative-path", "basename"] },
-    formats: {
-      type: "array",
-      uniqueItems: true,
-      itemSchema: { type: "enum", enum: ["json", "jsonc", "toml", "text"] },
-    },
-    match: MATCH_FIELD,
-    action: {
-      type: "enum",
-      enum: [
-        { value: "placeholder", label: "替换为占位符" },
-        { value: "exclude-file", label: "排除整个文件" },
-        { value: "keep-original", label: "保留原值（危险）" },
-        { value: "ignore", label: "忽略命中" },
-      ],
-    },
-    placeholderName: { type: "string" },
-  },
-};
-
-const BACKUP_POLICY_FIELD: FieldSchema = {
-  type: "object",
-  description: "有序备份规则。文件规则第一条命中即停止；密钥规则按整文件、字段、内容处理。",
-  additionalProperties: false,
-  properties: {
-    schemaVersion: { type: "integer", min: 1, max: 1 },
-    defaultFileAction: { type: "enum", enum: ["include", "exclude"] },
-    unscannableFileAction: {
-      type: "enum",
-      enum: ["include-with-warning", "exclude"],
-    },
-    fileRules: {
-      type: "array",
-      description: "可排序的包含/排除规则。",
-      itemSchema: FILE_RULE_FIELD,
-    },
-    secretRules: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        wholeFile: { type: "array", itemSchema: SECRET_RULE_FIELD },
-        field: { type: "array", itemSchema: SECRET_RULE_FIELD },
-        content: { type: "array", itemSchema: SECRET_RULE_FIELD },
-      },
-    },
-  },
 };
 
 const PROFILE_FIELD: FieldSchema = {
@@ -161,15 +76,11 @@ const PROFILE_FIELD: FieldSchema = {
     },
     hookTimeoutMs: {
       type: "integer",
-      description: "本方案切换脚本超时时间（毫秒）。旧全局 preferences.hookTimeoutMs 不会迁移。",
+      description: "本方案切换脚本超时时间（毫秒），默认 30000。",
       min: 1000,
       max: 600000,
       unit: "ms",
       default: 30000,
-    },
-    backupPolicy: {
-      ...BACKUP_POLICY_FIELD,
-      description: "方案级独立规则快照。缺少该字段表示实时继承当前有效工具规则。",
     },
     isDefault: {
       type: "boolean",
@@ -219,32 +130,6 @@ export const DCH_STORE: ToolSchema = {
           cursor: {
             type: "string",
             description: "当前激活的 cursor profile id。",
-          },
-        },
-      },
-      backup: {
-        type: "object",
-        description: "各工具与切换脚本的备份规则。方案独立快照存放在对应 profile.backupPolicy。",
-        additionalProperties: false,
-        properties: {
-          toolPolicies: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              claude: BACKUP_POLICY_FIELD,
-              codex: BACKUP_POLICY_FIELD,
-              grok: BACKUP_POLICY_FIELD,
-              cursor: BACKUP_POLICY_FIELD,
-            },
-          },
-          scriptsEnabled: {
-            type: "boolean",
-            description: "是否启用 ~/.dch/scripts 备份。CLI --no-scripts 可单次强制跳过。",
-            default: true,
-          },
-          scriptsPolicy: {
-            ...BACKUP_POLICY_FIELD,
-            description: "切换脚本全局规则；不提供方案级覆盖。",
           },
         },
       },

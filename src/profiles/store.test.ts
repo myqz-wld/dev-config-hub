@@ -61,7 +61,6 @@ describe("loadStore (tmpdir 隔离)", () => {
       expect(store.version).toBe(2);
       expect(store.profiles).toEqual([]);
       expect(store.active).toEqual({ claude: null, codex: null, grok: null, cursor: null });
-      expect(store.backup).toEqual({ toolPolicies: {} });
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
@@ -93,7 +92,7 @@ describe("loadStore (tmpdir 隔离)", () => {
     const tmp = await mkdtemp(join(tmpdir(), "dch-loadstore-"));
     try {
       const path = join(tmp, "profiles.json");
-      await writeFile(path, JSON.stringify({ version: 1, profiles: [] }), "utf8");
+      await writeFile(path, JSON.stringify({ version: 2, profiles: [] }), "utf8");
       const store = await loadStore(path);
       expect(store.active).toEqual({ claude: null, codex: null, grok: null, cursor: null });
     } finally {
@@ -106,7 +105,7 @@ describe("loadStore (tmpdir 隔离)", () => {
     try {
       const path = join(tmp, "profiles.json");
       await writeFile(path, JSON.stringify({
-        version: 1,
+        version: 2,
         profiles: [{ id: "p", tool: "claude", configDir: "~/.p" }],
         preferences: { hookTimeoutMs: 600_000 },
       }), "utf8");
@@ -122,7 +121,7 @@ describe("loadStore (tmpdir 隔离)", () => {
     const tmp = await mkdtemp(join(tmpdir(), "dch-loadstore-"));
     try {
       const path = join(tmp, "profiles.json");
-      await writeFile(path, JSON.stringify({ version: 1, profiles: [], active: { claude: "a-1" } }), "utf8");
+      await writeFile(path, JSON.stringify({ version: 2, profiles: [], active: { claude: "a-1" } }), "utf8");
       const store = await loadStore(path);
       expect(store.active).toEqual({ claude: "a-1", codex: null, grok: null, cursor: null });
     } finally {
@@ -146,7 +145,6 @@ describe("saveStore + loadStore roundtrip", () => {
           hookTimeoutMs: 5_000,
         }],
         active: { claude: "test-claude", codex: null, grok: null, cursor: null },
-        backup: { toolPolicies: {} },
       };
       await saveStore(original, path);
       const loaded = await loadStore(path);
@@ -162,7 +160,6 @@ describe("saveStore + loadStore roundtrip", () => {
       const path = join(tmp, "deep", "nested", "dir", "profiles.json");
       const empty: ProfileStore = {
         version: 2, profiles: [], active: { claude: null, codex: null, grok: null, cursor: null },
-        backup: { toolPolicies: {} },
       };
       await saveStore(empty, path);
       const loaded = await loadStore(path);
@@ -172,20 +169,22 @@ describe("saveStore + loadStore roundtrip", () => {
     }
   });
 
-  it("保存旧 shape 时升级 v2 并清理 preferences，不迁移旧超时", async () => {
+  it("保存 v2 时仅保留当前字段，不继承废弃设置", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "dch-migrate-store-"));
     try {
       const path = join(tmp, "profiles.json");
       const legacy = {
-        version: 1,
+        version: 2,
         profiles: [{ id: "legacy", tool: "claude", configDir: "~/.legacy" }],
         active: { claude: "legacy" },
         preferences: { hookTimeoutMs: 222_000 },
+        backup: { toolPolicies: {} },
       };
       await saveStore(legacy as unknown as ProfileStore, path);
       const raw = JSON.parse(await Bun.file(path).text()) as Record<string, unknown>;
       expect(raw.version).toBe(2);
       expect(raw.preferences).toBeUndefined();
+      expect(raw.backup).toBeUndefined();
       expect((raw.profiles as Array<Record<string, unknown>>)[0]?.hookTimeoutMs).toBe(30_000);
     } finally {
       await rm(tmp, { recursive: true, force: true });
@@ -204,7 +203,6 @@ describe("concurrent saveStore (H3 — PR-5 文件锁修复)", () => {
         version: 2,
         profiles: [{ id: "init", tool: "claude", configDir: "~/.x" }],
         active: { claude: null, codex: null },
-        backup: { toolPolicies: {} },
       };
       await saveStore(init, path);
 

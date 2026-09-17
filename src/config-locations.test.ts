@@ -104,6 +104,7 @@ describe("compact display selection", () => {
     ]);
     const tools = await loadConfigTools(MAC_ENV, VERSIONS, async (path) => ({
       exists: exists.has(path),
+      loadedMtimeUs: exists.has(path) ? 1000 : null,
       content: exists.has(path) ? "present" : "",
     }));
     const codex = tools.find((tool) => tool.name === "Codex CLI")!;
@@ -120,7 +121,7 @@ describe("compact display selection", () => {
   });
 
   it("falls back to AGENTS.md when override is absent", async () => {
-    const tools = await loadConfigTools(MAC_ENV, VERSIONS, async () => ({ exists: false, content: "" }));
+    const tools = await loadConfigTools(MAC_ENV, VERSIONS, async () => ({ exists: false, loadedMtimeUs: null, content: "" }));
     const codex = tools.find((tool) => tool.name === "Codex CLI")!;
     expect(codex.scopes.map((scope) => scope.label)).toEqual([
       "~/.codex/config.toml",
@@ -130,9 +131,9 @@ describe("compact display selection", () => {
 
   it("ignores an empty AGENTS.override.md in favor of a non-empty AGENTS.md", async () => {
     const tools = await loadConfigTools(MAC_ENV, VERSIONS, async (path) => {
-      if (path.endsWith("AGENTS.override.md")) return { exists: true, content: "\n" };
-      if (path.endsWith("AGENTS.md")) return { exists: true, content: "real instructions" };
-      return { exists: false, content: "" };
+      if (path.endsWith("AGENTS.override.md")) return { exists: true, loadedMtimeUs: 1000, content: "\n" };
+      if (path.endsWith("AGENTS.md")) return { exists: true, loadedMtimeUs: 1000, content: "real instructions" };
+      return { exists: false, loadedMtimeUs: null, content: "" };
     });
     const codex = tools.find((tool) => tool.name === "Codex CLI")!;
     expect(codex.scopes.map((scope) => scope.label)).toContain("~/.codex/AGENTS.md");

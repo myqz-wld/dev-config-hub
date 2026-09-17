@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * cli-profile / cli-backup 共享 helper：JSON_MODE 状态 + 输出 / 错误 / stdin / parse helper。
+ * Profile CLI 共享 helper：JSON_MODE 状态 + 输出 / 错误 / stdin / parse helper。
  *
  * 抽出 cli-shared.ts 让 cli-profile.ts 不再单文件超 500 行护栏（CLAUDE.md 现存超标已知）。
  *
@@ -77,8 +77,6 @@ export function info(msg: string): void {
 // 否则用户传 --pre-hook '--foo' 这类 hook 字面值会被吞。
 export const VALUE_FLAGS = new Set([
   "dir", "desc", "pre-hook", "post-hook", "timeout", "payload",
-  "out", "profiles", "prefix", "rename",
-  "secrets-json",
 ]);
 
 /**
@@ -88,11 +86,9 @@ export const VALUE_FLAGS = new Set([
  * - `--key` 不在 VALUE_FLAGS 且下一个 arg 以 -- 开头 → boolean true
  *
  * **REVIEW_8 M11 / B6**：
- * 1. VALUE_FLAGS 末尾缺 value → 直接 throw（旧行为静默变 boolean true 让 backup --out 写到
- *    undefined / cmdAdd --pre-hook 缺 hook 内容这种沉默错误，难定位）
+ * 1. VALUE_FLAGS 末尾缺 value → 直接 throw，防止值被误当成 boolean true。
  * 2. `--env BADFORMAT` 缺 `=` → 直接 throw（旧用 err()→process.exit 不可测试）
- * 3. opts.allowedFlags 设置时 → 未知 flag 直接 throw（防 typo 如 `--no-share` vs `--no-shared`
- *    被 silently 当 boolean 收下导致 cmd 走默认路径）。caller opt-in，未设时维持旧宽松语义。
+ * 3. opts.allowedFlags 设置时 → 未知 flag 直接 throw，避免拼写错误被静默接受。
  *
  * 抛 Error 而非 err() 让单测能 toThrow 验证；外层 main().catch(B1) 在 json 模式会 jsonOut。
  *
@@ -233,7 +229,3 @@ export async function readStdinSecret(): Promise<string | null> {
     process.on("SIGINT", onSig);
   });
 }
-
-// **REVIEW_9 D-LOW-3 / D-claude L1**: formatBytes 抽到项目根 `src/format-bytes.ts` 中立位置
-// (client/format-bytes.ts re-export 同款),避免本文件与 client 端两份完全重复维护。
-export { formatBytes } from "./format-bytes.ts";
