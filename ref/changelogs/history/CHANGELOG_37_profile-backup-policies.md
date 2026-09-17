@@ -141,6 +141,6 @@ Deck issue `7d49dca6-8649-42c4-a063-8e6d3ac4e9ad`; automated render and
 structural paint tests passed.
 
 Related records:
-[PLAN_2_profile-backup-policies](../../plans/recent-3-days/PLAN_2_profile-backup-policies.md)
+[PLAN_2_profile-backup-policies](../../plans/history/PLAN_2_profile-backup-policies.md)
 and
-[REVIEW_12_backup-policy-security](../../reviews/recent-month/REVIEW_12_backup-policy-security.md).
+[REVIEW_12_backup-policy-security](../../reviews/history/REVIEW_12_backup-policy-security.md).

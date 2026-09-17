@@ -3,8 +3,8 @@ plan_id: "deep-review-fix-20260514"
 created_at: "2026-05-14T00:00:00Z"
 worktree_path: ".claude/worktrees/deep-review-fix-20260514"
 status: "completed"
-base_commit: "0a136b6"
-final_commit: "0d18f4c8495dacd04edc543446f1a15fdab78b36"
+base_commit: "9977c6e"
+final_commit: "40cbf5d7f0f328c5f193c0600185fc32d92822af"
 completed_at: "2026-05-14"
 ---
 # Deep Code Review Fix — Round 1 → fix → Round 2
@@ -67,7 +67,7 @@ H8 拆两层：
 
 ## 步骤 checklist
 
-### Group A — Rust async + lib.rs 拆 + atomic helper（基建） ✅ 完成 (commit f392123)
+### Group A — Rust async + lib.rs 拆 + atomic helper（基建） ✅ 完成 (commit 1284007)
 - [x] Step A1 — 建 `src-tauri/src/{commands/fs.rs, commands/shell.rs, commands/version.rs, commands/dch.rs, atomic.rs, path_policy.rs, commands/mod.rs}` 骨架 — done by session 2 on 2026-05-14
 - [x] Step A2 — `path_policy.rs` 实现 PathPolicy enum + check_path() helper（H9） — done by session 2 on 2026-05-14
 - [x] Step A3 — `commands/fs.rs` 6 个 fn 全部 `async + spawn_blocking`，read/write 类走 PathPolicy（H1 + H9） — done by session 2 on 2026-05-14
@@ -76,7 +76,7 @@ H8 拆两层：
 - [x] Step A6 — `lib.rs` 瘦身只剩 mod 声明 + Builder + invoke_handler + run（D3） — done by session 2 on 2026-05-14
 - [x] Step A7 — `cargo build` 通过 + 27 cargo test 全绿 + 195 bun test 全绿（`bun run dev` 冒烟改 cargo test + bun test 等价覆盖；交互式窗口冒烟留给 Group F1 完整 `bunx tauri build`） — done by session 2 on 2026-05-14
 
-### Group B — JSON 协议（CLI） ✅ 完成 (commit a30816e)
+### Group B — JSON 协议（CLI） ✅ 完成 (commit 1758c74)
 - [x] Step B1 — `cli.ts:151` main().catch 加 `if (isJsonMode()) jsonOut({error: String(e)}); else console.error(...)`（H6 第 1 处） — done by session 2 on 2026-05-14
 - [x] Step B2 — `cli-profile.ts:130` cmdRemove 加 `!isJsonMode()` 短路 prompt（H6 第 2 处）+ json 模式直接 err() — done by session 2 on 2026-05-14
 - [x] Step B3 — `cli-profile.ts:158/232` + `cli-backup.ts:115` jsonOut 后用 result.ok 决定 exit code，非 0 走 process.exit(1)（H6 第 3 处） — done by session 2 on 2026-05-14
@@ -85,13 +85,13 @@ H8 拆两层：
 - [x] Step B6 — `cli-shared.ts:106` parseFlags 加未知 flag 报错 + VALUE_FLAGS 缺值报错（M11） — done by session 2 on 2026-05-14
 - [x] Step B7 — 补 cli e2e test 覆盖 cmdRemove --json / show --json error / spawn 失败传 exit code — done by session 2 on 2026-05-14（cli-json-protocol.test.ts 7 e2e + cli-profile.parseFlags.test.ts 5 新测）
 
-### Group C — Store lock + 进程组 ✅ 完成 (commit cc74bbd)
+### Group C — Store lock + 进程组 ✅ 完成 (commit 065aead)
 - [x] Step C1 — `manager.ts` 6 处 withStoreLock 调用，统一走 `withProfileLock` helper（`staleMs/maxWaitMs = 2 * hookTimeoutMs + 5_000`，acquirer 视角和 holder 视角同步放大）（H3） — done by session 2 on 2026-05-14
 - [x] Step C2 — `hooks.ts:64` runHook 用 process group spawn (`detached:true`)，timeout 时 `process.kill(-pid, SIGKILL)` 杀整组（M4）；同时调整 buildEnv 顺序：profile.env 先注入，DCH_* 后注入覆盖回权威值（M3 / E8 顺手做掉） — done by session 2 on 2026-05-14
 - [x] Step C3 — `proc_timeout.rs` reader buffer 加 5MB 上限 + truncated 标志 + 加 buffer_cap_truncates_oversize_stdout / small_output_not_truncated 测试（M5） — done by session 2 on 2026-05-14
 - [x] Step C4 — 补 `manager.stale-lock.test.ts` 长 hook + 并发 useProfile 不被 stale 抢占测试（spawn 真子进程 + tmpHome） — done by session 2 on 2026-05-14
 
-### Group D — Backup safety（重点） ✅ 完成 (commit 3458a35)
+### Group D — Backup safety（重点） ✅ 完成 (commit 776db29)
 - [x] Step D1 — `backup.ts:151 isDirSafe` 改 `lstat`；`walkFiles` 不递归 symlink dir，symlink file 也跳过（H2） — done by session 2 on 2026-05-14
 - [x] Step D2 — `backup.ts:353` 改成 atomic write：`tar -chf - | gzip -1 > $tmp` + 验证 `tar -tzf $tmp` 通过 + `mv $tmp $outFile`（H4） — done by session 2 on 2026-05-14
 - [x] Step D3 — `backup-restore.ts:160` 加 path validator：必须 `~/...` 前缀 + 不含 `..` + 黑名单；默认强制 `~/.dch-restored/<finalId>/`，`--allow-original-path` opt-in（H5） — done by session 2 on 2026-05-14（cli-backup --allow-original-path flag + bridge.RestoreApplyOpts.allowOriginalPath 透传）
@@ -102,7 +102,7 @@ H8 拆两层：
 
 > **教训**：in-process 改 `process.env.HOME` 不影响 STORE_PATH module 常量（platform.ts `homedir()` 已缓存）；所有改 store / 创建 backup 的测试**必须** spawn 子进程 + `env: HOME=tmp` 隔离。本会话曾误用 in-process 模式污染了真实 ~/.dch/profiles.json 与 ~/.dch-restored，已用 latest.dchpack 恢复。tally 候选见下面。
 
-### Group E — TOCTOU + UI ✅ 完成 (commit c95f1e8)
+### Group E — TOCTOU + UI ✅ 完成 (commit 25ccfcd)
 - [x] Step E1 — `bridge.ts:saveFile` wrapper 接受 `expectedMtimeUs` 参数；走 `save_file_if_mtime`（A5 已建后端）（H7 第 1 处） — done by session 3 on 2026-05-14（saveFileIfMtime + classifySaveError + isMtimeMismatch / isMtimeMissing helper + MtimeMismatchError / MtimeMissingError class，readScope 顺手灌 loadedMtimeUs）
 - [x] Step E2 — `ConfigPanel.tsx` save 路径携带 enter-edit 时的 mtime（H7 第 2 处） — done by session 3 on 2026-05-14（Scope 加 enterEditMtimeRef，「重新加载」推 scope.loadedMtimeUs / 「保留」推 null 弃权 CAS / save catch MtimeMismatchError 弹现有 banner / App.tsx onSave 扩 expectedMtimeUs?）
 - [x] Step E3 — `ProfileStoreEditor.tsx` 同上 + props 接 active reload 触发 banner（H7 第 3 处） — done by session 3 on 2026-05-14（自闭环 mtime CAS：modal 打开 snapshot mtime / save 透传 / inline conflict banner reload-保留-取消 / 不接 props content reload — modal short-lived 后端 CAS 兜底已覆盖）
@@ -122,15 +122,15 @@ H8 拆两层：
 
 ## 当前进度
 
-**Group A ✅ 完成 (commit f392123, session 2 / 2026-05-14)**：lib.rs 拆模块 + async fs/version + path policy + atomic write 后端
+**Group A ✅ 完成 (commit 1284007, session 2 / 2026-05-14)**：lib.rs 拆模块 + async fs/version + path policy + atomic write 后端
 
-**Group B ✅ 完成 (commit a30816e, session 2 / 2026-05-14)**：JSON 协议 7 step 全收口
+**Group B ✅ 完成 (commit 1758c74, session 2 / 2026-05-14)**：JSON 协议 7 step 全收口
 
-**Group C ✅ 完成 (commit cc74bbd, session 2 / 2026-05-14)**：store-lock 动态 staleMs / hook 进程组 / 5MB cap / DCH_* 后注入
+**Group C ✅ 完成 (commit 065aead, session 2 / 2026-05-14)**：store-lock 动态 staleMs / hook 进程组 / 5MB cap / DCH_* 后注入
 
-**Group D ✅ 完成 (commit 3458a35, session 2 / 2026-05-14)**：backup symlink walk safety / atomic dchpack / restore path validator + ~/.dch-restored / addProfile rollback / plain-text regex redact
+**Group D ✅ 完成 (commit 776db29, session 2 / 2026-05-14)**：backup symlink walk safety / atomic dchpack / restore path validator + ~/.dch-restored / addProfile rollback / plain-text regex redact
 
-**Group E ✅ 完成 (commit c95f1e8, session 3 / 2026-05-14)**：mtime CAS（saveFileIfMtime wrapper + ConfigPanel/ProfileStoreEditor 双 caller 接） + CMEditor theme/maxHeight Compartment 补全 + caller useMemo + main.tsx XSS hardening（textContent helper）+ AddProfileModal env regex 校验。**+27 回归测（251/251 ✓ + cargo test 29 ✓）**。
+**Group E ✅ 完成 (commit 25ccfcd, session 3 / 2026-05-14)**：mtime CAS（saveFileIfMtime wrapper + ConfigPanel/ProfileStoreEditor 双 caller 接） + CMEditor theme/maxHeight Compartment 补全 + caller useMemo + main.tsx XSS hardening（textContent helper）+ AddProfileModal env regex 校验。**+27 回归测（251/251 ✓ + cargo test 29 ✓）**。
 
 **F1 ✅ 完成 (session 3 / 2026-05-14)**：`bunx tauri build --bundles app` release profile 编译通过 in 42s，bundle `Dev Config Hub.app` 输出 OK；bun test 251/251 + cargo test 29/29 + dev cargo build 全绿。
 
@@ -152,7 +152,7 @@ session 3 收尾后 hand off 接力：
 
 1. `Bash: cat ./.claude/plans/deep-review-fix-20260514.md` 全文
 2. `EnterWorktree(path: ".claude/worktrees/deep-review-fix-20260514")` 进同 worktree
-3. 自检 `git -C <worktree> log --oneline -7` 确认 HEAD = c95f1e8（Group E commit；F1 build 不入 git）
+3. 自检 `git -C <worktree> log --oneline -7` 确认 HEAD = 25ccfcd（Group E commit；F1 build 不入 git）
 4. **直接动手 F2**：用 `deep-code-review` SKILL 起 Round 2 review pair（异构对抗）—— **不**复用原 4 个 closed reviewer（按 user CLAUDE「shared-team 前置约束」选项 1 重 spawn）。
 
    **F2 SKILL 触发模板**（直接喂给 SKILL）：
@@ -162,11 +162,11 @@ session 3 收尾后 hand off 接力：
 
    scope: Round 2 review — 验证 Group A-E 5 个 fix commit 是否引入新 bug / 漏修边角 / 破坏既有约定
    commits to review (按时序):
-   - f392123 refactor(rust): split lib.rs + async fs/version + path_policy + atomic write
-   - a30816e fix(cli): JSON 协议契约 — main.catch / cmdRemove prompt / use exit / spawn / parseFlags
-   - cc74bbd fix(profiles): store-lock 动态 staleMs + hook 进程组 + reader 5MB cap + DCH_* 后注入
-   - 3458a35 fix(backup): symlink walk safety + atomic dchpack + restore path validator + plain-text redact
-   - c95f1e8 fix(ui): mtime CAS + CMEditor compartment + main.tsx XSS + AddProfileModal env regex
+   - 1284007 refactor(rust): split lib.rs + async fs/version + path_policy + atomic write
+   - 1758c74 fix(cli): JSON 协议契约 — main.catch / cmdRemove prompt / use exit / spawn / parseFlags
+   - 065aead fix(profiles): store-lock 动态 staleMs + hook 进程组 + reader 5MB cap + DCH_* 后注入
+   - 776db29 fix(backup): symlink walk safety + atomic dchpack + restore path validator + plain-text redact
+   - 25ccfcd fix(ui): mtime CAS + CMEditor compartment + main.tsx XSS + AddProfileModal env regex
 
    focus:
    - 新代码自身是否有 bug（async race / leak / atomic 残留 tmp / mtime CAS 边角 / textContent helper 漏点）
@@ -176,12 +176,12 @@ session 3 收尾后 hand off 接力：
 
    skip:
    - R1 已 finding 的 H1-H10 / M1-M19 本身（除非这次 fix 引入新问题再回归）
-   - Group A-E 之前的代码（已审基线 = base_commit 0a136b6）
+   - Group A-E 之前的代码（已审基线 = base_commit 9977c6e）
    - 单元测试结构（已 251/251 全绿）
 
    两个 team 复用 R1 命名（避免 ID 复用 closed 撞车，加 -r2 后缀）：
-   - dch-rev-backend-202611-r2（review f392123 + a30816e + cc74bbd + 3458a35 backend 部分）
-   - dch-rev-cli-ui-202611-r2（review 3458a35 cli + c95f1e8 ui 部分）
+   - dch-rev-backend-202611-r2（review 1284007 + 1758c74 + 065aead + 776db29 backend 部分）
+   - dch-rev-cli-ui-202611-r2（review 776db29 cli + 25ccfcd ui 部分）
 
    reviewer 仍走异构对：reviewer-claude (Opus 4.7) × reviewer-codex (gpt-5.5) 各 team 一对。
    ```

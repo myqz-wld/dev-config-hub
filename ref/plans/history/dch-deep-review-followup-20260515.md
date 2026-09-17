@@ -2,9 +2,9 @@
 plan_id: dch-deep-review-followup-20260515
 created_at: 2026-05-15T05:00:00+08:00
 status: completed
-final_commit: ba10574
+final_commit: 90b516f
 completed_at: 2026-05-15T11:35:00+08:00
-base_commit: 2c5b34e
+base_commit: 3bfc833
 base_branch: main
 worktree_path: .
 note: 项目惯例不进 worktree(REVIEW_2/4/6/7/8/9 同款),直接在主仓库 fix + commit。worktree_path 填 mainRepo 兼容 hand_off_session schema。
@@ -29,7 +29,7 @@ note: 项目惯例不进 worktree(REVIEW_2/4/6/7/8/9 同款),直接在主仓库 
 
 ## 不变量
 
-- 项目主仓库 base_commit = `2c5b34e`,fix 直接在主仓库 commit
+- 项目主仓库 base_commit = `3bfc833`,fix 直接在主仓库 commit
 - bun test + cargo test 必须 0 回归(R2 末态:bun 412 / cargo 40)
 - 不引新依赖
 - 单文件 LOC ≤ 500(项目 CLAUDE.md 护栏);本 plan 顺手把 backup-restore.ts 515 LOC 拆回 ≤ 500
@@ -93,16 +93,16 @@ backup-restore.ts 留主流程 applyBackup / parseBackup / cleanupParsed 类型 
 ## 步骤 checklist
 
 - [x] Step 1 — 基线自检(cwd / git log / bun test + cargo test 跑一遍确认 R2 末态干净)— bun 412 / cargo 40(单线程)pass
-- [x] Step 2 — F1 path_policy with_home env race fix + commit — commit `2e6dcd6`,默认多线程 cargo test 40 pass 连跑 3 次稳定
-- [x] Step 3 — F2 backup-restore.ts 拆模块 + commit — commit `01bd86b`,backup-restore.ts 515→474 / backup-shared.ts 180→282
-- [x] Step 4 — F3 createBackup --keep TOCTOU fix + commit — commit `f4796e9`,10 并发 race 100% 触发,文件全独立 size>0 + tar -tzf 全过
-- [x] Step 5 — F4 plain-text fill UX surface + commit — commit `ba10574`,splitErrorsForReport pure helper + 6 unit case 全过 + RestoreReportBody 渲染友好段
+- [x] Step 2 — F1 path_policy with_home env race fix + commit — commit `3c86661`,默认多线程 cargo test 40 pass 连跑 3 次稳定
+- [x] Step 3 — F2 backup-restore.ts 拆模块 + commit — commit `36dcd76`,backup-restore.ts 515→474 / backup-shared.ts 180→282
+- [x] Step 4 — F3 createBackup --keep TOCTOU fix + commit — commit `82f2968`,10 并发 race 100% 触发,文件全独立 size>0 + tar -tzf 全过
+- [x] Step 5 — F4 plain-text fill UX surface + commit — commit `90b516f`,splitErrorsForReport pure helper + 6 unit case 全过 + RestoreReportBody 渲染友好段
 - [x] Step 6 — 写 CHANGELOG_22.md + 同步 changelog/INDEX.md + plan 归档(本 plan mv 到 `<main>/plans/` + frontmatter status=completed + commit)— 本 commit
 
 ## 当前进度
 
 **位置**:全 done。bun test 412 → **419 pass / 0 fail**(+1 F3 / +6 F4) / cargo test **40 pass / 0 fail** 默认多线程稳定。
-4 commit 落地 4 项 follow-up:`2e6dcd6` (F1) → `01bd86b` (F2) → `f4796e9` (F3) → `ba10574` (F4)。
+4 commit 落地 4 项 follow-up:`3c86661` (F1) → `36dcd76` (F2) → `82f2968` (F3) → `90b516f` (F4)。
 
 ## 下一会话第一步 (cold start hand off)
 
@@ -110,7 +110,7 @@ backup-restore.ts 留主流程 applyBackup / parseBackup / cleanupParsed 类型 
 
 1. **`Bash: cat ./.claude/plans/dch-deep-review-followup-20260515.md`** 读全本 plan(强制走 cat 不走 Read,详 user CLAUDE.md §选项 A 末 callout)
 2. **不**进 worktree(本 plan 项目历史惯例不用 worktree,直接主仓库 fix + commit)
-3. `git -C . log --oneline -10` 确认 HEAD = `2c5b34e`(R2 + 收口末态)
+3. `git -C . log --oneline -10` 确认 HEAD = `3bfc833`(R2 + 收口末态)
 4. (可选自检)`zsh -i -l -c "bun test" | tail -5` + `zsh -i -l -c "cd src-tauri && cargo test -- --test-threads=1" | grep "test result"` 确认 412 / 40 全过
 5. **按 §设计决策 2 顺序**(F1 → F4)依次落地,每项独立 commit
 6. **Step 6 收口**:写 `changelog/CHANGELOG_22.md` + 同步 `changelog/INDEX.md` 加一行 + plan 归档(本 plan mv 到 `<main>/plans/dch-deep-review-followup-20260515.md` + 同步 `<main>/plans/INDEX.md` + frontmatter status=completed + final_commit + completed_at + git commit)

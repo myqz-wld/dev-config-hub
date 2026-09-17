@@ -1,7 +1,9 @@
 ---
 review_id: 6
 reviewed_at: 2026-05-11
-expired: false
+expired: true
+coverage_state: scope_unknown
+expiry_reason: "No usable historical baseline; no review coverage is inferred."
 skipped_expired:
 ---
 

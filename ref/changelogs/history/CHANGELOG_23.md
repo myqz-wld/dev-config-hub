@@ -70,7 +70,7 @@ Phase E 全套验证:`bun test` 419 pass / 0 fail / 962 expect calls ✅;`bun ru
 - **0 doc/src**:`src/` + `README.md` + `CLAUDE.md` 全 0 命中无需改(§不变量 9 scan range 内)
 - **1 plan 主体**:`.claude/plans/build-dir-migration-20260526.md`(全程在 worktree 内被 `.gitignore` 忽略,Phase H.5 mv 入 `plans/build-dir-migration-20260526.md`)
 - **1 changelog**:`changelog/CHANGELOG_23.md`(本文)
-- **commits**:`8c07286 feat(build-dir): migrate frontend bundle to build/fe (Phase A-D)` + `6aba889 fix(build-dir) [Phase G' R1]: tsconfig.json 删 dist + .gitignore /build/ 锚定` + 本 changelog commit + Phase H archive commit
+- **commits**:`a114ae2 feat(build-dir): migrate frontend bundle to build/fe (Phase A-D)` + `f8b42a1 fix(build-dir) [Phase G' R1]: tsconfig.json 删 dist + .gitignore /build/ 锚定` + 本 changelog commit + Phase H archive commit
 - **build artifact**(被 `.gitignore` 整 `/build/` 忽略不入 git):`build/fe/{index.html + 12 hash chunk/css}` + Tauri `src-tauri/target/release/bundle/macos/Dev Config Hub.app`(后者 Cargo target/ 也已 .gitignore L37 忽略)
 
 详 [`plans/build-dir-migration-20260526.md`](../../plans/history/build-dir-migration-20260526.md)

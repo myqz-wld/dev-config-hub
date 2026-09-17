@@ -7,7 +7,7 @@ changed_at: 2026-05-14
 
 ## 概要
 
-用户驱动「深度 code review」诉求。`agent-deck:deep-code-review` SKILL 编排 2 轮 × 4 reviewer × 2 batch 双异构对抗（reviewer-claude Opus 4.7 × reviewer-codex gpt-5.5 xhigh）+ 3 轮 fix；R1 base_commit=0a136b6 全量挖深 10 HIGH + 19 MED → Group A-E 5 commit 收口；R2 验证又挖 4 HIGH + 5 MED + 1 LOW + 5 INFO → Group G1-G7 收口（commit d40286c）；1 HIGH 反驳 ❌（path_policy symlink 设计取舍）。**257 bun pass + 32 cargo pass / 0 回归**。
+用户驱动「深度 code review」诉求。`agent-deck:deep-code-review` SKILL 编排 2 轮 × 4 reviewer × 2 batch 双异构对抗（reviewer-claude Opus 4.7 × reviewer-codex gpt-5.5 xhigh）+ 3 轮 fix；R1 base_commit=9977c6e 全量挖深 10 HIGH + 19 MED → Group A-E 5 commit 收口；R2 验证又挖 4 HIGH + 5 MED + 1 LOW + 5 INFO → Group G1-G7 收口（commit cc54569）；1 HIGH 反驳 ❌（path_policy symlink 设计取舍）。**257 bun pass + 32 cargo pass / 0 回归**。
 
 详见 [REVIEW_8.md](../../reviews/history/REVIEW_8.md)。
 
@@ -15,24 +15,24 @@ changed_at: 2026-05-14
 
 | commit | scope | 修哪些 finding |
 |---|---|---|
-| **f392123** | refactor(rust): split lib.rs + async fs/version + path_policy + atomic write | R1 H1 (Tauri sync command 阻塞) + H7 后端 (mtime CAS) + H9 (path 任意写) |
-| **a30816e** | fix(cli): JSON 协议契约 — main.catch / cmdRemove prompt / use exit / spawn / parseFlags | R1 H6 + M9 + M10 + M11 |
-| **cc74bbd** | fix(profiles): store-lock 动态 staleMs + hook 进程组 + reader 5MB cap + DCH_* 后注入 | R1 H3 + M3 + M4 + M5 |
-| **3458a35** | fix(backup): symlink walk safety + atomic dchpack + restore path validator + plain-text redact | R1 H2 + H4 + H5 + M1 + M2 |
-| **c95f1e8** | fix(ui): mtime CAS + CMEditor compartment + main.tsx XSS + AddProfileModal env regex | R1 H7 前端 + H8 + H10 + M14 |
-| **d40286c** | fix(review_8 r3): R2 三态裁决新挖 4 HIGH+5 MED+1 LOW path safety + atomic + UI | R2 R2-1/R2-2/R2-3/R2-4/R2-6/R2-7/R2-8/R2-9/R2-10/R2-11/R2-12 |
+| **1284007** | refactor(rust): split lib.rs + async fs/version + path_policy + atomic write | R1 H1 (Tauri sync command 阻塞) + H7 后端 (mtime CAS) + H9 (path 任意写) |
+| **1758c74** | fix(cli): JSON 协议契约 — main.catch / cmdRemove prompt / use exit / spawn / parseFlags | R1 H6 + M9 + M10 + M11 |
+| **065aead** | fix(profiles): store-lock 动态 staleMs + hook 进程组 + reader 5MB cap + DCH_* 后注入 | R1 H3 + M3 + M4 + M5 |
+| **776db29** | fix(backup): symlink walk safety + atomic dchpack + restore path validator + plain-text redact | R1 H2 + H4 + H5 + M1 + M2 |
+| **25ccfcd** | fix(ui): mtime CAS + CMEditor compartment + main.tsx XSS + AddProfileModal env regex | R1 H7 前端 + H8 + H10 + M14 |
+| **cc54569** | fix(review_8 r3): R2 三态裁决新挖 4 HIGH+5 MED+1 LOW path safety + atomic + UI | R2 R2-1/R2-2/R2-3/R2-4/R2-6/R2-7/R2-8/R2-9/R2-10/R2-11/R2-12 |
 
 ## R1 → Group A-E（5 commit）
 
 | Group | HIGH | 同根 MED | commit |
 |---|---|---|---|
-| **A** Rust async + boundary | H1 (7 sync command async + spawn_blocking) + H9 (PathPolicy::HomeOnly check_path) | — | f392123 |
-| **B** JSON 协议 | H6 (cmdRemove + main.catch + jsonOut→exit) | M9 spawn exit + M10 --json filter + M11 parser flag | a30816e |
-| **C** Store lock + 进程组 | H3 (staleMs 动态 = 2×hookTimeoutMs+grace) | M4 (runHook killpg) + M5 (buffer cap) + M3 (DCH_* 顺序) | cc74bbd |
-| **D** Backup safety | H2 (walkFiles symlink) + H4 (latest.dchpack atomic) + H5 (restore path validator) | M1 (addProfile fail cleanup) + M2 (redact markdown) | 3458a35 |
-| **E** TOCTOU + UI | H7 (mtime CAS Rust+TS) + H8 (CMEditor compartment) + H10 (main.tsx innerHTML XSS) | M14 (AddProfile env regex) | c95f1e8 |
+| **A** Rust async + boundary | H1 (7 sync command async + spawn_blocking) + H9 (PathPolicy::HomeOnly check_path) | — | 1284007 |
+| **B** JSON 协议 | H6 (cmdRemove + main.catch + jsonOut→exit) | M9 spawn exit + M10 --json filter + M11 parser flag | 1758c74 |
+| **C** Store lock + 进程组 | H3 (staleMs 动态 = 2×hookTimeoutMs+grace) | M4 (runHook killpg) + M5 (buffer cap) + M3 (DCH_* 顺序) | 065aead |
+| **D** Backup safety | H2 (walkFiles symlink) + H4 (latest.dchpack atomic) + H5 (restore path validator) | M1 (addProfile fail cleanup) + M2 (redact markdown) | 776db29 |
+| **E** TOCTOU + UI | H7 (mtime CAS Rust+TS) + H8 (CMEditor compartment) + H10 (main.tsx innerHTML XSS) | M14 (AddProfile env regex) | 25ccfcd |
 
-## R2 → Group G1-G7（commit d40286c）
+## R2 → Group G1-G7（commit cc54569）
 
 R2 验证 5 个 R1 fix commit 是否引入新 bug / 漏修边角。新挖：
 
@@ -101,7 +101,7 @@ R3 G7 加：
 
 ## 验证
 
-| 项 | R1 收口（c95f1e8） | R3 收口（d40286c） |
+| 项 | R1 收口（25ccfcd） | R3 收口（cc54569） |
 |---|---|---|
 | bun test | 251/251 | **257/257** |
 | cargo test | 29/29 | **32/32** |

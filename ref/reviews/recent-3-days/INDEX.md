@@ -15,4 +15,4 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-08-19 | [REVIEW_18_macos-duplicate-app-registration.md](REVIEW_18_macos-duplicate-app-registration.md) | macOS duplicate application registration | 2 MED / 1 LOW fixed; 3 alternatives rejected |
+| 2026-09-16 | [REVIEW_19_privacy-simplification.md](REVIEW_19_privacy-simplification.md) | Privacy cleanup and removal completion audit | 4 accepted/fixed; 2 rejected; visual check unverified |

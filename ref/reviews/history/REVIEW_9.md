@@ -1,20 +1,20 @@
 ---
 review_id: 9
 reviewed_at: 2026-05-15
-baseline_commit: 8ad2fa0
+baseline_commit: c68556b
 expired: false
 ---
 
 # REVIEW_9 — Deep Code Review × R1 + R2 异构对抗(G1-G12 收口)
 
-> base_commit: `8ad2fa0` → final_commit: `7d0bb75`
+> base_commit: `c68556b` → final_commit: `d0e8182`
 > 完成时间:2026-05-15
 > 关联 changelog:[CHANGELOG_21.md](../../changelogs/history/CHANGELOG_21.md)
 > 关联 plan:[plans/dch-deep-review-20260515.md](../../plans/history/dch-deep-review-20260515.md)
 
 ## 触发场景
 
-用户主动深度 review:挖项目代码的优化 / 重构空间 + 顺手挖深层 bug。focus = 重构 / 优化为主 + 顺手挖 bug(用户 R1 选择)。R1 base_commit `8ad2fa0`(CHANGELOG_20 落地后)。
+用户主动深度 review:挖项目代码的优化 / 重构空间 + 顺手挖深层 bug。focus = 重构 / 优化为主 + 顺手挖 bug(用户 R1 选择)。R1 base_commit `c68556b`(CHANGELOG_20 落地后)。
 
 ## 方法
 
@@ -40,9 +40,9 @@ expired: false
 - 弱断言关键词(可能 / 也许 / 应该 / 大概)只允许出现在 *未验证* 条目
 - reviewer-codex 失败禁止降级双 Claude(同源化破坏异构)
 
-## R1 三态裁决总览(commit 0c3f144 G1 → 9073fb5 G7)
+## R1 三态裁决总览(commit 3f21f82 G1 → 7c6cc50 G7)
 
-> 基线 base_commit = `8ad2fa0`,bun test 339 pass / cargo 32 pass。
+> 基线 base_commit = `c68556b`,bun test 339 pass / cargo 32 pass。
 
 ### A 批 secrets-dedup R1
 
@@ -85,9 +85,9 @@ expired: false
   - D-MED-6: bridge-backup args 构造重复 → buildRestoreArgs helper
   - D-MED-7: secret 清单跨 modal 不一致 → UniqueSecretsList 共用
 
-## R2 三态裁决总览(commit 7265785 G8 → 7d0bb75 G12)
+## R2 三态裁决总览(commit 3fef39d G8 → d0e8182 G12)
 
-> 基线 R1 末态 = `9073fb5`,bun test 346 pass / cargo 37 pass。
+> 基线 R1 末态 = `7c6cc50`,bun test 346 pass / cargo 37 pass。
 > R2 重 spawn 同款 reviewer 配对 + skip 字段列 R1 已修。
 
 ### A 批 secrets-dedup R2
@@ -156,20 +156,20 @@ expired: false
 
 | commit | tag | 主题 | finding 范围 |
 |---|---|---|---|
-| `0c3f144` | G1 (R1) | secrets-dedup 算法核心 | A-HIGH-1/2/3/4 + 多 MED |
-| `79b9d3f` | G2 (R1) | tmpDir 泄漏 + partial restore + truncated | B-HIGH-2/5 + D-HIGH-1 + D-MED-2 |
-| `db9fb40` | G3 (R1) | backup-restore 数据正确性 + 中段无 rollback | B-HIGH-1/4 + B-MED-1/2/3 |
-| `30b7d85` | G4 (R1) | Rust 安全加固 (HOME symlink / reader leak / RAII) | C-HIGH-1/2 + C-MED-1/2/3 + C-codex M4 + C-LOW-1 |
-| `6650967` | G5a (R1) | UI secret state hygiene + attemptClose + 共用组件 + memo + race fix | D-HIGH-1/2 + D-MED-1/4/5/6/7 |
-| `d38461e` | G5b (R1) | D 批 INFO 顺手 + secrets-fill error 不含 secret 值验证 | D-INFO 等 |
-| `180637a` | G6 (R1) | 拆 secrets-index/backup-restore (525→235/610→459 + 3 新文件) | A-MED-1 + B-HIGH-3 架构债 |
-| `8ce7e0c` | G6 2/2 (R1) | 抽 bridge-core + backup-shared 消除双向 import | 模块边界 |
-| `9073fb5` | G7 (R1) | listBackups 并发池上限 8 防 fd 耗尽 | B-codex L1 |
-| `7265785` | G8 (R2) | A 批 secrets-dedup R2 HIGH×4 + MED×2 + INFO×2 + 21 新测试 | A-R2 全 |
-| `287d067` | G9 (R2) | B 批 backup/restore R2 HIGH×2 + MED×3 + INFO/LOW + 15 新测试 | B-R2 全 |
-| `2c279d1` | G10 (R2) | C 批 Rust 安全 R2 HIGH×2 + MED×3 + LOW×2 + INFO×1 + 3 新 cargo test | C-R2 全 |
-| `c506cd6` | G11 (R2) | D 批 UI R2 MED×3 + LOW×4 + INFO×1 + RestoreBackupModal 拆件 | D-R2 (除 D-MED-3 测试) |
-| `7d0bb75` | G12 (R2) | R2 测试盲区补全 — 5 个 invariant test (D-MED-3) | D-MED-3 |
+| `3f21f82` | G1 (R1) | secrets-dedup 算法核心 | A-HIGH-1/2/3/4 + 多 MED |
+| `72a95c8` | G2 (R1) | tmpDir 泄漏 + partial restore + truncated | B-HIGH-2/5 + D-HIGH-1 + D-MED-2 |
+| `a84c3fb` | G3 (R1) | backup-restore 数据正确性 + 中段无 rollback | B-HIGH-1/4 + B-MED-1/2/3 |
+| `756cc0b` | G4 (R1) | Rust 安全加固 (HOME symlink / reader leak / RAII) | C-HIGH-1/2 + C-MED-1/2/3 + C-codex M4 + C-LOW-1 |
+| `754c2f6` | G5a (R1) | UI secret state hygiene + attemptClose + 共用组件 + memo + race fix | D-HIGH-1/2 + D-MED-1/4/5/6/7 |
+| `17fd4e9` | G5b (R1) | D 批 INFO 顺手 + secrets-fill error 不含 secret 值验证 | D-INFO 等 |
+| `bdb38ed` | G6 (R1) | 拆 secrets-index/backup-restore (525→235/610→459 + 3 新文件) | A-MED-1 + B-HIGH-3 架构债 |
+| `5f56db8` | G6 2/2 (R1) | 抽 bridge-core + backup-shared 消除双向 import | 模块边界 |
+| `7c6cc50` | G7 (R1) | listBackups 并发池上限 8 防 fd 耗尽 | B-codex L1 |
+| `3fef39d` | G8 (R2) | A 批 secrets-dedup R2 HIGH×4 + MED×2 + INFO×2 + 21 新测试 | A-R2 全 |
+| `dfd4527` | G9 (R2) | B 批 backup/restore R2 HIGH×2 + MED×3 + INFO/LOW + 15 新测试 | B-R2 全 |
+| `7c354e2` | G10 (R2) | C 批 Rust 安全 R2 HIGH×2 + MED×3 + LOW×2 + INFO×1 + 3 新 cargo test | C-R2 全 |
+| `263e0ea` | G11 (R2) | D 批 UI R2 MED×3 + LOW×4 + INFO×1 + RestoreBackupModal 拆件 | D-R2 (除 D-MED-3 测试) |
+| `d0e8182` | G12 (R2) | R2 测试盲区补全 — 5 个 invariant test (D-MED-3) | D-MED-3 |
 
 ## 反驳轮记录(关键反驳)
 
@@ -200,9 +200,9 @@ R1+R2 所有 finding 反驳后均 ✅ 或部分 ❓ 后 lead 现场验证;暂无
 
 | 阶段 | bun test | cargo test (--test-threads=1) | 说明 |
 |---|---|---|---|
-| 基线 (8ad2fa0) | 339 pass | 32 pass | R1 起点 |
-| R1 末态 (9073fb5) | 346 pass | 37 pass | +7 bun test (G1 / G2 / G6 等) + 5 cargo test (G4) |
-| R2 末态 (7d0bb75) | **412 pass** | **40 pass** | +66 bun test (G8 +21 / G9 +15 / G11 0 + G12 +30) + 3 cargo test (G10) |
+| 基线 (c68556b) | 339 pass | 32 pass | R1 起点 |
+| R1 末态 (7c6cc50) | 346 pass | 37 pass | +7 bun test (G1 / G2 / G6 等) + 5 cargo test (G4) |
+| R2 末态 (d0e8182) | **412 pass** | **40 pass** | +66 bun test (G8 +21 / G9 +15 / G11 0 + G12 +30) + 3 cargo test (G10) |
 
 零回归(每个 commit 后 bun + cargo 全过)。
 

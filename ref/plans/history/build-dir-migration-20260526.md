@@ -3,9 +3,9 @@ plan_id: "build-dir-migration-20260526"
 created_at: "2026-05-26"
 worktree_path: ".claude/worktrees/build-dir-migration-20260526"
 status: "completed"
-base_commit: "ae8268e"
+base_commit: "a756d16"
 base_branch: "main"
-final_commit: "fc1591ddd76410787ba094f0636a1e8ba88e0c20"
+final_commit: "94c6e5cd64e7d1cc5a3c5aba5cb955cd6880ef7a"
 completed_at: "2026-05-26"
 ---
 # Plan: dev-config-hub 项目 build 产物全面迁移到 build/ 统一根出口
@@ -51,7 +51,7 @@ completed_at: "2026-05-26"
 7. **bun test + bunx tauri build --bundles app 全 pass** 是收口前置条件;**`bun run dev` 留 user 收口后自验证**(与 agent-deck §F.6 同款 dog-fooding 责任分配 — lead 自杀风险禁主跑 `pkill "Dev Config Hub"` / 重装 .app,详 §Phase F.5)。
 8. **每个 fix 必有同步实测** — 改 config 同步跑相应 bun / Tauri 命令 verify 产物 actually 落 build/fe/(不积累多 fix 一次 batch 跑,单点错误难定位)。
 9. **src/ + doc 内 `dist/` `out/` 提及全替换**(同款 hard cutover 不留旧标准描述)。**扫描范围**:`src/ package.json src-tauri/tauri.conf.json tsconfig.json bunfig.toml README.md CLAUDE.md`(顶层 self-describe + 配置文件,**含 tsconfig.json + bunfig.toml** R1 finding 修法 — claude HIGH-1 + codex LOW-2 双方独立提出)。**不扫**:`changelog/ reviews/ plans/`(历史归档保持当时事实) + `node_modules/` + `build/` + `dist/` + `src-tauri/target/`(产物 / 第三方);**`patches/` 例外**:`patches/ebnf@1.9.1.patch` 等第三方 npm 包 patch 内部含 `dist/Grammars/...` 等是该包 build 产物路径属合法引用,**不替换**(R1 codex LOW-2 修法)。**特别注意 README.md L60** 的 `src-tauri/target/release/bundle/msi/` 是 Tauri Windows bundle 标准产物路径,**不属于 dist/ 替换范围**(Tauri target/ 是 §不变量 3 例外)。
-10. **base_commit 严格在 main 上**(`ae8268e chore(cleanup): trim & skeleton refresh per CLAUDE.md (plan: personal-projects-cleanup-20260520)`,本项目当前 HEAD)。
+10. **base_commit 严格在 main 上**(`a756d16 chore(cleanup): trim & skeleton refresh per CLAUDE.md (plan: personal-projects-cleanup-20260520)`,本项目当前 HEAD)。
 
 ## 设计决策(不再争论)
 
@@ -214,10 +214,10 @@ spike 结论 inline 到 §设计决策 + §已知踩坑;残留风险列表入 §
 ## 当前进度
 
 - ✅ §Step 0 学样资料读完(2026-05-26 cold-start):agent-deck plan + CHANGELOG_154 + 本项目 package.json + src-tauri/tauri.conf.json + .gitignore + bunfig.toml + CLAUDE.md + README.md + grep 实证 dist/ 命中范围
-- ✅ §Step 1 plan v1 outline 写完(2026-05-26 本会话,base_commit `ae8268e`)
-- ✅ §Step 2 EnterWorktree 完成(MCP enter_worktree + builtin EnterWorktree(path:) 双步,worktree `worktree-build-dir-migration-20260526` base 在 `ae8268e`)
-- ✅ §Phase A 完成(A.1 package.json --outdir build/fe + A.2 src-tauri/tauri.conf.json frontendDist ../build/fe + A.3 bun run build:fe 实证 build/fe/ 13 文件 + A.4 bunx tauri build 实证 .app 生成成功)— commit `8c07286 feat(build-dir): migrate frontend bundle to build/fe (Phase A-D)`
-- ✅ §Phase B 完成(.gitignore 删 out / dist 单数 entry + 加 build/ + git check-ignore 实证)— commit `8c07286`(R1 fix 后 build/ → /build/ 锚定,Phase G' 补 commit)
+- ✅ §Step 1 plan v1 outline 写完(2026-05-26 本会话,base_commit `a756d16`)
+- ✅ §Step 2 EnterWorktree 完成(MCP enter_worktree + builtin EnterWorktree(path:) 双步,worktree `worktree-build-dir-migration-20260526` base 在 `a756d16`)
+- ✅ §Phase A 完成(A.1 package.json --outdir build/fe + A.2 src-tauri/tauri.conf.json frontendDist ../build/fe + A.3 bun run build:fe 实证 build/fe/ 13 文件 + A.4 bunx tauri build 实证 .app 生成成功)— commit `a114ae2 feat(build-dir): migrate frontend bundle to build/fe (Phase A-D)`
+- ✅ §Phase B 完成(.gitignore 删 out / dist 单数 entry + 加 build/ + git check-ignore 实证)— commit `a114ae2`(R1 fix 后 build/ → /build/ 锚定,Phase G' 补 commit)
 - ✅ §Phase C 完成(src/ grep `\bdist\b|\bout\b` 0 命中;substring `dist` 5 处全是英文 word `distinct`)
 - ✅ §Phase D 完成(README + CLAUDE grep 0 命中;`src-tauri/target/release/bundle/...` 路径属 §不变量 3 例外不替换)
 - ✅ §Phase E.1 bun test 419 pass / 0 fail ✅(10.66s,962 expect calls;Phase G' tsconfig 改后再跑 419 pass / 0 fail / 962 expect 10.50s 无回归)
@@ -251,7 +251,7 @@ R1 单方 MED followup(plan scope 外,**本 plan 不修**仅加 §已知踩坑 I
 R1 INFO verified(无需 fix):
 - **claude INFO-1 (.gitignore `build/` glob 边界)** ✅ partial verified:claude 验证 `src-tauri/build.rs` `buildkite.yml` `build-tool/x.js` 不命中正确,但漏测 nested `src/build/` 等场景 — codex LOW-1 补 nested 视角发现 `build/` 不锚定确实忽略任意层级 → 综合走 codex LOW-1 修法 `/build/` 锚定
 - **claude INFO-2 (Phase A-D 实施真落地)** ✅ verified:本 plan 主路径完全成立(实测 grep 0 命中 + cross-file 同步 + build/ glob 边界正确)
-- **codex 补充验证** ✅:realpath build/fe = realpath src-tauri/../build/fe(cross-file 路径同步成立);.app 存在;git status 干净;HEAD `8c07286`
+- **codex 补充验证** ✅:realpath build/fe = realpath src-tauri/../build/fe(cross-file 路径同步成立);.app 存在;git status 干净;HEAD `a114ae2`
 
 R1 整体:11 finding(claude 7 + codex 4 — 2 双方独立 overlap)+ 1 followup,**100% 真问题 0 反驳 0 finding 被反驳**。**R2 评估不需**:0 新 HIGH 边界条件(R1 finding 全 ✅ fix + 0 反驳 + 代码 + config + .gitignore 主路径完全正确,所有 finding 集中在 plan narrative 边界 + 1 处真残留 tsconfig.json + 1 处 .gitignore glob 锚定);**直接进 Phase H 收口** + Phase I post-archive。
 
@@ -271,7 +271,7 @@ R1 整体:11 finding(claude 7 + codex 4 — 2 双方独立 overlap)+ 1 followup,
 1. `Bash: cat ./.claude/plans/build-dir-migration-20260526.md`(全文)
 2. 读 §当前进度,找最近一个 ⏳ entry — 就是接力起点
 3. EnterWorktree(builtin) `path: .claude/worktrees/build-dir-migration-20260526`(避 v2.1.112 stale base bug,worktree 已存在不要再 git worktree add)
-4. `git log --oneline -3` 自检 HEAD 含本 plan 的 commit 历史 + base_commit `ae8268e`
+4. `git log --oneline -3` 自检 HEAD 含本 plan 的 commit 历史 + base_commit `a756d16`
 5. 按 §当前进度 ⏳ 起点对应 §Phase 章节实施,每完成一 Phase / Step 在本 plan 文件 `- [ ]` 打勾 + commit 进度
 
 ### 当前接力起点(2026-05-26 R1 fix 完成 + Phase H 开始)
@@ -279,7 +279,7 @@ R1 整体:11 finding(claude 7 + codex 4 — 2 双方独立 overlap)+ 1 followup,
 - ✅ §Step 0 学样资料读完
 - ✅ §Step 1 plan v1 outline 写完
 - ✅ §Step 2 EnterWorktree 完成
-- ✅ §Phase A-D 完成(commit `8c07286`)
+- ✅ §Phase A-D 完成(commit `a114ae2`)
 - ✅ §Phase E.1/E.2/E.3 完成(bun test 419 pass / build:fe / Tauri .app build)
 - ✅ §Step 1.5 deep-review R1 mixed 完成(11 finding 100% 真问题 0 反驳;详 §Step 1.5 R1 finding fix 摘要 callout)
 - ✅ §Phase G' R1 fix 完成(tsconfig.json:30 删 "dist" + .gitignore /build/ 锚定 + plan narrative 多处 fix)

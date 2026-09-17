@@ -2,7 +2,9 @@
 review_id: 11
 reviewed_at: 2026-06-19
 baseline_commit: <missing>
-expired: false
+expired: true
+coverage_state: scope_unknown
+expiry_reason: "No usable historical baseline; no review coverage is inferred."
 ---
 
 # REVIEW_11 — Paper UI render-path performance audit

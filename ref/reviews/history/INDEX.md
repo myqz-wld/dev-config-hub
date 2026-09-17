@@ -15,6 +15,12 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-07-31 | [REVIEW_17_macos-install-signature.md](REVIEW_17_macos-install-signature.md) | macOS local installation and bundle signature integrity | 2 HIGH / 1 MED fixed; 2 hypotheses rejected |
+| 2026-07-27 | [REVIEW_16_profile-backup-workspace.md](REVIEW_16_profile-backup-workspace.md) | Profile tabs, policy cache, form layout, and dialog ACL | 3 MED / 1 LOW fixed; 2 rejected; visual acceptance pending |
+| 2026-07-27 | [REVIEW_15_policy-scroll-paint.md](REVIEW_15_policy-scroll-paint.md) | Policy editor scroll backing and stable WebKit text paint | 1 MED / 1 LOW fixed; 1 prior decision superseded; native visual acceptance pending |
+| 2026-07-26 | [REVIEW_14_profile-responsive-paint.md](REVIEW_14_profile-responsive-paint.md) | Responsive profile actions and stable WebKit text paint | 1 MED / 1 LOW fixed; 1 prior decision superseded; visual smoke blocked |
+| 2026-07-26 | [REVIEW_13_profile-modal-containment.md](REVIEW_13_profile-modal-containment.md) | Profile overlay containment and notebook selects | 1 MED / 1 LOW fixed; 1 rejected; visual smoke blocked |
+| 2026-07-26 | [REVIEW_12_backup-policy-security.md](REVIEW_12_backup-policy-security.md) | Backup policy and profile workflow audit | 2 HIGH / 3 MED / 1 LOW fixed; 2 rejected; 1 blocked |
 | 2026-06-19 | [REVIEW_11.md](REVIEW_11.md) | Paper UI render-path performance | 2 MED / 1 LOW (+ 1 rejected / 1 uncertain) |
 | 2026-06-09 | [REVIEW_10.md](REVIEW_10.md) | Bun Subprocess.kill typecheck fix | 1 MED |
 | 2026-05-15 | [REVIEW_9.md](REVIEW_9.md) | Deep review R1/R2 and G1-G12 closure | 24 HIGH / 28 MED / multiple LOW/INFO |

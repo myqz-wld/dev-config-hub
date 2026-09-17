@@ -1,7 +1,7 @@
 ---
 review_id: 8
 reviewed_at: 2026-05-14
-baseline_commit: 0a136b6
+baseline_commit: 9977c6e
 expired: false
 ---
 
@@ -17,30 +17,30 @@ expired: false
 - **Scope 切片**（避免单 reviewer 上下文过载）：`backend-core` (Rust + 后端 ts: profiles / backup / cli) × `cli-ui` (React + bridge + CLI flag + Modal)
 - **工具**：mcp `agent-deck` (spawn_session / send_message / wait_for_message / shutdown_session) + lead 自己 grep / Read / 写小测 / 跑 `bun --eval` 实测复现做现场验证
 
-## Round 1（base_commit = 0a136b6 → 5 commit fix）
+## Round 1（base_commit = 9977c6e → 5 commit fix）
 
 R1 全量挖出 **10 HIGH + 19 MED**。Group A-E 5 commit 全收口。详见 plan `deep-review-fix-20260514.md` 的 Group A-E checklist；本节只列 HIGH 摘要：
 
 | ID | 主题 | 严重度 | fix commit |
 |---|---|---|---|
-| H1 | 7 个 Tauri sync command 阻塞 webview（webview 假死直到完成） | HIGH | f392123 |
-| H2 | backup walkFiles 不防 symlink dir → backup 含 /etc 内容 | HIGH | 3458a35 |
-| H3 | store-lock 静态 staleMs=60s vs 持锁 1200s → multi-process lost update | HIGH | cc74bbd |
-| H4 | backup latest.dchpack 非 atomic（半写废了用户最近 backup） | HIGH | 3458a35 |
-| H5 | backup restore 写任意 path（恶意 .dchpack configDir_original 任意覆盖） | HIGH | 3458a35 |
-| H6 | cli main.catch / cmdRemove prompt / use exit code missing 破坏 JSON 协议 | HIGH | a30816e |
-| H7 | save_file mtime TOCTOU（前端 enter-edit 后外部改，save 静默覆盖） | HIGH | f392123 + c95f1e8 |
-| H8 | CMEditor init 不响应 prop 变更（language / theme 切换 noop） | HIGH | c95f1e8 |
-| H9 | save_file path 任意写（webview 可写 /etc/hosts / ~/.ssh） | HIGH | f392123 |
-| H10 | main.tsx innerHTML XSS（unhandledrejection event.reason 未逃逸） | HIGH | c95f1e8 |
+| H1 | 7 个 Tauri sync command 阻塞 webview（webview 假死直到完成） | HIGH | 1284007 |
+| H2 | backup walkFiles 不防 symlink dir → backup 含 /etc 内容 | HIGH | 776db29 |
+| H3 | store-lock 静态 staleMs=60s vs 持锁 1200s → multi-process lost update | HIGH | 065aead |
+| H4 | backup latest.dchpack 非 atomic（半写废了用户最近 backup） | HIGH | 776db29 |
+| H5 | backup restore 写任意 path（恶意 .dchpack configDir_original 任意覆盖） | HIGH | 776db29 |
+| H6 | cli main.catch / cmdRemove prompt / use exit code missing 破坏 JSON 协议 | HIGH | 1758c74 |
+| H7 | save_file mtime TOCTOU（前端 enter-edit 后外部改，save 静默覆盖） | HIGH | 1284007 + 25ccfcd |
+| H8 | CMEditor init 不响应 prop 变更（language / theme 切换 noop） | HIGH | 25ccfcd |
+| H9 | save_file path 任意写（webview 可写 /etc/hosts / ~/.ssh） | HIGH | 1284007 |
+| H10 | main.tsx innerHTML XSS（unhandledrejection event.reason 未逃逸） | HIGH | 25ccfcd |
 
 MED 详见各 commit。R1 验证：bun test 251/251 + cargo test 29/29 + cargo build --release ✓。
 
-## Round 2 三态裁决（4 reviewer 全到 + 现场验证 + commit d40286c R3 fix 收口）
+## Round 2 三态裁决（4 reviewer 全到 + 现场验证 + commit cc54569 R3 fix 收口）
 
-R2 验证 5 个 R1 fix commit (f392123 / a30816e / cc74bbd / 3458a35 / c95f1e8) 是否引入新 bug / 漏修边角。新挖 **5 HIGH + 5 MED + 1 LOW + 5 INFO/LOW**。
+R2 验证 5 个 R1 fix commit (1284007 / 1758c74 / 065aead / 776db29 / 25ccfcd) 是否引入新 bug / 漏修边角。新挖 **5 HIGH + 5 MED + 1 LOW + 5 INFO/LOW**。
 
-### ✅ 真问题（必修，已 R3 commit d40286c 收口）
+### ✅ 真问题（必修，已 R3 commit cc54569 收口）
 
 | ID | 文件:行号 | 摘要 | 严重度 | 提出方 / 验证手段 |
 |---|---|---|---|---|
@@ -53,7 +53,7 @@ R2 验证 5 个 R1 fix commit (f392123 / a30816e / cc74bbd / 3458a35 / c95f1e8) 
 | **R2-10** | backup-restore.ts:71 | 黑名单大小写敏感（`.SSH` / `library/LaunchAgents` 通过校验，macOS APFS / HFS+ 默认 case-insensitive 同 inode） | **MED** | B-codex 单方；现场实测 ✅ |
 | **R2-11** | redact.ts:204 | HTTP_AUTH regex 末尾 `/g` 不是 `/gi` → lowercase `authorization:` 漏脱敏（HTTP request log / curl 例子常见） | **MED** | B-codex 单方；read 代码 + 反向测复现 ✅ |
 | **R2-12** | commands/dch.rs:122 | `DchCommandResult` 没透传 `truncated` 字段（M5 已实现 truncated_flag 但 dch.rs 没传给 TS bridge） | **MED** | B-codex 单方；read 代码确认 ✅ |
-| **R2-2** | bridge.ts | 504 LOC 越过 ≤500 行护栏（c95f1e8 +95/-4 触发线） | **LOW** | **U-codex + U-claude 双独立**；wc -l = 504 ✅ |
+| **R2-2** | bridge.ts | 504 LOC 越过 ≤500 行护栏（25ccfcd +95/-4 触发线） | **LOW** | **U-codex + U-claude 双独立**；wc -l = 504 ✅ |
 
 ### ❌ 反驳（不修）
 
@@ -72,7 +72,7 @@ R2 验证 5 个 R1 fix commit (f392123 / a30816e / cc74bbd / 3458a35 / c95f1e8) 
 - U-claude-I3 CMEditor mount 时 5 个 compartment noop reconfigure（注释明示有意 trade-off，不修）
 - U-claude-I2 ConfigPanel.test.tsx 缺 touch-only 回归测试 → R3 G7 已补 T7
 
-## Round 3 fix（commit d40286c）
+## Round 3 fix（commit cc54569）
 
 按 priority + 同根分组 G1-G7：
 
@@ -103,7 +103,7 @@ R2 验证 5 个 R1 fix commit (f392123 / a30816e / cc74bbd / 3458a35 / c95f1e8) 
 
 ## 关联 changelog
 
-CHANGELOG_18 — fix(review_8 r3): Round 2 三态裁决新挖 4 HIGH+5 MED+1 LOW path safety + atomic + UI 收口 (commit d40286c)
+CHANGELOG_18 — fix(review_8 r3): Round 2 三态裁决新挖 4 HIGH+5 MED+1 LOW path safety + atomic + UI 收口 (commit cc54569)
 
 ## 反驳轮 / 沉淀
 

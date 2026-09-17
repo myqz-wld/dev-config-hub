@@ -4,10 +4,10 @@ topic: "dch-secrets-dedup"
 created_at: "2026-05-14"
 status: "completed"
 worktree_path: ".claude/worktrees/dch-secrets-dedup-20260514"
-base_commit: "0a136b6100a59338fe767d2d4d0348f7a0f269e9"
+base_commit: "9977c6e4b311caeb8bad6d51540186b3440281e0"
 base_branch: "main"
 target_repo: "."
-final_commit: "72256272a9a9119ae7deeec33cbe0fc13842eefb"
+final_commit: "9c734f99fda8d07025eb87f1f6803a25837bbd7e"
 completed_at: "2026-05-14"
 ---
 > **路径修正**（plan 内容里 `src/bridge.ts` 实际是 `src/client/bridge.ts`，Step 6 实施时按此修正）。
@@ -352,30 +352,30 @@ bun run dev                                                                  # �
 ## 步骤 checklist 与进度
 
 - [x] **Setup** — done by session#1 on 2026-05-14
-  - worktree 创建：`.claude/worktrees/dch-secrets-dedup-20260514` (branch `worktree-dch-secrets-dedup-20260514`, base commit `0a136b6`)
+  - worktree 创建：`.claude/worktrees/dch-secrets-dedup-20260514` (branch `worktree-dch-secrets-dedup-20260514`, base commit `9977c6e`)
   - plan 文件 mv 到 `<dch-repo>/.claude/plans/dch-secrets-dedup-20260514.md`
   - `.gitignore` 加 `.claude/plans/` + `.claude/worktrees/`
   - 未读关键文件行数核实（见顶部说明）
-- [x] **Step 1** — `redact.ts` hits 加 `valueHash` — done by session#1 on 2026-05-14, commit `939fd82`
-- [x] **Step 2** — 新建 `src/profiles/secrets-index.ts` — done by session#2 on 2026-05-14, commit `2cd1310`
-- [x] **Step 3** — `backup.ts` createBackup 集成 secrets_index + readmeText 改造 — done by session#3 on 2026-05-14, commit `2acdb13`
-- [x] **Step 4** — `backup-restore.ts` 新增 `applyBackupWithSecrets` — done by session#3 on 2026-05-14, commit `afdb4fb`
-- [x] **Step 5** — `cli-backup.ts` cmdRestore 加 `--fill-secrets` / `--secrets-json` flag — done by session#3 on 2026-05-14, commit `522348c`
-- [x] **Step 6** — `src/client/bridge.ts` 拆 `bridge-backup.ts` + 新 Tauri command — done by session#4 on 2026-05-14, commit `1dc18b0`
-- [x] **Step 7** — `RestoreBackupModal.tsx` UI 4 步流程 — done by session#5 on 2026-05-14, commit `832f734`
-- [x] **Step 8** — 单测 + E2E 冒烟 — done by session#6 on 2026-05-14, commit `9bf3fe9`
-- [x] **Step 9** — `changelog/CHANGELOG_19.md` + README.md 同步 — done by session#6 on 2026-05-14, commit `eb24ac6`（CHANGELOG_18 名字撞 main REVIEW_8 收口，本 plan 重命名 → 19）
-- [x] **Merge** — main REVIEW_8 + Rust 拆模块 8 commit / 11 文件冲突 resolve — done by session#6 on 2026-05-14, commit `7225627`
+- [x] **Step 1** — `redact.ts` hits 加 `valueHash` — done by session#1 on 2026-05-14, commit `4c8e816`
+- [x] **Step 2** — 新建 `src/profiles/secrets-index.ts` — done by session#2 on 2026-05-14, commit `e485e1c`
+- [x] **Step 3** — `backup.ts` createBackup 集成 secrets_index + readmeText 改造 — done by session#3 on 2026-05-14, commit `eb853ec`
+- [x] **Step 4** — `backup-restore.ts` 新增 `applyBackupWithSecrets` — done by session#3 on 2026-05-14, commit `df4705e`
+- [x] **Step 5** — `cli-backup.ts` cmdRestore 加 `--fill-secrets` / `--secrets-json` flag — done by session#3 on 2026-05-14, commit `c1b0cd0`
+- [x] **Step 6** — `src/client/bridge.ts` 拆 `bridge-backup.ts` + 新 Tauri command — done by session#4 on 2026-05-14, commit `944cf71`
+- [x] **Step 7** — `RestoreBackupModal.tsx` UI 4 步流程 — done by session#5 on 2026-05-14, commit `83b13d6`
+- [x] **Step 8** — 单测 + E2E 冒烟 — done by session#6 on 2026-05-14, commit `5ef3316`
+- [x] **Step 9** — `changelog/CHANGELOG_19.md` + README.md 同步 — done by session#6 on 2026-05-14, commit `755ad22`（CHANGELOG_18 名字撞 main REVIEW_8 收口，本 plan 重命名 → 19）
+- [x] **Merge** — main REVIEW_8 + Rust 拆模块 8 commit / 11 文件冲突 resolve — done by session#6 on 2026-05-14, commit `9c734f9`
 
 ## 当前进度（session#5 末尾，hand-off 前）
 
 **已完成**：Setup + Step 1 + Step 2 + Step 3 + Step 4 + Step 5 + Step 6 + Step 7。
 
-**Step 3 改动 detail**（commit `2acdb13`，单文件 `src/profiles/backup.ts` +49/-5）：详 commit message。
+**Step 3 改动 detail**（commit `eb853ec`，单文件 `src/profiles/backup.ts` +49/-5）：详 commit message。
 
-**Step 4 改动 detail**（commit `afdb4fb`，2 files +91/-1）：详 commit message。
+**Step 4 改动 detail**（commit `df4705e`，2 files +91/-1）：详 commit message。
 
-**Step 5 改动 detail**（commit `522348c`，5 files +284/-35）：
+**Step 5 改动 detail**（commit `c1b0cd0`，5 files +284/-35）：
 - `cli-shared.ts`（154 → 218 行）：
   - 新加 `readStdinSecret()`：TTY → raw mode 隐藏行；非 TTY → fall back `readStdinLine()`（CI / pipe 兼容）。返回 `string | null`（null = Ctrl+C 中止，让 caller 跑 finally cleanupParsed）
   - try/finally 恢复 raw mode + 移除 SIGINT listener；支持 backspace（^H 0x08 / DEL 0x7f）
@@ -390,7 +390,7 @@ bun run dev                                                                  # �
   - **secretsMap 永不打 stdout**（plan 风险节第 7 条）：日志只用 logical key 名 / count / hint，从不传 value
 - `cli-profile.parseFlags.test.ts`：VALUE_FLAGS 大小断言 9 → 10（加 secrets-json）
 
-**Step 5 cross-step regression fix**（同 commit 522348c，附带修 Step 2/4 surface）：
+**Step 5 cross-step regression fix**（同 commit c1b0cd0，附带修 Step 2/4 surface）：
 - bug：原 Step 4 的 `applyBackupWithSecrets` 把 `result.placeholders` 直接透传 `manifest.placeholders`（stale），cli 输出「剩余占位符 N 处」永远是原始 148 处不反映 fill 后状态
 - 第一次 fix 用 `filledPackPaths: Set<string>` 按 packPath dedup → over-filter（同一文件多个不同 fieldName placeholder 全被一刀切，剩余少 8 处）
 - 第二次 fix 用 `filledLocations: Set<string>` 按 `${packPath}|${fieldPath}` 复合 key dedup → 准确 ✓
@@ -412,7 +412,7 @@ bun run dev                                                                  # �
 
 **未做**：Step 5 单测（loadSecretsJson 校验 + readStdinSecret TTY 模拟难测，留 Step 8 一起做；TTY 行为可能只覆盖非 TTY fall back 路径）。
 
-**Step 6 改动 detail**（commit `1dc18b0`，3 files +281/-97）：
+**Step 6 改动 detail**（commit `944cf71`，3 files +281/-97）：
 
 > **plan 偏差（合理）**：plan §Step 6 原文称 "Tauri / Rust 端不需变 —— bridge.ts 把 secretsMap 写到 tempfile"。**不可行**：webview TS 没法 `chmod 0600`，也没办法在 OS tempdir 路径下落盘 + finally unlink（save_file 通用 IPC + 无 delete_file IPC）。换成「加 1 个 Rust command 全包」方案：
 > - **理由**：secret 只走一次 IPC 入参，Rust 端管 tempfile 全生命周期 + drop guard 强制清理，比 TS finally 更紧；webview 永远拿不到 tempfile 路径。
@@ -451,7 +451,7 @@ bun run dev                                                                  # �
 
 **未做**：Step 6 单测（mock invoke 验 restoreApplyWithSecrets / restorePreviewSecrets 路径）—— 同 Step 5，留 Step 8 一起做。
 
-**Step 7 改动 detail**（commit `832f734`，2 files +368/-23）：
+**Step 7 改动 detail**（commit `83b13d6`，2 files +368/-23）：
 
 - `src/client/components/profile/RestoreSecretsBody.tsx`（**新建** 237 行）：
   - `RestoreSecretsBody` 主组件：渲染 K 个 `SecretEntryRow` + 顶部 banner + section title
@@ -490,7 +490,7 @@ bun run dev                                                                  # �
 
 1. `Bash: cat ./.claude/plans/dch-secrets-dedup-20260514.md` 全文复习 plan
 2. `EnterWorktree(path: ".claude/worktrees/dch-secrets-dedup-20260514")` 进 worktree
-3. 自检：`Bash: git log --oneline -8` 应看到 HEAD = `832f734`「feat(ui): RestoreBackupModal 4-step flow with secrets fill」（base_commit `0a136b6` 之后七条：`939fd82` Step 1 → `2cd1310` Step 2 → `2acdb13` Step 3 → `afdb4fb` Step 4 → `522348c` Step 5 → `1dc18b0` Step 6 → `832f734` Step 7）
+3. 自检：`Bash: git log --oneline -8` 应看到 HEAD = `83b13d6`「feat(ui): RestoreBackupModal 4-step flow with secrets fill」（base_commit `9977c6e` 之后七条：`4c8e816` Step 1 → `e485e1c` Step 2 → `eb853ec` Step 3 → `df4705e` Step 4 → `c1b0cd0` Step 5 → `944cf71` Step 6 → `83b13d6` Step 7）
 4. （可选自检）`zsh -i -l -c "bun test 2>&1 | tail -5"` 仍 195/195 pass
 5. 进 **Step 8 — 单测 + E2E + 手工 UI 冒烟**：
 

@@ -2,9 +2,9 @@
 plan_id: dch-deep-review-20260515
 created_at: 2026-05-15T00:30:00+08:00
 status: completed
-base_commit: 8ad2fa0
+base_commit: c68556b
 base_branch: main
-final_commit: 7d0bb75
+final_commit: d0e8182
 completed_at: 2026-05-15
 worktree_path: .
 note: 项目 deep review 历史惯例不进 worktree,直接在主仓库 fix + commit(REVIEW_2/4/6/7/8 同款)。worktree_path 填 mainRepo 是兼容 hand_off_session schema,实际无 worktree 隔离。
@@ -319,15 +319,15 @@ fan-out: 4/5 (B-claude / B-codex / C-claude / C-codex)
 
 - [x] Step 1 — scope 切批 + 8 reviewer spawn(A/B 完整 + C-claude 起;C-codex/D 待 fan-out)
 - [x] Step 2 — 写本 plan 文件做时间隔离 hand off 准备
-- [x] Step 3 — A 三态裁决 (commit 0c3f144 G1)
-- [x] Step 4 — B 三态裁决 (commit 79b9d3f G2 + db9fb40 G3)
-- [x] Step 5 — C 三态裁决 (commit 30b7d85 G4)
-- [x] Step 6 — D 三态裁决 (commit 6650967 G5a + d38461e G5b)
+- [x] Step 3 — A 三态裁决 (commit 3f21f82 G1)
+- [x] Step 4 — B 三态裁决 (commit 72a95c8 G2 + a84c3fb G3)
+- [x] Step 5 — C 三态裁决 (commit 756cc0b G4)
+- [x] Step 6 — D 三态裁决 (commit 754c2f6 G5a + 17fd4e9 G5b)
 - [x] Step 7 — R1 真问题清单汇总 + 7 fix commit (G1-G7) 全部落地
 - [x] Step 8 — R2 spawn(滑动窗口 2 批并发,A+B → 收口 → C+D)+ R2 review 全部收齐 + 反驳轮 + 三态裁决
 - [x] Step 9 — R2 fix commit (G8-G12) 全部落地 ✓
 - [x] Step 10 — 决策跳过 R3(R1+R2 12 commit 已大幅收敛真问题面,再开 R3 边际收益低 + fan-out + spawn 开销大;按本节末 hand off prompt 决策建议)
-- [x] Step 11 — 写 REVIEW_9.md (commit e55b5b2) + CHANGELOG_21.md + 同步 INDEX + plan 归档(本文件 mv 自 .claude/plans/ + frontmatter status=completed) ✓
+- [x] Step 11 — 写 REVIEW_9.md (commit 3b0891a) + CHANGELOG_21.md + 同步 INDEX + plan 归档(本文件 mv 自 .claude/plans/ + frontmatter status=completed) ✓
 
 ## R2 reviewer session id (最终,全部 closed)
 
@@ -444,31 +444,31 @@ fan-out: 4/5 (B-claude / B-codex / C-claude / C-codex)
 
 **位置**:Step 9 完成(R2 fix commit G8-G12 全部落地),进入 Step 10 视情况 R3 / 收口阶段
 
-**已完成 R1 fix commits**(base = `8ad2fa0`):
+**已完成 R1 fix commits**(base = `c68556b`):
 
 | commit | tag | 内容 | 测试 |
 |---|---|---|---|
-| `0c3f144` | G1 | secrets-dedup 算法核心 (4 HIGH + 多 MED) | bun 339 pass |
-| `79b9d3f` | G2 | tmpDir 泄漏 + partial restore + truncated | bun 344 pass |
-| `db9fb40` | G3 | backup-restore 数据正确性 + 中段无 rollback | bun 346 pass |
-| `30b7d85` | G4 | Rust 安全加固 (HOME symlink / reader leak / RAII) | cargo 37 pass |
-| `6650967` | G5a | UI secret state hygiene + attemptClose + 共用组件 + memo + race fix | bun 346 pass |
-| `d38461e` | G5b | D 批 INFO 顺手 + secrets-fill error 不含 secret 值验证 ✅ | bun 346 pass |
-| `180637a` | G6 | 拆 secrets-index/backup-restore (525→235/610→459 + 3 新文件) | bun 346 pass |
-| `8ce7e0c` | G6 (2/2) | 抽 bridge-core + backup-shared 消除双向 import | bun 346 pass |
-| `9073fb5` | G7 | listBackups 并发池上限 8 防 fd 耗尽 | bun 346 pass |
+| `3f21f82` | G1 | secrets-dedup 算法核心 (4 HIGH + 多 MED) | bun 339 pass |
+| `72a95c8` | G2 | tmpDir 泄漏 + partial restore + truncated | bun 344 pass |
+| `a84c3fb` | G3 | backup-restore 数据正确性 + 中段无 rollback | bun 346 pass |
+| `756cc0b` | G4 | Rust 安全加固 (HOME symlink / reader leak / RAII) | cargo 37 pass |
+| `754c2f6` | G5a | UI secret state hygiene + attemptClose + 共用组件 + memo + race fix | bun 346 pass |
+| `17fd4e9` | G5b | D 批 INFO 顺手 + secrets-fill error 不含 secret 值验证 ✅ | bun 346 pass |
+| `bdb38ed` | G6 | 拆 secrets-index/backup-restore (525→235/610→459 + 3 新文件) | bun 346 pass |
+| `5f56db8` | G6 (2/2) | 抽 bridge-core + backup-shared 消除双向 import | bun 346 pass |
+| `7c6cc50` | G7 | listBackups 并发池上限 8 防 fd 耗尽 | bun 346 pass |
 
 **已完成 R2 fix commits** (Step 9):
 
 | commit | tag | 内容 | 测试 |
 |---|---|---|---|
-| `7265785` | G8 | A 批 secrets-dedup R2 HIGH×4 + MED×2 + INFO×2 | bun 367 pass |
-| `287d067` | G9 | B 批 backup/restore R2 HIGH×2 + MED×3 + INFO/LOW | bun 382 pass |
-| `2c279d1` | G10 | C 批 Rust 安全 R2 HIGH×2 + MED×3 + LOW×2 + INFO×1 | cargo 40 pass |
-| `c506cd6` | G11 | D 批 UI R2 MED×3 + LOW×4 + INFO×1 + RestoreBackupModal 拆件 | bun 382 pass |
-| `7d0bb75` | G12 | R2 测试盲区补全 — 5 个 invariant test (D-MED-3) | bun 412 pass |
+| `3fef39d` | G8 | A 批 secrets-dedup R2 HIGH×4 + MED×2 + INFO×2 | bun 367 pass |
+| `dfd4527` | G9 | B 批 backup/restore R2 HIGH×2 + MED×3 + INFO/LOW | bun 382 pass |
+| `7c354e2` | G10 | C 批 Rust 安全 R2 HIGH×2 + MED×3 + LOW×2 + INFO×1 | cargo 40 pass |
+| `263e0ea` | G11 | D 批 UI R2 MED×3 + LOW×4 + INFO×1 + RestoreBackupModal 拆件 | bun 382 pass |
+| `d0e8182` | G12 | R2 测试盲区补全 — 5 个 invariant test (D-MED-3) | bun 412 pass |
 
-**主仓库 HEAD = `7d0bb75`**,工作树 clean(仅 `-C` 1.6GB untracked 大文件遗留)。
+**主仓库 HEAD = `d0e8182`**,工作树 clean(仅 `-C` 1.6GB untracked 大文件遗留)。
 
 **测试基线**(R2 fix 后):
 - bun test: **412 pass / 0 fail** (基线 R1 = 346,R2 G8-G12 新增 66 个 test)
@@ -485,7 +485,7 @@ fan-out: 4/5 (B-claude / B-codex / C-claude / C-codex)
 
 1. **`Bash: cat ./.claude/plans/dch-deep-review-20260515.md`** 读全本 plan(强制走 cat 不走 Read,详 user CLAUDE.md §选项 A 末 callout)
 2. **不**进 worktree(本 plan 项目历史惯例不用 worktree,直接主仓库 fix + commit)
-3. `git -C . log --oneline -15` 确认 HEAD = `7d0bb75`(G12 commit)
+3. `git -C . log --oneline -15` 确认 HEAD = `d0e8182`(G12 commit)
 4. **决策 R3 vs 直接收口**(lead 自主判断):
    - **倾向直接收口**:R1 + R2 共 12 个 fix commit 已落地 24 HIGH + 28 MED + 多 LOW/INFO,真问题面已大幅收敛;backup-restore.ts 唯一超护栏 follow-up 已记录;bun 412 / cargo 40 全过零回归。再开 R3 边际收益低 + 撞 fan-out + spawn 开销大
    - **触发 R3 例外**:用户显式要求"再 review 一轮"/ Step 11 写 REVIEW_9 时发现关键 fix 引入新 regression 苗头 / 反驳轮裁决遗留 ❓ 项需 R3 单点核实

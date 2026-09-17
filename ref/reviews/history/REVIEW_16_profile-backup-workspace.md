@@ -1,7 +1,7 @@
 ---
 review_id: 16
 reviewed_at: 2026-07-27
-baseline_commit: a860cc978493b9b76cdded3be67e340b2a5cb67f
+baseline_commit: 57d978ef1dabed1697a9c108106e0687131e1db8
 expired: false
 ---
 
@@ -96,4 +96,4 @@ but final subjective visual acceptance still belongs in the packaged app.
 None required in application code.
 
 Related changelog:
-[CHANGELOG_38_profile-backup-workspaces](../../changelogs/recent-month/CHANGELOG_38_profile-backup-workspaces.md).
+[CHANGELOG_38_profile-backup-workspaces](../../changelogs/history/CHANGELOG_38_profile-backup-workspaces.md).

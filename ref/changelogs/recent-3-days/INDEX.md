@@ -15,4 +15,4 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
-| 2026-08-19 | [CHANGELOG_42_macos-install-canonicalization.md](CHANGELOG_42_macos-install-canonicalization.md) | Kept one discoverable app while preserving rollback artifacts. |
+| 2026-09-16 | [CHANGELOG_43_privacy-simplification.md](CHANGELOG_43_privacy-simplification.md) | Removed backups and obsolete compatibility; sanitized local Git history. |

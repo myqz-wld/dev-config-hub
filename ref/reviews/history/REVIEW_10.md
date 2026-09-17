@@ -2,7 +2,9 @@
 review_id: 10
 reviewed_at: 2026-06-09
 baseline_commit: <missing>
-expired: false
+expired: true
+coverage_state: scope_unknown
+expiry_reason: "No usable historical baseline; no review coverage is inferred."
 ---
 
 # REVIEW_10 — hooks.ts Bun Subprocess.kill typecheck 修复
